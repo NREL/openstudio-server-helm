@@ -1,0 +1,13 @@
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: worker
+  namespace: ${NAMESPACE}
+spec:
+  scaleTargetRef:
+    apiVersion: extensions/v1beta1
+    kind: Deployment
+    name: worker
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 50

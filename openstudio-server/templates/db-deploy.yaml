@@ -1,0 +1,29 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: {{.Values.db.name }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        label:  {{.Values.db.label }}
+    spec:
+      containers:
+        - name: mongo-db
+          image: mongo:3.4.10
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+            - name: mongo-db
+              mountPath: /data/db
+      volumes:
+        - name: mongo-db
+          awsElasticBlockStore:
+            volumeID: vol-08db99e313a7cbe01
+            fsType: ext4

@@ -1,0 +1,36 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: default
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        label: worker
+    spec:
+      containers:
+        - name: worker
+          image: nrel/openstudio-server:latest
+          resources:
+            requests:
+              cpu: 1
+              memory: 3Gi
+          volumeMounts:
+            - name: osdata-worker
+              mountPath: "/mnt/openstudio"
+          env:
+            - name:  QUEUES
+              value: simulations
+            - name:  COUNT
+              value: "1"
+          command: ["/usr/local/bin/start-workers"]
+      volumes:
+        - name: osdata-worker
+          emptyDir: {}
