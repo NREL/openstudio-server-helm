@@ -1,0 +1,36 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: {{  .Values.web_background.name  }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        label: {{  .Values.web_background.label  }}
+    spec:
+      containers:
+        - name:  {{  .Values.web_background.container.name  }}
+          image:  {{  .Values.web_background.container.image  }}
+          resources:
+            requests:
+              cpu:  {{  .Values.web_background.container.cpu  }}
+              memory:  {{  .Values.web_background.container.memory  }}
+          volumeMounts:
+            - name: nfs
+              mountPath: "/mnt/openstudio"
+          env:
+            - name: OS_SERVER_NUMBER_OF_WORKERS
+              value: ${OS_SERVER_NUMBER_OF_WORKERS}
+            - name: QUEUES
+              value: background,analyses
+          command: ["/usr/local/bin/start-web-background"]
+      volumes:
+        - name: nfs
+          persistentVolumeClaim:
+            claimName: nfs-pvc

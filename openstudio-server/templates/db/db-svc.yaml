@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.db.name  }}
+spec:
+  selector:
+    label: {{ .Values.db.label  }}
+  ports:
+    - name: {{ .Values.db.name  }}
+      protocol: TCP
+      port: {{ .Values.db.container.ports.db_port }}

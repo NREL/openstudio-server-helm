@@ -1,0 +1,30 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: {{ .Values.rserve.name  }} 
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        label: {{ .Values.rserve.label }}  
+    spec:
+      containers:
+        - name: {{ .Values.rserve.container.name }} 
+          image: {{ .Values.rserve.container.image }} 
+          resources:
+            requests:
+              cpu: {{ .Values.rserve.container.cpu }} 
+              memory: {{ .Values.rserve.container.memory }} 
+          volumeMounts:
+            - name: osdata
+              mountPath: "/mnt/openstudio"
+      volumes:
+        - name: osdata
+          persistentVolumeClaim:
+            claimName: nfs-pvc

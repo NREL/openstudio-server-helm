@@ -1,0 +1,35 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: {{ .Values.worker.name   }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        label: {{ .Values.worker.label  }}
+    spec:
+      containers:
+        - name: {{ .Values.worker.container.name   }}
+          image: {{ .Values.worker.container.image   }}
+          resources:
+            requests:
+              cpu: {{ .Values.worker.container.cpu   }}
+              memory: {{ .Values.worker.container.memory   }}
+          volumeMounts:
+            - name: osdata-worker
+              mountPath: "/mnt/openstudio"
+          env:
+            - name:  QUEUES
+              value: simulations
+            - name:  COUNT
+              value: "1"
+          command: ["/usr/local/bin/start-workers"]
+      volumes:
+        - name: osdata-worker
+          emptyDir: {}

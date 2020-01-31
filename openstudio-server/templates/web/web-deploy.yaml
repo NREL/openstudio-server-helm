@@ -1,0 +1,39 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: {{ .Values.web.name  }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        label: {{ .Values.web.label  }}
+    spec:
+      containers:
+        - name:  {{ .Values.web.container.name  }}
+          image: {{ .Values.web.container.image  }}
+          resources:
+            requests:
+              cpu: {{ .Values.web.container.cpu  }}
+              memory: {{ .Values.web.container.memory  }}
+          ports:
+            - containerPort: {{ .Values.web.container.port.http  }}
+            - containerPort: {{ .Values.web.container.port.https  }}
+          volumeMounts:
+            - name: nfs
+              mountPath: "/mnt/openstudio"
+          env:
+            - name: OS_SERVER_NUMBER_OF_WORKERS
+              value: ${OS_SERVER_NUMBER_OF_WORKERS}
+            - name: QUEUES
+              value: analysis_wrappers
+          command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
+      volumes:
+       - name: nfs
+         persistentVolumeClaim:
+           claimName: nfs-pvc

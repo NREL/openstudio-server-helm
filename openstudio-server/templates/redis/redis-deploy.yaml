@@ -1,0 +1,20 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: {{ .Values.redis.name  }}
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.redis.name  }}
+    spec:
+      containers:
+        - name: {{ .Values.redis.container.name  }}
+          image: {{ .Values.redis.container.image  }}
+          resources:
+            requests:
+              cpu: {{ .Values.redis.container.cpu  }}
+              memory: {{ .Values.redis.container.memory  }}
+          ports:
+            - containerPort: {{ .Values.redis.container.port  }}

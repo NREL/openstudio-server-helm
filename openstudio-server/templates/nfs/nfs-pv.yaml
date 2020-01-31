@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ .Values.nfs_pv.name  }}
+spec:
+  storageClassName: {{ .Values.nfs_pv.storage_class  }}
+  capacity:
+    storage: {{ .Values.nfs_pv.capacity.storage }}
+  accessModes:
+    {{  .Values.nfs_pv.accessModes }} 
+  claimRef:
+    name: {{  .Values.nfs_pv.claimRef.name }} 
+  nfs:
+    server: {{ .Values.nfs_pv.server }}
+    path: {{ .Values.nfs_pv.path }}

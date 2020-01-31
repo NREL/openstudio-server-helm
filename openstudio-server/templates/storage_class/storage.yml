@@ -1,0 +1,12 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storage_class.name }} 
+provisioner: {{ .Values.storage_class.provisioner }} 
+parameters:
+  type: {{ .Values.storage_class.parameters.type }}
+reclaimPolicy: {{ .Values.storage_class.reclaimPolicy }}
+allowVolumeExpansion: {{ .Values.storage_class.allowVolumeExpansion }}
+mountOptions:
+  - debug
+volumeBindingMode: Immediate
