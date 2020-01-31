@@ -20,12 +20,12 @@ spec:
           resources:
             requests:
               cpu: 1
-              memory: 3Gi
+              memory: 1Gi
           ports:
             - containerPort: 80
             - containerPort: 443
           volumeMounts:
-            - name: osdata
+            - name: nfs
               mountPath: "/mnt/openstudio"
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
@@ -34,6 +34,6 @@ spec:
               value: analysis_wrappers
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
       volumes:
-        - name: osdata
-          persistentVolumeClaim:
-            claimName: nfs-pvc
+       - name: nfs
+         persistentVolumeClaim:
+           claimName: nfs-pvc

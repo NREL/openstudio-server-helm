@@ -2,7 +2,7 @@ apiVersion: autoscaling/v1
 kind: HorizontalPodAutoscaler
 metadata:
   name: worker
-  namespace: ${NAMESPACE}
+  namespace: default
 spec:
   scaleTargetRef:
     apiVersion: extensions/v1beta1

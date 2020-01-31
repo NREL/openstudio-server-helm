@@ -2,6 +2,8 @@
 # Install eksctl if you don't have alreadu
 https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html#installing-eksctl
 
+# Install helm (osx_
+brew install helm
 
 # help with creating cluster
 eksctl create cluster --help
@@ -18,7 +20,7 @@ eksctl create cluster \
 --nodes-min 1 \
 --nodes-max 4 \
 --ssh-access \
---ssh-public-key /Users/tcoleman/.ssh/id_rsa.pub \
+--ssh-public-key /Users/tijcolem/.ssh/id_rsa.pub \
 --managed
 
 # more info here: 

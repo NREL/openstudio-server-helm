@@ -25,15 +25,14 @@ spec:
             privileged: true
           volumeMounts:
             - mountPath: /exports
-              name: osdata
+              name: nfs-pvc-physical
             - name: nfs-conf-volume
               mountPath: /etc/exports
               subPath: exports
       volumes:
-        - name: osdata
-          awsElasticBlockStore:
-            volumeID: vol-06d113f3101686bd4
-            fsType: ext4
+        - name: nfs-pvc-physical 
+          persistentVolumeClaim:
+            claimName: nfs-pvc-physical 
         - name: nfs-conf-volume
           configMap:
             name: nfs

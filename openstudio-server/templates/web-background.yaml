@@ -22,7 +22,7 @@ spec:
               cpu: 1
               memory: 3Gi
           volumeMounts:
-            - name: osdata
+            - name: nfs
               mountPath: "/mnt/openstudio"
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
@@ -31,6 +31,6 @@ spec:
               value: background,analyses
           command: ["/usr/local/bin/start-web-background"]
       volumes:
-        - name: osdata
+        - name: nfs
           persistentVolumeClaim:
             claimName: nfs-pvc

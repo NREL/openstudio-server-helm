@@ -19,8 +19,8 @@ spec:
           image: nrel/openstudio-rserve:latest
           resources:
             requests:
-              cpu: 3
-              memory: 10Gi
+              cpu: 1
+              memory: 2Gi
           volumeMounts:
             - name: osdata
               mountPath: "/mnt/openstudio"

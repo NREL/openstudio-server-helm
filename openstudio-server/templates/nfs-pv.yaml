@@ -3,13 +3,14 @@ kind: PersistentVolume
 metadata:
   name: nfs-pv
 spec:
+  storageClassName: standard
   capacity:
-    storage: 1Mi
+    storage: 50Gi
   accessModes:
     - ReadWriteMany
   claimRef:
     name: nfs-pvc
-    namespace: ${NAMESPACE}
+    namespace: default
   nfs:
-    server: ${NFS_ADDR}
+    server: 10.100.227.141
     path: /

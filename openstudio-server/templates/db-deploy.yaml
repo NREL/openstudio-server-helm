@@ -1,7 +1,7 @@
 apiVersion: extensions/v1beta1
 kind: Deployment
 metadata:
-  name: {{.Values.db.name }}
+  name: db
 spec:
   replicas: 1
   strategy:
@@ -12,18 +12,10 @@ spec:
   template:
     metadata:
       labels:
-        label:  {{.Values.db.label }}
+        label: db
     spec:
       containers:
         - name: mongo-db
           image: mongo:3.4.10
           ports:
             - containerPort: 27017
-          volumeMounts:
-            - name: mongo-db
-              mountPath: /data/db
-      volumes:
-        - name: mongo-db
-          awsElasticBlockStore:
-            volumeID: vol-08db99e313a7cbe01
-            fsType: ext4
