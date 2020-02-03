@@ -3,6 +3,168 @@
 # Declare variables to be passed into your templates.
 
 db:
-  name: "db"
+  name:  "db"
   label: "db"
+  container:
+    name: "mongo-db"
+    image: "mongo:3.4.10"
+    ports:
+      db_port: 27017
 
+load_balancer:
+  name: "ingress-load-balancer"
+  externalTrafficPolicy: "Local"
+  selector:
+    label: "web"
+  ports:
+    http_name: "http" 
+    http_port: 80
+    http_protocol: "TCP"
+    https_name: "https"
+    https_port: 443
+    https_protocol: "TCP"
+
+nfs:
+  name: "nfs"
+
+nfs_svc:
+  name: "nfs-server"
+  clusterIP: 10.100.227.141
+  selector:
+    role: "nfs-server"
+  ports:
+    nfs: 2049
+    mountd: 20048
+    rpcbind: 111
+
+  
+nfs_rc:
+  name: "nfs-server"
+  selector:
+    role: "nfs-server"
+  container:
+    name:  "nfs-server"
+    image: "gcr.io/google_containers/volume-nfs"
+    ports:
+      nfs: 2049
+      mountd: 20048
+      rpcbind: 111
+    securityContext:
+      privileged: "true"
+
+nfs_pv: 
+  name: "nfs-pv"  
+  storage_class: "standard" 
+  capacity:
+    storage: "50Gi" 
+  accessModes: 
+    - "ReadWriteMany"  
+  claimRef:
+    name: "nfs-pvc"
+  server: 10.100.227.141
+  path: "/"
+
+
+nfs_pvc_physical:
+  name: "nfs-pvc-physical"
+  accessModes: 
+    - "ReadWriteMany"  
+  storage_class: "standard" 
+  storage: "50Gi"
+
+
+nfs_pvc: 
+  name: "nfs-pvc"
+  accessModes: 
+    - "ReadWriteMany"  
+  storage: "1Mi"
+
+
+redis:
+  name: "redis"
+  container:
+    name: "redis"
+    image: "redis:4.0.6"
+    cpu: 0.5
+    memory: "1G"
+    port: 6379
+
+redis_svc:
+  name: "queue"
+  selector:
+   app: "redis"
+  port: 6379
+
+
+rserve:
+  name: "rserve"
+  label: "rserve" 
+  container:
+    name: "rserve"
+    image: "nrel/openstudio-rserve:latest"
+    cpu: 1
+    memory: 2Gi
+    
+rserve_svc:
+  name: "rserve"
+  label: "rserve"
+  port: 6311
+
+storage_class:
+  name: "standard"
+  provisioner: "kubernetes.io/aws-ebs" 
+  parameters:
+    type: "gp2" 
+  reclaimPolicy: "Delete"
+  allowVolumeExpansion: "true"
+
+web_background: 
+  name: "web-background"
+  label: "web-background" 
+  container:
+    name: "web-background" 
+    image: " nrel/openstudio-server:latest" 
+    cpu: 1
+    memory: "3Gi"
+
+web:
+  name: "web"
+  label: "web"
+  container:
+    name: "web"
+    image: " nrel/openstudio-server:latest"
+    cpu: 1
+    memory: "1Gi"
+    port:
+     http: 80
+     https: 443
+
+web_svc: 
+  name: "web" 
+  label: "web" 
+  selector:
+    label: "web"
+  ports:
+    http: 80 
+    https: 443
+
+      
+worker:
+  name: "worker" 
+  label: "worker" 
+  container:
+    name: "worker"
+    image: "nrel/openstudio-server:latest" 
+    cpu: 1
+    memory: "3Gi"
+      
+worker_hpa: 
+  name: "worker"
+  minReplicas: 1
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 50
+
+
+
+
+ 
