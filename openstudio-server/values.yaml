@@ -68,7 +68,7 @@ nfs_pv:
 nfs_pvc_physical:
   name: "nfs-pvc-physical"
   accessModes: 
-    - "ReadWriteMany"  
+    - "ReadWriteOnce"  
   storage_class: "standard" 
   storage: "50Gi"
 
