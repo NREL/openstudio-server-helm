@@ -77,6 +77,7 @@ nfs_pvc:
   name: "nfs-pvc"
   accessModes: 
     - "ReadWriteMany"  
+  storage_class: "" 
   storage: "1Mi"
 
 

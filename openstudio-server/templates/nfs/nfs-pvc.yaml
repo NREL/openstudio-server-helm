@@ -5,6 +5,7 @@ metadata:
 spec:
   accessModes:
     {{ .Values.nfs_pvc.accessModes }}
+  storageClassName: ""
   resources:
     requests:
       storage:  {{ .Values.nfs_pvc.storage }}

@@ -16,9 +16,9 @@ eksctl create cluster \
 --region us-west-2 \
 --nodegroup-name standard-workers \
 --node-type t3.medium \
---nodes 3 \
+--nodes 5 \
 --nodes-min 1 \
---nodes-max 4 \
+--nodes-max 5 \
 --ssh-access \
 --ssh-public-key /Users/tijcolem/.ssh/id_rsa.pub \
 --managed

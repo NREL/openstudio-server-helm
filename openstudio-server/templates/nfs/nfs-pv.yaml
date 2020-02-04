@@ -10,6 +10,7 @@ spec:
     {{  .Values.nfs_pv.accessModes }} 
   claimRef:
     name: {{  .Values.nfs_pv.claimRef.name }} 
+    namespace: default
   nfs:
     server: {{ .Values.nfs_pv.server }}
     path: {{ .Values.nfs_pv.path }}
