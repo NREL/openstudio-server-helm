@@ -63,6 +63,7 @@ nfs_pv:
     name: "nfs-pvc"
   server: 10.100.227.141
   path: "/"
+  reclaimPolicy: "Delete"
 
 
 nfs_pvc_physical:

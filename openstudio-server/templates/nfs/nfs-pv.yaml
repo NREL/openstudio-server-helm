@@ -14,3 +14,4 @@ spec:
   nfs:
     server: {{ .Values.nfs_pv.server }}
     path: {{ .Values.nfs_pv.path }}
+  persistentVolumeReclaimPolicy: {{ .Values.nfs_pv.reclaimPolicy }}
