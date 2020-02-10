@@ -1,14 +1,25 @@
 
-# Install eksctl if you don't have alreadu
+Below is a guide to help provsion a AWS Kubernetes cluster. 
+
+## Prerequisites
+
+- AWS Account with EKS privileges
+- AWS eksctl client 
+- Helm client
+- Kubectl client
+
+### Install eksctl client
 https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html#installing-eksctl
 
-# Install helm (osx_
-brew install helm
+### Install helm client
+https://helm.sh/docs/intro/install/
 
-# help with creating cluster
-eksctl create cluster --help
+### Install Kubectl client
 
-# setup a simple test cluster using eksctl
+https://kubernetes.io/docs/tasks/tools/install-kubectl/
+
+
+### To create a simple cluster using eksctl
 
 eksctl create cluster \
 --name openstudio-server \
@@ -20,7 +31,7 @@ eksctl create cluster \
 --nodes-min 1 \
 --nodes-max 5 \
 --ssh-access \
---ssh-public-key /Users/tijcolem/.ssh/id_rsa.pub \
+--ssh-public-key ~/.ssh/id_rsa.pub \
 --managed
 
 # more info here: 
@@ -35,7 +46,7 @@ https://docs.aws.amazon.com/eks/latest/userguide/create-cluster.html
 [ℹ]  subnets for us-west-2a - public:192.168.0.0/19 private:192.168.96.0/19
 [ℹ]  subnets for us-west-2b - public:192.168.32.0/19 private:192.168.128.0/19
 [ℹ]  subnets for us-west-2d - public:192.168.64.0/19 private:192.168.160.0/19
-[ℹ]  using SSH public key "/Users/tcoleman/.ssh/id_rsa.pub" as "eksctl-openstudio-server-nodegroup-standard-workers-b3:7d:b1:20:da:5c:66:07:07:35:65:af:80:8a:f0:a0"
+[ℹ]  using SSH public key "~./ssh/id_rsa.pub" as "eksctl-openstudio-server-nodegroup-standard-workers-b3:7d:b1:20:da:5c:66:07:07:35:65:af:80:8a:f0:a0"
 [ℹ]  using Kubernetes version 1.14
 [ℹ]  creating EKS cluster "openstudio-server" in "us-west-2" region with managed nodes
 [ℹ]  will create 2 separate CloudFormation stacks for cluster itself and the initial managed nodegroup
