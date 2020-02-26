@@ -26,7 +26,7 @@ eksctl create cluster \
 --version 1.14 \
 --region us-west-2 \
 --nodegroup-name standard-workers \
---node-type t3.medium \
+--node-type c5.xlarge \
 --nodes 5 \
 --nodes-min 1 \
 --nodes-max 5 \
