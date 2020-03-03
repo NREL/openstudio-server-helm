@@ -37,6 +37,7 @@ https://kubernetes.io/docs/tasks/tools/install-kubectl/
 
 ### To create a simple cluster using eksctl
 
+```bash
 eksctl create cluster \
 --name openstudio-server \
 --version 1.14 \
@@ -49,6 +50,14 @@ eksctl create cluster \
 --ssh-access \
 --ssh-public-key ~/.ssh/id_rsa.pub \
 --managed
+```
+
+### To delete the cluster using eksctl
+
+```bash
+eksctl delete nodegroup --cluster=openstudio-server --name=standard-workers
+eksctl delete cluster --name openstudio-server
+```
 
 # more info here: 
 https://docs.aws.amazon.com/eks/latest/userguide/create-cluster.html
