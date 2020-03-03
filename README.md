@@ -50,6 +50,15 @@ $ helm install ./openstudio-server --name my-release \
     --set nfs.disk.size=50GB
 ```
 
+## Accessing the Server
+
+The IP address of the server can be found by:
+
+```bash
+kubectl get svc
+# look for external IP and/or DN
+
+```
 
 
 

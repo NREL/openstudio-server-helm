@@ -39,25 +39,40 @@ https://kubernetes.io/docs/tasks/tools/install-kubectl/
 
 ```bash
 eksctl create cluster \
---name openstudio-server \
---version 1.14 \
---region us-west-2 \
---nodegroup-name standard-workers \
---node-type c5.xlarge \
---nodes 5 \
---nodes-min 1 \
---nodes-max 5 \
---ssh-access \
---ssh-public-key ~/.ssh/id_rsa.pub \
---managed
+    --name openstudio-server \
+    --version 1.14 \
+    --region us-west-2 \
+    --nodegroup-name standard-workers \
+    --node-type c5.xlarge \
+    --nodes 5 \
+    --nodes-min 1 \
+    --nodes-max 5 \
+    --ssh-access \
+    --ssh-public-key ~/.ssh/id_rsa.pub \
+    --managed
 ```
 
 ### To delete the cluster using eksctl
 
 ```bash
-eksctl delete nodegroup --cluster=openstudio-server --name=standard-workers
 eksctl delete cluster --name openstudio-server
 ```
+
+Example output should look like: 
+
+```bash
+[ℹ]  eksctl version 0.14.0
+[ℹ]  using region us-west-2
+[ℹ]  deleting EKS cluster "openstudio-server"
+[ℹ]  either account is not authorized to use Fargate or region us-west-2 is not supported. Ignoring error
+[✔]  kubeconfig has been updated
+[ℹ]  cleaning up LoadBalancer services
+[ℹ]  2 sequential tasks: { delete nodegroup "standard-workers", delete cluster control plane "openstudio-server" [async] }
+[ℹ]  will delete stack "eksctl-openstudio-server-nodegroup-standard-workers"
+[ℹ]  waiting for stack "eksctl-openstudio-server-nodegroup-standard-workers" to get deleted
+[ℹ]  will delete stack "eksctl-openstudio-server-cluster"
+[✔]  all cluster resources were deleted
+``` 
 
 # more info here: 
 https://docs.aws.amazon.com/eks/latest/userguide/create-cluster.html
