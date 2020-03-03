@@ -65,6 +65,7 @@ https://docs.aws.amazon.com/eks/latest/userguide/create-cluster.html
 
 # example output of what you should see
 
+```
 [ℹ]  eksctl version 0.13.0
 [ℹ]  using region us-west-2
 [ℹ]  setting availability zones to [us-west-2a us-west-2b us-west-2d]
@@ -97,5 +98,5 @@ https://docs.aws.amazon.com/eks/latest/userguide/create-cluster.html
 [ℹ]  node "ip-192-168-84-169.us-west-2.compute.internal" is ready
 [ℹ]  kubectl command should work with "/Users/tcoleman/.kube/config", try 'kubectl get nodes'
 [✔]  EKS cluster "openstudio-server" in "us-west-2" region is ready
-
+```
 
