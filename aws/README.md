@@ -11,13 +11,29 @@ Below is a guide to help provsion a AWS Kubernetes cluster.
 ### Install eksctl client
 https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html#installing-eksctl
 
+```bash
+# Using Brew
+brew tap weaveworks/tap
+brew install weaveworks/tap/eksctl
+# Verify by running
+eksctl version
+
+# Note that kubectl is installed as part of both eksctl and helm
+```
+
 ### Install helm client
 https://helm.sh/docs/intro/install/
 
+```bash
+# Using Brew
+brew install helm
+```
+
 ### Install Kubectl client
 
-https://kubernetes.io/docs/tasks/tools/install-kubectl/
+If using brew, then this will already be installed.
 
+https://kubernetes.io/docs/tasks/tools/install-kubectl/
 
 ### To create a simple cluster using eksctl
 
