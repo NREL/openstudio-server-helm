@@ -18,7 +18,7 @@ You can interface with OpenStudio-server cluster using the [Parametric Analysis 
 To install the chart with the release name `my-release`:
 
 ```console
-$ ./scrips/install.sh
+$ ./scripts/install.sh
 ```
 
 The command deploys Prometheus on the Kubernetes cluster in the default configuration. The [configuration](#configuration) section lists the parameters that can be configured during installation.
@@ -33,7 +33,7 @@ $ ./scrips/uninstall.sh
 ```
 
 The command removes all the Kubernetes components associated with the chart and deletes the release.
-Note - the uninstall removes nfs clients first so the do not hang.  TODO - add in pre-delete hook in helm to remove these first or explore nfs mount options that prevent deadlock. 
+Note - the uninstall removes nfs clients first so they do not hang.  TODO - add in pre-delete hook in helm to remove these first or explore nfs mount options that prevent deadlock. 
 
 ## Configuration
 
@@ -50,6 +50,15 @@ $ helm install ./openstudio-server --name my-release \
     --set nfs.disk.size=50GB
 ```
 
+## Accessing the Server
+
+The IP address of the server can be found by:
+
+```bash
+kubectl get svc
+# look for external IP and/or DN
+
+```
 
 
 

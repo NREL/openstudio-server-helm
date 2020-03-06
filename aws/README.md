@@ -11,28 +11,68 @@ Below is a guide to help provsion a AWS Kubernetes cluster.
 ### Install eksctl client
 https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html#installing-eksctl
 
+```bash
+# Using Brew
+brew tap weaveworks/tap
+brew install weaveworks/tap/eksctl
+# Verify by running
+eksctl version
+
+# Note that kubectl is installed as part of both eksctl and helm
+```
+
 ### Install helm client
 https://helm.sh/docs/intro/install/
 
+```bash
+# Using Brew
+brew install helm
+```
+
 ### Install Kubectl client
+
+If using brew, then this will already be installed.
 
 https://kubernetes.io/docs/tasks/tools/install-kubectl/
 
-
 ### To create a simple cluster using eksctl
 
+```bash
 eksctl create cluster \
---name openstudio-server \
---version 1.14 \
---region us-west-2 \
---nodegroup-name standard-workers \
---node-type c5.xlarge \
---nodes 5 \
---nodes-min 1 \
---nodes-max 5 \
---ssh-access \
---ssh-public-key ~/.ssh/id_rsa.pub \
---managed
+    --name openstudio-server \
+    --version 1.14 \
+    --region us-west-2 \
+    --nodegroup-name standard-workers \
+    --node-type c5.xlarge \
+    --nodes 5 \
+    --nodes-min 1 \
+    --nodes-max 5 \
+    --ssh-access \
+    --ssh-public-key ~/.ssh/id_rsa.pub \
+    --managed
+```
+
+### To delete the cluster using eksctl
+
+```bash
+eksctl delete cluster --name openstudio-server
+```
+
+Example output should look like: 
+
+```bash
+[ℹ]  eksctl version 0.14.0
+[ℹ]  using region us-west-2
+[ℹ]  deleting EKS cluster "openstudio-server"
+[ℹ]  either account is not authorized to use Fargate or region us-west-2 is not supported. Ignoring error
+[✔]  kubeconfig has been updated
+[ℹ]  cleaning up LoadBalancer services
+[ℹ]  2 sequential tasks: { delete nodegroup "standard-workers", delete cluster control plane "openstudio-server" [async] }
+[ℹ]  will delete stack "eksctl-openstudio-server-nodegroup-standard-workers"
+[ℹ]  waiting for stack "eksctl-openstudio-server-nodegroup-standard-workers" to get deleted
+[ℹ]  will delete stack "eksctl-openstudio-server-cluster"
+[✔]  all cluster resources were deleted
+``` 
 
 # more info here: 
 https://docs.aws.amazon.com/eks/latest/userguide/create-cluster.html
@@ -40,6 +80,7 @@ https://docs.aws.amazon.com/eks/latest/userguide/create-cluster.html
 
 # example output of what you should see
 
+```
 [ℹ]  eksctl version 0.13.0
 [ℹ]  using region us-west-2
 [ℹ]  setting availability zones to [us-west-2a us-west-2b us-west-2d]
@@ -72,5 +113,5 @@ https://docs.aws.amazon.com/eks/latest/userguide/create-cluster.html
 [ℹ]  node "ip-192-168-84-169.us-west-2.compute.internal" is ready
 [ℹ]  kubectl command should work with "/Users/tcoleman/.kube/config", try 'kubectl get nodes'
 [✔]  EKS cluster "openstudio-server" in "us-west-2" region is ready
-
+```
 
