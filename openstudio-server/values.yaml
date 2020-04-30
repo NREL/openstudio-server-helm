@@ -71,7 +71,7 @@ nfs_pvc_physical:
   accessModes: 
     - "ReadWriteOnce"  
   storage_class: "standard" 
-  storage: "50Gi"
+  storage: "200Gi"
 
 
 nfs_pvc: 
