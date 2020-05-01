@@ -41,7 +41,8 @@ The following table lists the configurable parameters of the Prometheus chart an
 
 Parameter | Description | Default
 --------- | ----------- | -------
-`TODO` | TODO | `TODO` |
+nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 200GB |
+
 
 Specify each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example,
 

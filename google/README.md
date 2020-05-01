@@ -49,11 +49,19 @@ https://cloud.google.com/compute/docs/machine-types
       --num-nodes=3 \
       --enable-autoscaling \
       --max-nodes=8 \
-      --min-nodes=3```
+      --min-nodes=3
 
 #### set kubectl to use cluster
 
 ```$ gcloud container clusters get-credentials openstudio-server --zone us-west1-a```
+
+The above cmd should return that cluster info. 
+
+e.g. 
+
+```NAME               LOCATION    MASTER_VERSION  MASTER_IP     MACHINE_TYPE   NODE_VERSION    NUM_NODES  STATUS
+openstudio-server  us-west1-a  1.14.10-gke.27  35.230.92.87  n1-standard-4  1.14.10-gke.27  3          RUNNING
+```
 
 #### confirm cluster is up 
 
