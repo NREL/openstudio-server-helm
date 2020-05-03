@@ -2,13 +2,17 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+
+# Set to google or aws
+provider: 
+  name: ""
+
 nfs-server-provisioner:
   persistence:
     enabled: true
-    storageClass: "standard"
+    storageClass: "ssd"
     size: 200Gi
   storageClass:
-    defaultClass: true
     allowVolumeExpansion: false
     mountOptions:
       - vers=4 
@@ -22,7 +26,7 @@ db:
       db_port: 27017
   persistence:
     enabled: true
-    storageClass: "standard"
+    storageClass: "ssd"
     size: 200Gi
     accessModes:
       - "ReadWriteOnce"
@@ -80,14 +84,6 @@ rserve_svc:
   name: "rserve"
   label: "rserve"
   port: 6311
-
-storage_class:
-  name: "standard"
-  provisioner: "kubernetes.io/aws-ebs" 
-  parameters:
-    type: "gp2" 
-  reclaimPolicy: "Delete"
-  allowVolumeExpansion: "true"
 
 web_background: 
   name: "web-background"
