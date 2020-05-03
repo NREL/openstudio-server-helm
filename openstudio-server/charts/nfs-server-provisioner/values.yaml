@@ -35,8 +35,8 @@ service:
   externalIPs: []
 
 persistence:
-  enabled: false
-
+  enabled: true
+  name: nfs-pvc-data
   ## Persistent Volume Storage Class
   ## If defined, storageClassName: <storageClass>
   ## If set to "-", storageClassName: "", which disables dynamic provisioning
@@ -44,21 +44,22 @@ persistence:
   ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
   ##   GKE, AWS & OpenStack)
   ##
-  # storageClass: "-"
+  storageClass: "standard"
 
-  accessMode: ReadWriteOnce
-  size: 1Gi
+  accessModes:
+    - "ReadWriteOnce"
+  size: 200Gi
 
 ## For creating the StorageClass automatically:
 storageClass:
-  create: true
+  create: false
 
   ## Set a provisioner name. If unset, a name will be generated.
   # provisionerName:
 
   ## Set StorageClass as the default StorageClass
   ## Ignored if storageClass.create is false
-  defaultClass: false
+  defaultClass: true
 
   ## Set a StorageClass name
   ## Ignored if storageClass.create is false
@@ -75,6 +76,8 @@ storageClass:
   ## ReclaimPolicy field of the class, which can be either Delete or Retain
   reclaimPolicy: Delete
 
+pvc:
+  name: nfs-pvc-data
 ## For RBAC support:
 rbac:
   create: true
