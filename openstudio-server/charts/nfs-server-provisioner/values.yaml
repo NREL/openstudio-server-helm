@@ -52,7 +52,7 @@ persistence:
 
 ## For creating the StorageClass automatically:
 storageClass:
-  create: false
+  create: true
 
   ## Set a provisioner name. If unset, a name will be generated.
   # provisionerName:
