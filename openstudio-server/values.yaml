@@ -124,6 +124,7 @@ worker:
     image: "nrel/openstudio-server:3.0.0"
     cpu: 1
     memory: "3Gi"
+    terminationGracePeriodSeconds: 3600
       
 worker_hpa: 
   name: "worker"
