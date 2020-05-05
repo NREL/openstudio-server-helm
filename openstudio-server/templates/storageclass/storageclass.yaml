@@ -13,7 +13,6 @@ parameters:
   type: pd-ssd
 {{ end }}
 reclaimPolicy: Delete
-allowVolumeExpansion: true
 mountOptions:
   - debug
 volumeBindingMode: Immediate
