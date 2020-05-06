@@ -43,10 +43,11 @@ eksctl create cluster \
     --version 1.14 \
     --region us-west-2 \
     --nodegroup-name standard-workers \
-    --node-type c5.xlarge \
-    --nodes 5 \
-    --nodes-min 1 \
-    --nodes-max 5 \
+    --node-type t2.xlarge\
+    --nodes 3 \
+    --nodes-min 3 \
+    --nodes-max 8 \
+    --asg-access \
     --ssh-access \
     --ssh-public-key ~/.ssh/id_rsa.pub \
     --managed
