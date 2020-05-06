@@ -20,7 +20,11 @@ version: 0.1.0
 # incremented each time you make changes to the application.
 appVersion: 3.0.0
 
+# This is an offical helm chart: https://github.com/helm/charts/tree/master/stable/nfs-server-provisioner
+# openstudio-sever modfied this slighly to use deployment vs stateful sets as helm does not automatically 
+# remote peristent volumes using stateful sets even though they are labled as "Delete". However, Using Deployment 
+# together with a PVC, helm does indeed remove the PV upon a helm delete command 
 dependencies:
   - name: nfs-server-provisioner
     version:  1.0.0
-    repository: "@stable"
+#    repository: "@stable"
