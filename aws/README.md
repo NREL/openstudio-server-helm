@@ -1,44 +1,28 @@
 
-Below is a guide to help provsion a AWS Kubernetes cluster. 
+Below is a guide to help setup a AWS Elastic Kubernetes Cluster (EKS) cluster using the AWS eksclt cli utility. This guide is meant to provide steps to setup the EKS cluster. Please refer to the [helm chart](/README.md) to install openstudio-server chart once the EKS cluster is up and running.  
 
 ## Prerequisites
 
 - AWS Account with EKS privileges
-- AWS eksctl client 
-- Helm client
-- Kubectl client
+- AWS [eksctl client](https://docs.aws.amazon.com/eks/latest/userguide/eksctl)
 
-### Install eksctl client
+## Install eksctl client
 https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html#installing-eksctl
 
-```bash
-# Using Brew
-brew tap weaveworks/tap
-brew install weaveworks/tap/eksctl
-# Verify by running
-eksctl version
 
-# Note that kubectl is installed as part of both eksctl and helm
+## Create a cluster using eksctl
+
+eksctl will need access to AWS. You can provide access via ENV variables (example below). More advanced info on eksctl can be found here: https://eksctl.io/
+
 ```
-
-### Install helm client
-https://helm.sh/docs/intro/install/
-
-```bash
-# Using Brew
-brew install helm
+$ export AWS_ACCESS_KEY_ID="YOUR_AWS_ACCESS_KEY_ID"
+$ export AWS_SECRET_ACCESS_KEY="YOUR_AWS_SECRET_ACCESS_KEY"
+$ export AWS_DEFAULT_REGION="YOUR_AWS_DEFAULT_REGION"
 ```
+Below is an example that will create an AWS EKS cluster that has 3 nodes of instance type `t2.xlarge` with max nodes = 8. This cluster is set to autoscale up to this max node amount. You can change the instance type and min and max node setting to your use case.  More info on [AWS instance types](https://aws.amazon.com/ec2/instance-types/)
 
-### Install Kubectl client
-
-If using brew, then this will already be installed.
-
-https://kubernetes.io/docs/tasks/tools/install-kubectl/
-
-### To create a simple cluster using eksctl
-
-```bash
-eksctl create cluster \
+```
+$ eksctl create cluster \
     --name openstudio-server \
     --version 1.14 \
     --region us-west-2 \
@@ -53,19 +37,19 @@ eksctl create cluster \
     --managed
 ```
 
-### To delete the cluster using eksctl
+## Delete the cluster using eksctl
 
-```bash
-eksctl delete cluster --name openstudio-server
+To delete the cluster you just need to specify the name of the cluster. 
+
+`$ eksctl delete cluster --name openstudio-server`
+
+This is an example of the output you should see when you delete the cluster: 
+
 ```
-
-Example output should look like: 
-
-```bash
-[ℹ]  eksctl version 0.14.0
+[ℹ]  eksctl version 0.18.0
 [ℹ]  using region us-west-2
 [ℹ]  deleting EKS cluster "openstudio-server"
-[ℹ]  either account is not authorized to use Fargate or region us-west-2 is not supported. Ignoring error
+[ℹ]  deleted 0 Fargate profile(s)
 [✔]  kubeconfig has been updated
 [ℹ]  cleaning up LoadBalancer services
 [ℹ]  2 sequential tasks: { delete nodegroup "standard-workers", delete cluster control plane "openstudio-server" [async] }
@@ -73,46 +57,21 @@ Example output should look like:
 [ℹ]  waiting for stack "eksctl-openstudio-server-nodegroup-standard-workers" to get deleted
 [ℹ]  will delete stack "eksctl-openstudio-server-cluster"
 [✔]  all cluster resources were deleted
-``` 
-
-# more info here: 
-https://docs.aws.amazon.com/eks/latest/userguide/create-cluster.html
-
-
-# example output of what you should see
-
 ```
-[ℹ]  eksctl version 0.13.0
-[ℹ]  using region us-west-2
-[ℹ]  setting availability zones to [us-west-2a us-west-2b us-west-2d]
-[ℹ]  subnets for us-west-2a - public:192.168.0.0/19 private:192.168.96.0/19
-[ℹ]  subnets for us-west-2b - public:192.168.32.0/19 private:192.168.128.0/19
-[ℹ]  subnets for us-west-2d - public:192.168.64.0/19 private:192.168.160.0/19
-[ℹ]  using SSH public key "~./ssh/id_rsa.pub" as "eksctl-openstudio-server-nodegroup-standard-workers-b3:7d:b1:20:da:5c:66:07:07:35:65:af:80:8a:f0:a0"
-[ℹ]  using Kubernetes version 1.14
-[ℹ]  creating EKS cluster "openstudio-server" in "us-west-2" region with managed nodes
-[ℹ]  will create 2 separate CloudFormation stacks for cluster itself and the initial managed nodegroup
-[ℹ]  if you encounter any issues, check CloudFormation console or try 'eksctl utils describe-stacks --region=us-west-2 --cluster=openstudio-server'
-[ℹ]  CloudWatch logging will not be enabled for cluster "openstudio-server" in "us-west-2"
-[ℹ]  you can enable it with 'eksctl utils update-cluster-logging --region=us-west-2 --cluster=openstudio-server'
-[ℹ]  Kubernetes API endpoint access will use default of {publicAccess=true, privateAccess=false} for cluster "openstudio-server" in "us-west-2"
-[ℹ]  2 sequential tasks: { create cluster control plane "openstudio-server", create managed nodegroup "standard-workers" }
-[ℹ]  building cluster stack "eksctl-openstudio-server-cluster"
-[ℹ]  deploying stack "eksctl-openstudio-server-cluster"
-[ℹ]  building managed nodegroup stack "eksctl-openstudio-server-nodegroup-standard-workers"
-[ℹ]  deploying stack "eksctl-openstudio-server-nodegroup-standard-workers"
-[✔]  all EKS cluster resources for "openstudio-server" have been created
-[✔]  saved kubeconfig as "/Users/tcoleman/.kube/config"
-[ℹ]  nodegroup "standard-workers" has 3 node(s)
-[ℹ]  node "ip-192-168-25-158.us-west-2.compute.internal" is ready
-[ℹ]  node "ip-192-168-37-171.us-west-2.compute.internal" is ready
-[ℹ]  node "ip-192-168-84-169.us-west-2.compute.internal" is ready
-[ℹ]  waiting for at least 1 node(s) to become ready in "standard-workers"
-[ℹ]  nodegroup "standard-workers" has 3 node(s)
-[ℹ]  node "ip-192-168-25-158.us-west-2.compute.internal" is ready
-[ℹ]  node "ip-192-168-37-171.us-west-2.compute.internal" is ready
-[ℹ]  node "ip-192-168-84-169.us-west-2.compute.internal" is ready
-[ℹ]  kubectl command should work with "/Users/tcoleman/.kube/config", try 'kubectl get nodes'
-[✔]  EKS cluster "openstudio-server" in "us-west-2" region is ready
-```
+
+It's always good idea to verify the cluster has been deleted. 
+
+`$ eksctl get cluster`
+
+This cmd should return no clusters. You can also use the web console in your AWS account to verify as well. 
+
+
+
+
+
+
+
+
+
+
 
