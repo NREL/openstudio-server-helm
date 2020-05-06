@@ -5,7 +5,7 @@
 ## Introduction
 
 This helm chart installs a OpenStudio-server instance (https://github.com/NREL/OpenStudio-server/) deployment on a [Kubernetes](http://kubernetes.io) cluster using the [Helm](https://helm.sh) package manager. 
-You can interface with the OpenStudio-server cluster using the [Parametric Analysis Tool](https://github.com/NREL/OpenStudio-PAT), which is part of the OpenStudio collection of software tools, or use OpenStudio CLI utility (TODO).
+You can interface with the OpenStudio-server cluster using the [Parametric Analysis Tool](https://github.com/NREL/OpenStudio-PAT), which is part of the OpenStudio collection of software tools.
 
 ## Prerequisites
 
@@ -15,7 +15,7 @@ You can interface with the OpenStudio-server cluster using the [Parametric Analy
 
 ## Installing the Chart
 
-To install the helm chart with the application name `openstudio-server`, you can run the following command (depending on cloud provider) in the root directory of this repo. 
+To install the helm chart with the chart name `openstudio-server`, you can run the following command in the root directory of this repo. This assumes you already have a Kubernetes cluster up and running. If you do not, please refer to [google](/google/README.md) or [aws](/aws/README.md) in this repo.  
 
 
 For Google  
@@ -30,13 +30,17 @@ To uninstall/delete the `openstudio-server` helm chart:
 
 `$ helm delete openstudio-server --debug`
 
-The command removes all the Kubernetes components associated with the chart and deletes the release *including* persistent volumes. 
+The command removes all the Kubernetes components associated with the chart and deletes the release *including* persistent volumes. See more about persistent volumes below. 
 
 ## Configuration
 
-The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values by specify each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example, to change the data storage for NFS which stores the data points to 300GB I would run this:
+The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values by specify each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example, to change the data storage for NFS which stores the data points to 300GB you would run this install command:
 
-`$ helm install ./openstudio-server --name my-release --set fs-server-provisioner.persistence.size=300GB --set --set provider.name=google`
+For Google  
+`$ helm install openstudio-server --debug ./openstudio-server --set provider.name=google --set nfs-server-provisioner.persistence.size=300GB`
+
+For Amazon  
+`$ helm install openstudio-server --debug ./openstudio-server --set provider.name=aws --set nfs-server-provisioner.persistence.size=300GB`
 
 
 Parameter | Description | Default
@@ -94,7 +98,7 @@ While it's possible to change the storage to use `Retain` vs `Delete`, the helm 
 
 ## Auto Scaling
 
-The worker pods are configured to auto-scale based on CPU threshold (default 50%). Once the aggregate CPU for all worker pods exceeded the defined threshold (in this case 50%), Kubernetes engine will start adding additional worker pods up to the maximum specified. This is also dependent on how the Kuebernetes cluster was configured as additional VM node instances will also be added. Please refer to the notes on [aws](/aws/README.md) and [google](/google/README.md) when setting up the cluster and note the instance type and maximum nodes specified.  
+The worker pods are configured to auto-scale based on CPU threshold (default 50%). Once the aggregate CPU for all worker pods exceed the defined threshold (in this case 50%), the Kubernetes engine will start adding additional worker pods up to the maximum specified. This is also dependent on how the Kuebernetes cluster was configured as additional VM node instances will also be added. Please refer to the notes on [aws](/aws/README.md) and [google](/google/README.md) when setting up the cluster and note the instance type and maximum nodes specified.  
 
 Once the aggregate CPU of the workers drop below 50%, the Kubernetes engine will start removing worker pod instances. There is a [prestop hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/) configured in the worker pod to ensure that if a openstudio job is still active it will not terminate the pod until it is finished.  
 
