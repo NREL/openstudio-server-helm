@@ -62,22 +62,22 @@ When you are finished and you can simply delete the entire cluster.
 
 Google allows you to keep the Kubernetes cluster up and running without having any node running. You can scale down the cluster size to 0 and then scale back up when you want to use the cluster again. 
 
-```gcloud container clusters resize openstudio-server --num-nodes=0 --zone us-west1-a```
+`$ gcloud container clusters resize openstudio-server --num-nodes=0 --zone us-west1-a`
 
 Confirm cluster is now zero nodes
 
-`kubectl get nodes`
-Should show no nodes
-`kubectl get po`
+`$ kubectl get nodes`  
+Should show no nodes  
+`$ kubectl get po`  
 Should show all pods in pending state
 
 To scale back up the cluster simply resize the command back to the original min size. 
 
-```gcloud container clusters resize openstudio-server --num-nodes=3 --zone us-west1-a```
+`$ gcloud container clusters resize openstudio-server --num-nodes=3 --zone us-west1-a`  
 
-`kubectl get nodes`
-Should show all nodes available
-`kubectl get po`
+`$ kubectl get nodes`  
+Should show all nodes available  
+`$  kubectl get po`  
 Should show all pods in running state. 
 
 
