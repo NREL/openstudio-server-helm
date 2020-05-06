@@ -19,16 +19,16 @@ To install the helm chart with the chart name `openstudio-server`, you can run t
 
 
 For Google  
-`$ helm install openstudio-server --debug ./openstudio-server --set provider.name=google`
+`$ helm install openstudio-server ./openstudio-server --set provider.name=google`
 
 For Amazon  
-`$ helm install openstudio-server --debug ./openstudio-server --set provider.name=aws`
+`$ helm install openstudio-server ./openstudio-server --set provider.name=aws`
 
 ## Uninstalling the Chart
 
 To uninstall/delete the `openstudio-server` helm chart:
 
-`$ helm delete openstudio-server --debug`
+`$ helm delete openstudio-server`
 
 The command removes all the Kubernetes components associated with the chart and deletes the release *including* persistent volumes. See more about persistent volumes below. 
 
@@ -37,10 +37,10 @@ The command removes all the Kubernetes components associated with the chart and 
 The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values by specify each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example, to change the data storage for NFS which stores the data points to 300GB you would run this install command:
 
 For Google  
-`$ helm install openstudio-server --debug ./openstudio-server --set provider.name=google --set nfs-server-provisioner.persistence.size=300GB`
+`$ helm install openstudio-server ./openstudio-server --set provider.name=google --set nfs-server-provisioner.persistence.size=300GB`
 
 For Amazon  
-`$ helm install openstudio-server --debug ./openstudio-server --set provider.name=aws --set nfs-server-provisioner.persistence.size=300GB`
+`$ helm install openstudio-server ./openstudio-server --set provider.name=aws --set nfs-server-provisioner.persistence.size=300GB`
 
 
 Parameter | Description | Default
