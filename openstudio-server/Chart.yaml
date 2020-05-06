@@ -24,7 +24,7 @@ appVersion: 3.0.0
 # openstudio-sever modfied this slighly to use deployment vs stateful sets as helm does not automatically 
 # remote peristent volumes using stateful sets even though they are labled as "Delete". However, Using Deployment 
 # together with a PVC, helm does indeed remove the PV upon a helm delete command 
-dependencies:
-  - name: nfs-server-provisioner
-    version:  1.0.0
+#dependencies:
+#  - name: nfs-server-provisioner
+#    version:  1.0.0
 #    repository: "@stable"
