@@ -7,6 +7,9 @@
 provider: 
   name: ""
 
+cluster:
+  name: "openstudio-server" 
+
 nfs-server-provisioner:
   persistence:
     enabled: true
@@ -129,7 +132,7 @@ worker:
 worker_hpa: 
   name: "worker"
   minReplicas: 1
-  maxReplicas: 6
+  maxReplicas: 20
   targetCPUUtilizationPercentage: 50
 
 
