@@ -19,3 +19,11 @@ spec:
           image: {{ .Values.db.container.image }}
           ports:
             - containerPort:  {{ .Values.db.container.ports.db_port }}
+          volumeMounts:
+            - mountPath: /data/db
+              name: {{ .Values.db.name }}
+      volumes:
+        - name: {{ .Values.db.name }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.db.name }}
+

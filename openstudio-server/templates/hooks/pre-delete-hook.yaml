@@ -15,12 +15,16 @@ spec:
       containers:
         - name: kubectl
           image: "k8s.gcr.io/hyperkube:v1.12.1"
+          securityContext:
+            privileged: true
           imagePullPolicy: "IfNotPresent"
           command:
           - /bin/sh
           - -c
           - >
-              kubectl delete deployment web web-background rserve --all;
-              sleep 10;
-      restartPolicy: OnFailure
+              kubectl delete deployment web;
+              kubectl delete deployment web-background;
+              kubectl delete deployment rserve;
+              sleep 60;
+      restartPolicy: Never
 

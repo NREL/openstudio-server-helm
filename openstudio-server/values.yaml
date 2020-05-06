@@ -2,6 +2,23 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+
+# Set to google or aws
+provider: 
+  name: ""
+
+cluster:
+  name: "openstudio-server" 
+
+nfs-server-provisioner:
+  persistence:
+    enabled: true
+    storageClass: "ssd"
+    size: 200Gi
+  storageClass:
+    allowVolumeExpansion: false
+    mountOptions:
+      - vers=4 
 db:
   name:  "db"
   label: "db"
@@ -10,6 +27,12 @@ db:
     image: "mongo:3.4.10"
     ports:
       db_port: 27017
+  persistence:
+    enabled: true
+    storageClass: "ssd"
+    size: 200Gi
+    accessModes:
+      - "ReadWriteOnce"
 
 load_balancer:
   name: "ingress-load-balancer"
@@ -26,53 +49,6 @@ load_balancer:
 
 nfs:
   name: "nfs"
-
-nfs_svc:
-  name: "nfs-server"
-  clusterIP: 10.100.227.141
-  selector:
-    role: "nfs-server"
-  ports:
-    nfs: 2049
-    mountd: 20048
-    rpcbind: 111
-
-  
-nfs_rc:
-  name: "nfs-server"
-  selector:
-    role: "nfs-server"
-  container:
-    name:  "nfs-server"
-    image: "gcr.io/google_containers/volume-nfs"
-    ports:
-      nfs: 2049
-      mountd: 20048
-      rpcbind: 111
-    securityContext:
-      privileged: "true"
-
-nfs_pv: 
-  name: "nfs-pv"  
-  storage_class: "standard" 
-  capacity:
-    storage: "50Gi" 
-  accessModes: 
-    - "ReadWriteMany"  
-  claimRef:
-    name: "nfs-pvc"
-  server: 10.100.227.141
-  path: "/"
-  reclaimPolicy: "Delete"
-
-
-nfs_pvc_physical:
-  name: "nfs-pvc-physical"
-  accessModes: 
-    - "ReadWriteOnce"  
-  storage_class: "standard" 
-  storage: "50Gi"
-
 
 nfs_pvc: 
   name: "nfs-pvc"
@@ -103,7 +79,7 @@ rserve:
   label: "rserve" 
   container:
     name: "rserve"
-    image: "nrel/openstudio-rserve:latest"
+    image: "nrel/openstudio-rserve:3.0.0"
     cpu: 1
     memory: 2Gi
     
@@ -112,20 +88,12 @@ rserve_svc:
   label: "rserve"
   port: 6311
 
-storage_class:
-  name: "standard"
-  provisioner: "kubernetes.io/aws-ebs" 
-  parameters:
-    type: "gp2" 
-  reclaimPolicy: "Delete"
-  allowVolumeExpansion: "true"
-
 web_background: 
   name: "web-background"
   label: "web-background" 
   container:
     name: "web-background" 
-    image: " nrel/openstudio-server:latest" 
+    image: "nrel/openstudio-server:3.0.0" 
     cpu: 1
     memory: "3Gi"
 
@@ -134,7 +102,7 @@ web:
   label: "web"
   container:
     name: "web"
-    image: " nrel/openstudio-server:latest"
+    image: "nrel/openstudio-server:3.0.0"
     cpu: 1
     memory: "1Gi"
     port:
@@ -156,14 +124,15 @@ worker:
   label: "worker" 
   container:
     name: "worker"
-    image: "nrel/openstudio-server:latest" 
+    image: "nrel/openstudio-server:3.0.0"
     cpu: 1
     memory: "3Gi"
+    terminationGracePeriodSeconds: 3600
       
 worker_hpa: 
   name: "worker"
   minReplicas: 1
-  maxReplicas: 6
+  maxReplicas: 20
   targetCPUUtilizationPercentage: 50
 
 
