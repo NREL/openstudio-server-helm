@@ -1,9 +1,13 @@
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.worker.name   }}
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.worker.name }}
+      release: {{ .Release.Name }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -12,7 +16,8 @@ spec:
   template:
     metadata:
       labels:
-        label: {{ .Values.worker.label  }}
+        app: {{ .Values.worker.name }}
+        release: {{ .Release.Name }}
     spec:
       containers:
         - name: {{ .Values.worker.container.name   }}

@@ -6,7 +6,8 @@ spec:
   type: LoadBalancer
   externalTrafficPolicy:  {{ .Values.load_balancer.externalTrafficPolicy }}
   selector:
-    label: {{ .Values.load_balancer.selector.label }}
+    app: {{ .Values.load_balancer.label }}
+    release: {{ .Release.Name }}
   ports:
     - name: {{ .Values.load_balancer.ports.http_name }}
       protocol: {{ .Values.load_balancer.ports.http_protocol }} 

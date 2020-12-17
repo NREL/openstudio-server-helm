@@ -4,7 +4,8 @@ metadata:
   name: {{ .Values.rserve_svc.name  }}
 spec:
   selector:
-    label: {{ .Values.rserve_svc.label  }}
+    app: {{ .Values.db.label  }}
+    release: {{ .Release.Name }}
   ports:
     - name: rserve
       protocol: TCP

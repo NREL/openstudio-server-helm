@@ -37,8 +37,7 @@ db:
 load_balancer:
   name: "ingress-load-balancer"
   externalTrafficPolicy: "Local"
-  selector:
-    label: "web"
+  label: "web"
   ports:
     http_name: "http" 
     http_port: 80
@@ -60,6 +59,7 @@ nfs_pvc:
 
 redis:
   name: "redis"
+  label: "redis"
   container:
     name: "redis"
     image: "redis:4.0.6"
@@ -69,8 +69,7 @@ redis:
 
 redis_svc:
   name: "queue"
-  selector:
-   app: "redis"
+  label: "redis"
   port: 6379
 
 
@@ -112,8 +111,6 @@ web:
 web_svc: 
   name: "web" 
   label: "web" 
-  selector:
-    label: "web"
   ports:
     http: 80 
     https: 443
