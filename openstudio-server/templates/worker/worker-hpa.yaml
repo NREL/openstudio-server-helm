@@ -4,9 +4,9 @@ metadata:
   name: {{ .Values.worker_hpa.name  }}
 spec:
   scaleTargetRef:
-    apiVersion: extensions/v1beta1
+    apiVersion: apps/v1
     kind: Deployment
-    name: {{ .Values.worker_hpa.name  }}
+    name: {{ .Values.worker.name  }}
   minReplicas: {{ .Values.worker_hpa.minReplicas  }}
   maxReplicas: {{ .Values.worker_hpa.maxReplicas  }}
   targetCPUUtilizationPercentage: {{ .Values.worker_hpa.targetCPUUtilizationPercentage  }}
