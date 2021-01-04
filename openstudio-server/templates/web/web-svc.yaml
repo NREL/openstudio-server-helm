@@ -4,7 +4,8 @@ metadata:
   name: {{ .Values.web_svc.name   }}
 spec:
   selector:
-    label: {{ .Values.web_svc.label   }}
+    app: {{ .Values.web.name  }}
+    release: {{ .Release.Name }}
   ports:
     - name: http
       protocol: TCP

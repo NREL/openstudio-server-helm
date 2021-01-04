@@ -9,9 +9,9 @@ You can interface with the OpenStudio-server cluster using the [Parametric Analy
 
 ## Prerequisites
 
-- Kubernetes 1.3+ cluster.  Please refer to cluster setup instructions for [google](/google/README.md) or [aws](/aws/README.md) for information on how to provision a cluster. 
-- [helm client](https://helm.sh/docs/intro/install/)
-- [kubectl client](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
+- Kubernetes 1.6+ cluster.  Please refer to cluster setup instructions for [google](/google/README.md) or [aws](/aws/README.md) for information on how to provision a cluster. 
+- [helm client](https://helm.sh/docs/intro/install/) (v3.4.2 or higher)
+- [kubectl client](https://kubernetes.io/docs/tasks/tools/install-kubectl/) (v1.20.0 or higher) 
 
 ## Installing the Chart
 
@@ -37,16 +37,16 @@ The command removes all the Kubernetes components associated with the chart and 
 The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values by specify each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example, to change the data storage for NFS which stores the data points to 300GB you would run this install command:
 
 For Google  
-`$ helm install openstudio-server ./openstudio-server --set provider.name=google --set nfs-server-provisioner.persistence.size=300GB`
+`$ helm install openstudio-server ./openstudio-server --set provider.name=google --set nfs-server-provisioner.persistence.size=300Gi`
 
 For Amazon  
-`$ helm install openstudio-server ./openstudio-server --set provider.name=aws --set nfs-server-provisioner.persistence.size=300GB`
+`$ helm install openstudio-server ./openstudio-server --set provider.name=aws --set nfs-server-provisioner.persistence.size=300Gi`
 
 
 Parameter | Description | Default
 --------- | ----------- | -------
-nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 200GB |
-db.persistence.size | Size of the volume for MongoDB | 200GB |
+nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 200Gi |
+db.persistence.size | Size of the volume for MongoDB | 200Gi |
 cluster.name | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly | openstudio-server |
 worker_hpa.minReplicas | Worker pods that run the simulations | 1 |
 worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
