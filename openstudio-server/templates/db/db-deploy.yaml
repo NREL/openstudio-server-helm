@@ -27,6 +27,10 @@ spec:
           volumeMounts:
             - mountPath: /data/db
               name: {{ .Values.db.name }}
+          resources:
+            requests:
+              cpu: {{ .Values.db.container.cpu   }}
+              memory: {{ .Values.db.container.memory   }}
       volumes:
         - name: {{ .Values.db.name }}
           persistentVolumeClaim:
