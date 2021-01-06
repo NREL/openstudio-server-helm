@@ -38,12 +38,12 @@ spec:
             - name: QUEUES
               value: analysis_wrappers
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
-      readinessProb:
-        httpGet:
-          path: /
-          port: 80
-        initialDelaySeconds: 5
-        periodSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 3
       volumes:
        - name: nfs
          persistentVolumeClaim:
