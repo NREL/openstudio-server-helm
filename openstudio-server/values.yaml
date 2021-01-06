@@ -19,6 +19,7 @@ nfs-server-provisioner:
     allowVolumeExpansion: false
     mountOptions:
       - vers=4 
+      - sync
 db:
   name:  "db"
   label: "db"
