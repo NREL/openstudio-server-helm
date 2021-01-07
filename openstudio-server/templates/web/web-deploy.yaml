@@ -44,6 +44,14 @@ spec:
               port: 80
             initialDelaySeconds: 5
             periodSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /about
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 30
+            failureThreshold: 3
       volumes:
        - name: nfs
          persistentVolumeClaim:

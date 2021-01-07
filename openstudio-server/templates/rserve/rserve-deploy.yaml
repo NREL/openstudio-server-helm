@@ -29,6 +29,13 @@ spec:
           volumeMounts:
             - name: osdata
               mountPath: "/mnt/openstudio"
+          livenessProbe:
+            exec:
+              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 30
+            failureThreshold: 3
       volumes:
         - name: osdata
           persistentVolumeClaim:
