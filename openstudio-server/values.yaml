@@ -69,6 +69,12 @@ redis:
     cpu: 0.5
     memory: "1G"
     port: 6379
+  persistence:
+    enabled: true
+    storageClass: "ssd"
+    size: 5Gi
+    accessModes:
+      - "ReadWriteOnce"
 
 redis_svc:
   name: "queue"
