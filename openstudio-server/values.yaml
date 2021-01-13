@@ -111,16 +111,19 @@ web:
   container:
     name: "web"
     image: "nrel/openstudio-server:3.1.0"
-    cpu: 1
-    memory: "3Gi"
+    cpu: 2
+    memory: "6Gi"
     port:
      http: 80
      https: 443
 
+# For this to work and have more than 1 web pod we'll need to implement 
+# a distrbuted file locking scheme such a https://github.com/antirez/redlock-rbs 
+# as even with using NFS via sync it cannot guarantee file locking using mutliple clients
 web_hpa:
   name: "web"
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 1
+  maxReplicas: 1
   targetCPUUtilizationPercentage: 50
 
 web_svc: 
@@ -142,7 +145,7 @@ worker:
       
 worker_hpa: 
   name: "worker"
-  minReplicas: 1
+  minReplicas: 2
   maxReplicas: 20
   targetCPUUtilizationPercentage: 50
 

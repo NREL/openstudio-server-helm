@@ -45,9 +45,8 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 3
           livenessProbe:
-            httpGet:
-              path: /about
-              port: 80
+            exec:
+              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
             initialDelaySeconds: 5
             periodSeconds: 30
             timeoutSeconds: 30
