@@ -22,6 +22,7 @@ spec:
       containers:
         - name:  {{ .Values.web.container.name  }}
           image: {{ .Values.web.container.image  }}
+          imagePullPolicy: Always
           resources:
             requests:
               cpu: {{ .Values.web.container.cpu  }}
@@ -37,6 +38,12 @@ spec:
               value: ${OS_SERVER_NUMBER_OF_WORKERS}
             - name: QUEUES
               value: analysis_wrappers
+            - name: REDIS_URL
+              value: {{ .Values.redis_svc.url  }}
+            - name: MONGO_USER
+              value: {{ .Values.db.username }}
+            - name: MONGO_PASSWORD
+              value: {{ .Values.db.password }}
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
           readinessProbe:
             httpGet:

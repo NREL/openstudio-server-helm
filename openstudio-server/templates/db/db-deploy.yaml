@@ -31,6 +31,12 @@ spec:
             requests:
               cpu: {{ .Values.db.container.cpu   }}
               memory: {{ .Values.db.container.memory   }}
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: {{ .Values.db.username }}
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              value: {{ .Values.db.password }}
+
       volumes:
         - name: {{ .Values.db.name }}
           persistentVolumeClaim:

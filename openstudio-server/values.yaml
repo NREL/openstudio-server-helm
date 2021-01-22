@@ -23,9 +23,11 @@ nfs-server-provisioner:
 db:
   name:  "db"
   label: "db"
+  username: "openstudio"
+  password: "openstudio"
   container:
     name: "mongo-db"
-    image: "mongo:3.4.10"
+    image: "mongo:4.4.2"
     cpu: 2
     memory: "8Gi"
     ports:
@@ -63,9 +65,10 @@ nfs_pvc:
 redis:
   name: "redis"
   label: "redis"
+  password: "openstudio"
   container:
     name: "redis"
-    image: "redis:4.0.6"
+    image: "redis:6.0.9"
     cpu: 0.5
     memory: "1G"
     port: 6379
@@ -80,7 +83,7 @@ redis_svc:
   name: "queue"
   label: "redis"
   port: 6379
-
+  url: "redis://:openstudio@queue:6379"
 
 rserve:
   name: "rserve"
@@ -101,7 +104,7 @@ web_background:
   label: "web-background" 
   container:
     name: "web-background" 
-    image: "nrel/openstudio-server:3.1.0" 
+    image: "nrel/openstudio-server:experimental" 
     cpu: 1
     memory: "3Gi"
 
@@ -110,9 +113,9 @@ web:
   label: "web"
   container:
     name: "web"
-    image: "nrel/openstudio-server:3.1.0"
-    cpu: 2
-    memory: "6Gi"
+    image: "nrel/openstudio-server:experimental"
+    cpu: 1
+    memory: "3Gi"
     port:
      http: 80
      https: 443
@@ -122,8 +125,8 @@ web:
 # as even with using NFS via sync it cannot guarantee file locking using mutliple clients
 web_hpa:
   name: "web"
-  minReplicas: 1
-  maxReplicas: 1
+  minReplicas: 2
+  maxReplicas: 4
   targetCPUUtilizationPercentage: 50
 
 web_svc: 
@@ -138,7 +141,7 @@ worker:
   label: "worker" 
   container:
     name: "worker"
-    image: "nrel/openstudio-server:3.1.0"
+    image: "nrel/openstudio-server:experimental"
     cpu: 1
     memory: "3Gi"
     terminationGracePeriodSeconds: 3600
