@@ -90,7 +90,7 @@ rserve:
   label: "rserve" 
   container:
     name: "rserve"
-    image: "nrel/openstudio-rserve:3.1.0"
+    image: "nrel/openstudio-rserve:3.1.0-1"
     cpu: 1
     memory: 2Gi
     
@@ -104,7 +104,7 @@ web_background:
   label: "web-background" 
   container:
     name: "web-background" 
-    image: "nrel/openstudio-server:experimental" 
+    image: "nrel/openstudio-server:3.1.0-1" 
     cpu: 1
     memory: "3Gi"
 
@@ -113,7 +113,7 @@ web:
   label: "web"
   container:
     name: "web"
-    image: "nrel/openstudio-server:experimental"
+    image: "nrel/openstudio-server::3.1.0-1"
     cpu: 1
     memory: "3Gi"
     port:
@@ -141,7 +141,7 @@ worker:
   label: "worker" 
   container:
     name: "worker"
-    image: "nrel/openstudio-server:experimental"
+    image: "nrel/openstudio-server:3.1.0-1"
     cpu: 1
     memory: "3Gi"
     terminationGracePeriodSeconds: 3600
