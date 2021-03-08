@@ -12,6 +12,11 @@ provisioner: kubernetes.io/gce-pd
 parameters:
   type: pd-ssd
 {{ end }}
+ {{ if eq .Values.provider.name "azure" }}
+ provisioner: kubernetes.io/azure-disk
+ parameters:
+   type: Standard_LRS
+ {{ end }}
 reclaimPolicy: Delete
 mountOptions:
   - debug
