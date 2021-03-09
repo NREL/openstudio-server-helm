@@ -15,14 +15,14 @@ https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html#installing-eksctl (
 eksctl will need access to AWS. You can provide access by setting ENV variables in your shell before running the cli (example below). More advanced info on eksctl can be found here: https://eksctl.io/
 
 ```
-$  export AWS_ACCESS_KEY_ID="YOUR_AWS_ACCESS_KEY_ID"
-$  export AWS_SECRET_ACCESS_KEY="YOUR_AWS_SECRET_ACCESS_KEY"
-$  export AWS_DEFAULT_REGION="YOUR_AWS_DEFAULT_REGION"
+ export AWS_ACCESS_KEY_ID="YOUR_AWS_ACCESS_KEY_ID"
+ export AWS_SECRET_ACCESS_KEY="YOUR_AWS_SECRET_ACCESS_KEY"
+ export AWS_DEFAULT_REGION="YOUR_AWS_DEFAULT_REGION"
 ```
 Below is an example that will create an AWS EKS cluster that has 3 nodes of instance type `t2.xlarge` with max nodes = 8. This cluster is set to autoscale up to this max node amount. You can change the instance type and min and max node setting to your use case.  More info on [AWS instance types](https://aws.amazon.com/ec2/instance-types/)
 
 ```
-$ eksctl create cluster \
+eksctl create cluster \
     --name openstudio-server \
     --version 1.18 \
     --region us-west-2 \
@@ -85,7 +85,7 @@ Once eksctl is done setting up the cluster, it will automatically setup the conn
 
 To delete the cluster you just need to specify the name of the cluster. 
 
-`$ eksctl delete cluster --name openstudio-server`
+`eksctl delete cluster --name openstudio-server`
 
 This is an example of the output you should see when you delete the cluster: 
 
@@ -105,7 +105,7 @@ This is an example of the output you should see when you delete the cluster:
 
 It's always good idea to verify the cluster has been deleted. 
 
-`$ eksctl get cluster`
+`eksctl get cluster`
 
 This cmd should return no clusters. You can also use the web console in your AWS account to verify as well. 
 
