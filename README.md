@@ -101,18 +101,12 @@ ingress-load-balancer   LoadBalancer   10.55.246.197   35.247.75.9   80:32613/TC
 Azure is 20.190.10.17
 ```
  kubectl get svc
-NAME                                       TYPE           CLUSTER-IP    EXTERNAL-IP    PORT(S)                                                                                                     AGE
-db                                         ClusterIP      10.0.4.84     <none>         27017/TCP                                                                                                   3m53s
-ingress-load-balancer                      LoadBalancer   10.0.248.18   20.190.10.17   80:31879/TCP,443:30780/TCP                                                                                  3m53s
-kubernetes                                 ClusterIP      10.0.0.1      <none>         443/TCP                                                                                                     22m
-openstudio-server-nfs-server-provisioner   ClusterIP      10.0.238.86   <none>         2049/TCP,2049/UDP,32803/TCP,32803/UDP,20048/TCP,20048/UDP,875/TCP,875/UDP,111/TCP,111/UDP,662/TCP,662/UDP   3m53s
-queue                                      ClusterIP      10.0.7.248    <none>         6379/TCP                                                                                                    3m53s
-rserve                                     ClusterIP      10.0.44.153   <none>         6311/TCP                                                                                                    3m53s
-web                                        ClusterIP      10.0.133.48   <none>         80/TCP,443/TCP  
-```
+NAME                                       TYPE           CLUSTER-IP    EXTERNAL-IP    PORT(S)  AGE
+ingress-load-balancer                      LoadBalancer   10.0.248.18   20.190.10.17   80:31879/TCP 443:30780/TCP 3m53s
 
 
-You will then use this EXTERNAL-IP to use with PAT to connect to an exisiting cloud server. In this example, you would enter http://a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com in PAT under Exisiting Server URL in PAT.  For Google, using the example above, it would be http://35.247.75.9. For azure, it would be http://20.190.10.17
+
+You will then use this EXTERNAL-IP to use with PAT to connect to an exisiting cloud server. In the AWS example, you would enter http://a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com in PAT under Exisiting Server URL in PAT.  For Google, http://35.247.75.9. For Azure,  http://20.190.10.17
 
 
 ## Persistent Volumes
