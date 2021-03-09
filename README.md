@@ -19,16 +19,19 @@ To install the helm chart with the chart name `openstudio-server`, you can run t
 
 
 For Google  
-`$ helm install openstudio-server ./openstudio-server --set provider.name=google`
+`helm install openstudio-server ./openstudio-server --set provider.name=google`
 
 For Amazon  
-`$ helm install openstudio-server ./openstudio-server --set provider.name=aws`
+`helm install openstudio-server ./openstudio-server --set provider.name=aws`
+
+For Azure  
+`helm install openstudio-server ./openstudio-server --set provider.name=azure`
 
 ## Uninstalling the Chart
 
 To uninstall/delete the `openstudio-server` helm chart:
 
-`$ helm delete openstudio-server`
+`helm delete openstudio-server`
 
 The command removes all the Kubernetes components associated with the chart and deletes the release *including* persistent volumes. See more about persistent volumes below. 
 
@@ -37,10 +40,13 @@ The command removes all the Kubernetes components associated with the chart and 
 The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values by specify each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example, to change the data storage for NFS which stores the data points to 300GB you would run this install command:
 
 For Google  
-`$ helm install openstudio-server ./openstudio-server --set provider.name=google --set nfs-server-provisioner.persistence.size=300Gi`
+`helm install openstudio-server ./openstudio-server --set provider.name=google --set nfs-server-provisioner.persistence.size=300Gi`
 
 For Amazon  
-`$ helm install openstudio-server ./openstudio-server --set provider.name=aws --set nfs-server-provisioner.persistence.size=300Gi`
+`helm install openstudio-server ./openstudio-server --set provider.name=aws --set nfs-server-provisioner.persistence.size=300Gi`
+
+For Azure  
+`helm install openstudio-server ./openstudio-server --set provider.name=azure --set nfs-server-provisioner.persistence.size=300Gi`
 
 
 Parameter | Description | Default
@@ -61,7 +67,7 @@ rserve.container.image   | Container to run r server. Can use a custom image to 
 
 First make sure all the Kubernetes pods are up in running. You can confirm this by running:
 
-`$ kubectl get po`  
+`kubectl get po`  
 
 example output of all pods running: 
 
@@ -76,22 +82,31 @@ web-background-84c868cd9d-24sbl                            1/1     Running   0  
 worker-cf755cccf-9twqw                                     1/1     Running   0          109s
 ```
 
-Once the cluster is up and running, you can then find the external IP or DN to access OpenStudio server. For example, on AWS, this is the external name. 
+Once the cluster is up and running, you can use `kubectl` to determine the external IP or DN to access OpenStudio server and use this in PAT to connect to. For example, on AWS, a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com is the external name. See the examples below for each cloud provider. 
 
 AWS
 ```
 $ kubectl get svc  ingress-load-balancer
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                                               PORT(S)                      AGE
 ingress-load-balancer   LoadBalancer   10.100.91.255   a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com   80:31837/TCP,443:32347/TCP   3m51s
+
+
 ```
-Google
+Google is 35.247.75.9
 ```
 $ kubectl get svc  ingress-load-balancer
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
 ingress-load-balancer   LoadBalancer   10.55.246.197   35.247.75.9   80:32613/TCP,443:31562/TCP   35m
 ```
+Azure is 20.190.10.17
+```
+ kubectl get svc
+NAME                                       TYPE           CLUSTER-IP    EXTERNAL-IP    PORT(S)  AGE
+ingress-load-balancer                      LoadBalancer   10.0.248.18   20.190.10.17   80:31879/TCP 443:30780/TCP 3m53s
 
-You will then use this EXTERNAL-IP to use with PAT to connect to an exisiting cloud server. In this example, you would enter http://a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com in PAT under Exisiting Server URL in PAT.  For Google, using the example above, it would be http://35.247.75.9 
+
+
+You will then use this EXTERNAL-IP to use with PAT to connect to an exisiting cloud server. In the AWS example, you would enter http://a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com in PAT under Exisiting Server URL in PAT.  For Google, http://35.247.75.9. For Azure,  http://20.190.10.17
 
 
 ## Persistent Volumes

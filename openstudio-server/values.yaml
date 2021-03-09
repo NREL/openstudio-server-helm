@@ -3,7 +3,7 @@
 # Declare variables to be passed into your templates.
 
 
-# Set to google or aws
+# Set to google, aws or azure
 provider: 
   name: ""
 
