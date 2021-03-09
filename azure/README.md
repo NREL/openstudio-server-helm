@@ -3,7 +3,7 @@ Below is a guide to help setup a Microsoft Azure Kubernetes Cluster (AKS) using 
 ## Prerequisites
 
 - Microsoft Azure Account with Kubernetes privileges
-- Microsoft Azure `az` CLI utility 
+- Microsoft Azure CLI utility `az`
 
 ## Install Azure cli client
 https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
@@ -11,11 +11,12 @@ https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
 
 ## Use az to login to your account. 
 `az login`
-This will allow you to login to your Azure account using a web browser, If your using a headless setup and only terminal, you can use altertative way to use the cli utility to login. Please refer to the [login instructions](https://docs.microsoft.com/en-us/cli/azure/reference-index?view=azure-cli-latest#az_login)
+
+This will allow you to login to your Azure account. If your using only a terminal w/o a web browser, you can use altertative ways to use the cli utility to login. Please refer to the [login instructions](https://docs.microsoft.com/en-us/cli/azure/reference-index?view=azure-cli-latest#az_login)
 
 ## Create a resource group
 
-Create a resource group and specifiy a data center location. 
+Create a resource group and specifiy a data center location. The example below uses westus2 region. 
 
 `az group create --name openstudio-server --location westus2`
 
@@ -35,8 +36,20 @@ Create a resource group and specifiy a data center location.
 
 ## Set credentials to use cluster
 
-`az aks install-cli`
 `az aks get-credentials --resource-group openstudio-server --name openstudio-server`
+
+Confirm that you are connected and run the following. 
+
+`kubectl get nodes`
+
+You should see similar output
+
+```
+NAME                                STATUS   ROLES   AGE   VERSION
+aks-nodepool1-23944537-vmss000000   Ready    agent   12m   v1.18.14
+aks-nodepool1-23944537-vmss000001   Ready    agent   12m   v1.18.14
+aks-nodepool1-23944537-vmss000002   Ready    agent   12m   v1.18.14
+```
 
 ## Delete cluster
 
@@ -51,7 +64,7 @@ When you are finished and you can simply delete the entire cluster.
 
 ## Idle cluster
 
-TODO. Determine if Azure allows the cluster to be zero size nodes like Google does. 
+TODO. Determine if Azure allows the cluster to be zero size nodes like Google. 
 
 
 

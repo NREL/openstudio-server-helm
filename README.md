@@ -24,6 +24,9 @@ For Google
 For Amazon  
 `$ helm install openstudio-server ./openstudio-server --set provider.name=aws`
 
+For Azure  
+`$ helm install openstudio-server ./openstudio-server --set provider.name=azure`
+
 ## Uninstalling the Chart
 
 To uninstall/delete the `openstudio-server` helm chart:
@@ -41,6 +44,9 @@ For Google
 
 For Amazon  
 `$ helm install openstudio-server ./openstudio-server --set provider.name=aws --set nfs-server-provisioner.persistence.size=300Gi`
+
+For Azure  
+`$ helm install openstudio-server ./openstudio-server --set provider.name=azure --set nfs-server-provisioner.persistence.size=300Gi`
 
 
 Parameter | Description | Default
