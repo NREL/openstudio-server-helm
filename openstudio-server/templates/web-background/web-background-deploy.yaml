@@ -34,6 +34,8 @@ spec:
               value: ${OS_SERVER_NUMBER_OF_WORKERS}
             - name: QUEUES
               value: background,analyses
+            - name: SECRET_KEY_BASE
+              value: {{ .Values.web.secret_key_value }}
           command: ["/usr/local/bin/start-web-background"]
       volumes:
         - name: nfs

@@ -37,6 +37,8 @@ spec:
               value: ${OS_SERVER_NUMBER_OF_WORKERS}
             - name: QUEUES
               value: analysis_wrappers
+            - name: SECRET_KEY_BASE
+              value: {{ .Values.web.secret_key_value }}
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
       volumes:
        - name: nfs

@@ -40,6 +40,8 @@ spec:
               value: simulations
             - name:  COUNT
               value: "1"
+            - name: SECRET_KEY_BASE
+              value: {{ .Values.web.secret_key_value }}
           command: ["/usr/local/bin/start-workers"]
       terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs. 
       volumes:

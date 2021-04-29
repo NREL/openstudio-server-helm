@@ -29,6 +29,9 @@ spec:
           volumeMounts:
             - name: osdata
               mountPath: "/mnt/openstudio"
+          env:
+            - name: SECRET_KEY_BASE
+              value: {{ .Values.web.secret_key_value }}
       volumes:
         - name: osdata
           persistentVolumeClaim:
