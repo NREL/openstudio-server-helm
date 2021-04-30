@@ -22,6 +22,7 @@ spec:
       containers:
         - name: {{ .Values.worker.container.name   }}
           image: {{ .Values.worker.container.image   }}
+          imagePullPolicy: Always
           lifecycle:
             preStop:
               exec:
@@ -40,6 +41,14 @@ spec:
               value: simulations
             - name:  COUNT
               value: "1"
+            - name: SECRET_KEY_BASE
+              value: {{ .Values.web.secret_key_value }}
+            - name: REDIS_URL
+              value: {{ .Values.redis_svc.url  }}
+            - name: MONGO_USER
+              value: {{ .Values.db.username }}
+            - name: MONGO_PASSWORD
+              value: {{ .Values.db.password }}
           command: ["/usr/local/bin/start-workers"]
       terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs. 
       volumes:

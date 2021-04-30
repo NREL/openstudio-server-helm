@@ -23,3 +23,12 @@ spec:
               memory: {{ .Values.redis.container.memory  }}
           ports:
             - containerPort: {{ .Values.redis.container.port  }}
+          volumeMounts:
+            - mountPath: /data
+              name: {{ .Values.redis.name }}
+#          args: ["--appendonly", "yes", "--save", "900", "1", "--save", "30", "1"]
+          args: ["redis-server", "--requirepass", "{{ .Values.redis.password  }}"]
+      volumes:
+        - name: {{ .Values.redis.name }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.redis.name }}

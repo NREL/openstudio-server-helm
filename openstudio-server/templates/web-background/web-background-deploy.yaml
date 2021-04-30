@@ -22,6 +22,7 @@ spec:
       containers:
         - name:  {{  .Values.web_background.container.name  }}
           image:  {{  .Values.web_background.container.image  }}
+          imagePullPolicy: Always
           resources:
             requests:
               cpu:  {{  .Values.web_background.container.cpu  }}
@@ -34,7 +35,22 @@ spec:
               value: ${OS_SERVER_NUMBER_OF_WORKERS}
             - name: QUEUES
               value: background,analyses
+            - name: SECRET_KEY_BASE
+              value: {{ .Values.web.secret_key_value }}
+            - name: REDIS_URL
+              value: {{ .Values.redis_svc.url  }}
+            - name: MONGO_USER
+              value: {{ .Values.db.username }}
+            - name: MONGO_PASSWORD
+              value: {{ .Values.db.password }}
           command: ["/usr/local/bin/start-web-background"]
+          livenessProbe:
+            exec:
+              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 30
+            failureThreshold: 3
       volumes:
         - name: nfs
           persistentVolumeClaim:

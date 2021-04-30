@@ -22,6 +22,7 @@ spec:
       containers:
         - name:  {{ .Values.web.container.name  }}
           image: {{ .Values.web.container.image  }}
+          imagePullPolicy: Always
           resources:
             requests:
               cpu: {{ .Values.web.container.cpu  }}
@@ -37,7 +38,29 @@ spec:
               value: ${OS_SERVER_NUMBER_OF_WORKERS}
             - name: QUEUES
               value: analysis_wrappers
+            - name: SECRET_KEY_BASE
+              value: {{ .Values.web.secret_key_value }}
+            - name: REDIS_URL
+              value: {{ .Values.redis_svc.url  }}
+            - name: MONGO_USER
+              value: {{ .Values.db.username }}
+            - name: MONGO_PASSWORD
+              value: {{ .Values.db.password }}
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 30
+            failureThreshold: 3
       volumes:
        - name: nfs
          persistentVolumeClaim:
