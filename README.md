@@ -57,10 +57,10 @@ cluster.name | Kubernetes AWS or Google cluster name. If you change the default 
 worker_hpa.minReplicas | Worker pods that run the simulations | 1 |
 worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
-web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.0.0 |
-web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server:3.0.0 |
-worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server:3.0.0 |
-rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve:3.0.0 |
+web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.2.0-rc1 |
+web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server:3.2.0-rc1 |
+worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server:3.2.0-rc1 |
+rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve:3.2.0-rc1 |
 
 
 ## Accessing OpenStudio Server
