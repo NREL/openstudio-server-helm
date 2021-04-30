@@ -52,7 +52,8 @@ spec:
               path: /
               port: 80
             initialDelaySeconds: 5
-            periodSeconds: 3
+            periodSeconds: 30
+            failureThreshold: 5
           livenessProbe:
             exec:
               command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
