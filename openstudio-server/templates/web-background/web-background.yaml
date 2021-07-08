@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: {{  .Values.web_background.name  }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.web_background.replicas }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
