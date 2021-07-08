@@ -3,7 +3,7 @@
 # Declare variables to be passed into your templates.
 
 
-# Set to google or aws
+# Set to google, aws or azure
 provider: 
   name: ""
 
@@ -25,6 +25,8 @@ db:
   container:
     name: "mongo-db"
     image: "mongo:3.4.10"
+    cpu: 2
+    memory: "8Gi"
     ports:
       db_port: 27017
   persistence:
@@ -37,8 +39,7 @@ db:
 load_balancer:
   name: "ingress-load-balancer"
   externalTrafficPolicy: "Local"
-  selector:
-    label: "web"
+  label: "web"
   ports:
     http_name: "http" 
     http_port: 80
@@ -60,6 +61,7 @@ nfs_pvc:
 
 redis:
   name: "redis"
+  label: "redis"
   container:
     name: "redis"
     image: "redis:4.0.6"
@@ -69,8 +71,7 @@ redis:
 
 redis_svc:
   name: "queue"
-  selector:
-   app: "redis"
+  label: "redis"
   port: 6379
 
 
@@ -104,8 +105,8 @@ web:
   container:
     name: "web"
     image: "nrel/openstudio-server:3.1.0"
-    cpu: 1
-    memory: "1Gi"
+    cpu: 2
+    memory: "6Gi"
     port:
      http: 80
      https: 443
@@ -113,13 +114,10 @@ web:
 web_svc: 
   name: "web" 
   label: "web" 
-  selector:
-    label: "web"
   ports:
     http: 80 
     https: 443
 
-      
 worker:
   name: "worker" 
   label: "worker" 

@@ -4,7 +4,8 @@ metadata:
   name: {{ .Values.redis_svc.name  }}
 spec:
   selector:
-    app: {{ .Values.redis_svc.selector.app  }}
+    app: {{ .Values.redis.name  }}
+    release: {{ .Release.Name }}
   ports:
     - name: redis
       protocol: TCP

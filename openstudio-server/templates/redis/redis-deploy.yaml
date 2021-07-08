@@ -1,13 +1,18 @@
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.redis.name  }}
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.redis.name  }}
+      release: {{ .Release.Name }}
   template:
     metadata:
       labels:
         app: {{ .Values.redis.name  }}
+        release: {{ .Release.Name }}
     spec:
       containers:
         - name: {{ .Values.redis.container.name  }}
