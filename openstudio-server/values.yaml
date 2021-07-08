@@ -102,11 +102,12 @@ rserve_svc:
 web_background: 
   name: "web-background"
   label: "web-background" 
+  replicas: 2
   container:
     name: "web-background" 
     image: "nrel/openstudio-server:3.2.1" 
-    cpu: 1
-    memory: "3Gi"
+    cpu: 0.5
+    memory: "1Gi"
 
 web:
   name: "web"

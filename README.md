@@ -57,6 +57,7 @@ cluster.name | Kubernetes AWS or Google cluster name. If you change the default 
 worker_hpa.minReplicas | Worker pods that run the simulations | 1 |
 worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
+web_background.replicas  | Number of projects/analyses to run in parrell. | 2 |
 web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.2.1 |
 web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server:3.2.1 |
 worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server:3.2.1 |
