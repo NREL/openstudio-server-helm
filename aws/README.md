@@ -34,7 +34,8 @@ eksctl create cluster \
     --asg-access \
     --ssh-access \
     --ssh-public-key ~/.ssh/id_rsa.pub \
-    --managed
+    --managed \
+    --tags environment=production
 ```
 
 This is an example of the output you should see when you create the cluster: 
