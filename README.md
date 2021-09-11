@@ -87,27 +87,27 @@ Once the cluster is up and running, you can use `kubectl` to determine the exter
 
 AWS
 ```
-$ kubectl get svc  ingress-load-balancer
+$ kubectl get svc ingress-load-balancer
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                                               PORT(S)                      AGE
 ingress-load-balancer   LoadBalancer   10.100.91.255   a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com   80:31837/TCP,443:32347/TCP   3m51s
-
-
 ```
+
 Google is 35.247.75.9
 ```
-$ kubectl get svc  ingress-load-balancer
+$ kubectl get svc ingress-load-balancer
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
 ingress-load-balancer   LoadBalancer   10.55.246.197   35.247.75.9   80:32613/TCP,443:31562/TCP   35m
 ```
+
 Azure is 20.190.10.17
 ```
- kubectl get svc
+$ kubectl get svc ingress-load-balancer
 NAME                                       TYPE           CLUSTER-IP    EXTERNAL-IP    PORT(S)  AGE
 ingress-load-balancer                      LoadBalancer   10.0.248.18   20.190.10.17   80:31879/TCP 443:30780/TCP 3m53s
+```
 
 
-
-You will then use this EXTERNAL-IP to use with PAT to connect to an exisiting cloud server. In the AWS example, you would enter http://a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com in PAT under Exisiting Server URL in PAT.  For Google, http://35.247.75.9. For Azure,  http://20.190.10.17
+You will then use this EXTERNAL-IP to use with PAT to connect to an existing cloud server. In the AWS example, you would enter http://a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com in PAT under Existing Server URL in PAT.  For Google, http://35.247.75.9. For Azure,  http://20.190.10.17
 
 
 ## Persistent Volumes
