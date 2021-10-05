@@ -54,6 +54,7 @@ spec:
               value: {{ .Values.db.password }}
           command: ["/usr/local/bin/start-workers"]
       terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs. 
+      priorityClassName: low-priority
       volumes:
         - name: osdata-worker
           emptyDir: {}

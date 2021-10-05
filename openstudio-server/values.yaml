@@ -182,7 +182,7 @@ worker_hpa:
   name: "worker"
   minReplicas: 2
   maxReplicas: 20
-  targetCPUUtilizationPercentage: 80
+  targetCPUUtilizationPercentage: 50
 
 
  

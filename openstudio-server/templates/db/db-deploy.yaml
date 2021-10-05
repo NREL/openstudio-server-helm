@@ -39,6 +39,7 @@ spec:
               value: {{ .Values.db.username }}
             - name: MONGO_INITDB_ROOT_PASSWORD
               value: {{ .Values.db.password }}
+      priorityClassName: high-priority
       volumes:
         - name: {{ .Values.db.name }}
           persistentVolumeClaim:

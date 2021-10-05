@@ -42,6 +42,7 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 30
             failureThreshold: 3
+      priorityClassName: high-priority
       volumes:
         - name: osdata
           persistentVolumeClaim:
