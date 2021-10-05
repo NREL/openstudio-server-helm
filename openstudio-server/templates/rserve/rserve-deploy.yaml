@@ -24,8 +24,11 @@ spec:
           image: {{ .Values.rserve.container.image }} 
           resources:
             requests:
-              cpu: {{ .Values.rserve.container.cpu }} 
-              memory: {{ .Values.rserve.container.memory }} 
+              cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
+              memory:  {{  .Values.rserve.container.resources.requests.memory  }}
+            limits:
+              cpu:  {{  .Values.rserve.container.resources.limits.cpu  }}
+              memory:  {{  .Values.rserve.container.resources.limits.memory  }}
           volumeMounts:
             - name: osdata
               mountPath: "/mnt/openstudio"

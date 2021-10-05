@@ -28,8 +28,13 @@ db:
   container:
     name: "mongo-db"
     image: "mongo:4.4.2"
-    cpu: 2
-    memory: "8Gi"
+    resources:
+      limits:
+        cpu: 1
+        memory: "8Gi"
+      requests:
+        cpu: 1
+        memory: "4Gi"
     ports:
       db_port: 27017
   persistence:
@@ -69,8 +74,13 @@ redis:
   container:
     name: "redis"
     image: "redis:6.0.9"
-    cpu: 0.5
-    memory: "1G"
+    resources:
+      limits:
+        cpu: 0.5
+        memory: "2Gi"
+      requests:
+        cpu: 0.25
+        memory: "1Gi"
     port: 6379
   persistence:
     enabled: true
@@ -91,8 +101,13 @@ rserve:
   container:
     name: "rserve"
     image: "nrel/openstudio-rserve:3.2.1"
-    cpu: 1
-    memory: 2Gi
+    resources:
+      limits:
+        cpu: 1
+        memory: "2Gi"
+      requests:
+        cpu: 0.5
+        memory: "1Gi"
     
 rserve_svc:
   name: "rserve"
@@ -106,8 +121,13 @@ web_background:
   container:
     name: "web-background" 
     image: "nrel/openstudio-server:3.2.1" 
-    cpu: 0.5
-    memory: "1Gi"
+    resources:
+      limits:
+        cpu: 0.5
+        memory: "1Gi"
+      requests:
+        cpu: 0.25
+        memory: "512Mi"
 
 web:
   name: "web"
@@ -116,8 +136,13 @@ web:
   container:
     name: "web"
     image: "nrel/openstudio-server:3.2.1"
-    cpu: 2
-    memory: "6Gi"
+    resources:
+      limits:
+        cpu: 2
+        memory: "6Gi"
+      requests:
+        cpu: 1
+        memory: "2Gi"
     port:
      http: 80
      https: 443
@@ -144,17 +169,20 @@ worker:
   container:
     name: "worker"
     image: "nrel/openstudio-server:3.2.1"
-    cpu: 1
-    memory: "3Gi"
-    terminationGracePeriodSeconds: 3600
+    resources:
+      limits:
+        cpu: 1
+        memory: "3Gi"
+      requests:
+        cpu: 1
+        memory: "3Gi"
+    terminationGracePeriodSeconds: 7200
       
 worker_hpa: 
   name: "worker"
   minReplicas: 2
   maxReplicas: 20
-  targetCPUUtilizationPercentage: 50
-
-
+  targetCPUUtilizationPercentage: 80
 
 
  
