@@ -58,10 +58,10 @@ worker_hpa.minReplicas | Worker pods that run the simulations | 1 |
 worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
 web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
-web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.2.1 |
-web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server:3.2.1 |
-worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server:3.2.1 |
-rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve:3.2.1 |
+web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.3.0-rc2 |
+web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server::3.3.0-rc2 |
+worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server::3.3.0-rc2 |
+rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve::3.3.0-rc2 |
 
 
 ## Accessing OpenStudio Server
