@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: {{  .Values.web_background.name  }}
 spec:
-  replicas: 1
+  replicas: {{  .Values.web_background.replicas  }}
   selector:
     matchLabels:
       app: {{  .Values.web_background.name  }}
@@ -25,8 +25,11 @@ spec:
           imagePullPolicy: Always
           resources:
             requests:
-              cpu:  {{  .Values.web_background.container.cpu  }}
-              memory:  {{  .Values.web_background.container.memory  }}
+              cpu:  {{  .Values.web_background.container.resources.requests.cpu  }}
+              memory:  {{  .Values.web_background.container.resources.requests.memory  }}
+            limits:
+              cpu:  {{  .Values.web_background.container.resources.limits.cpu  }}
+              memory:  {{  .Values.web_background.container.resources.limits.memory  }}
           volumeMounts:
             - name: nfs
               mountPath: "/mnt/openstudio"
@@ -51,6 +54,7 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 30
             failureThreshold: 3
+      priorityClassName: high-priority
       volumes:
         - name: nfs
           persistentVolumeClaim:

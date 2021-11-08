@@ -19,15 +19,18 @@ spec:
           image: {{ .Values.redis.container.image  }}
           resources:
             requests:
-              cpu: {{ .Values.redis.container.cpu  }}
-              memory: {{ .Values.redis.container.memory  }}
+              cpu:  {{  .Values.redis.container.resources.requests.cpu  }}
+              memory:  {{  .Values.redis.container.resources.requests.memory  }}
+            limits:
+              cpu:  {{  .Values.redis.container.resources.limits.cpu  }}
+              memory:  {{  .Values.redis.container.resources.limits.memory  }}
           ports:
             - containerPort: {{ .Values.redis.container.port  }}
           volumeMounts:
             - mountPath: /data
               name: {{ .Values.redis.name }}
-#          args: ["--appendonly", "yes", "--save", "900", "1", "--save", "30", "1"]
-          args: ["redis-server", "--requirepass", "{{ .Values.redis.password  }}"]
+          args: ["redis-server", "--appendonly yes", "--requirepass", "{{ .Values.redis.password  }}"]
+      priorityClassName: high-priority
       volumes:
         - name: {{ .Values.redis.name }}
           persistentVolumeClaim:

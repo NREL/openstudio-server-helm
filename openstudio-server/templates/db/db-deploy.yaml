@@ -29,13 +29,17 @@ spec:
               name: {{ .Values.db.name }}
           resources:
             requests:
-              cpu: {{ .Values.db.container.cpu   }}
-              memory: {{ .Values.db.container.memory   }}
+              cpu:  {{  .Values.db.container.resources.requests.cpu  }}
+              memory:  {{  .Values.db.container.resources.requests.memory  }}
+            limits:
+              cpu:  {{  .Values.db.container.resources.limits.cpu  }}
+              memory:  {{  .Values.db.container.resources.limits.memory  }}
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
               value: {{ .Values.db.username }}
             - name: MONGO_INITDB_ROOT_PASSWORD
               value: {{ .Values.db.password }}
+      priorityClassName: high-priority
       volumes:
         - name: {{ .Values.db.name }}
           persistentVolumeClaim:

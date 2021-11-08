@@ -37,7 +37,7 @@ The command removes all the Kubernetes components associated with the chart and 
 
 ## Configuration
 
-The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values by specify each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example, to change the data storage for NFS which stores the data points to 300GB you would run this install command:
+The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values by specifying each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example, to change the data storage for NFS which stores the data points to 300GB you would run this install command:
 
 For Google  
 `helm install openstudio-server ./openstudio-server --set provider.name=google --set nfs-server-provisioner.persistence.size=300Gi`
@@ -57,10 +57,11 @@ cluster.name | Kubernetes AWS or Google cluster name. If you change the default 
 worker_hpa.minReplicas | Worker pods that run the simulations | 1 |
 worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
-web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.2.1 |
-web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server:3.2.1 |
-worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server:3.2.1 |
-rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve:3.2.1 |
+web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
+web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.3.0 |
+web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server::3.3.0 |
+worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server::3.3.0 |
+rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve::3.3.0 |
 
 
 ## Accessing OpenStudio Server
@@ -86,7 +87,7 @@ Once the cluster is up and running, you can use `kubectl` to determine the exter
 
 AWS
 ```
-$ kubectl get svc  ingress-load-balancer
+$ kubectl get svc ingress-load-balancer
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                                               PORT(S)                      AGE
 ingress-load-balancer   LoadBalancer   10.100.91.255   a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com   80:31837/TCP,443:32347/TCP   3m51s
 
@@ -94,26 +95,26 @@ ingress-load-balancer   LoadBalancer   10.100.91.255   a0a4014d98f0211ea91cb0652
 ```
 Google is 35.247.75.9
 ```
-$ kubectl get svc  ingress-load-balancer
+$ kubectl get svc ingress-load-balancer
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
 ingress-load-balancer   LoadBalancer   10.55.246.197   35.247.75.9   80:32613/TCP,443:31562/TCP   35m
 ```
 Azure is 20.190.10.17
 ```
- kubectl get svc
+$ kubectl get svc ingress-load-balancer
 NAME                                       TYPE           CLUSTER-IP    EXTERNAL-IP    PORT(S)  AGE
 ingress-load-balancer                      LoadBalancer   10.0.248.18   20.190.10.17   80:31879/TCP 443:30780/TCP 3m53s
+```
 
 
-
-You will then use this EXTERNAL-IP to use with PAT to connect to an exisiting cloud server. In the AWS example, you would enter http://a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com in PAT under Exisiting Server URL in PAT.  For Google, http://35.247.75.9. For Azure,  http://20.190.10.17
+You will then use this EXTERNAL-IP to use with PAT to connect to an existing cloud server. In the AWS example, you would enter http://a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com in PAT under Existing Server URL in PAT.  For Google, http://35.247.75.9. For Azure,  http://20.190.10.17
 
 
 ## Persistent Volumes
 
 This helm chart provisions persistent storage for the Database (MongoDB) and the NFS server (storage for data results). These will persist throughout the life of the helm chart while it's running. It will **NOT** persist if you delete the helm chart. The volumes will be deleted along with it.  
 
-While it's possible to change the storage to use `Retain` vs `Delete`, the helm chart will need to reconfigured to allow to attach to existing volumes. This will be worked on as an enhancement for a future release.  
+While it's possible to change the storage to use `Retain` vs `Delete`, the helm chart will need to be reconfigured to allow to attach to existing volumes. This will be worked on as an enhancement for a future release.  
 
 ## Auto Scaling
 
