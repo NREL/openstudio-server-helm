@@ -38,7 +38,7 @@ spec:
               mountPath: "/mnt/openstudio"
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
-              value: {{ .Values.rserve.number_of_workers }}
+              value: {{ .Values.rserve.number_of_workers | quote }}
             - name: QUEUES
               value: analysis_wrappers
             - name: SECRET_KEY_BASE
