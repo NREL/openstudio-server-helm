@@ -33,6 +33,9 @@ spec:
             - name: osdata
               mountPath: "/mnt/openstudio"
           env:
+            - name: OS_SERVER_NUMBER_OF_WORKERS
+              value: {{ .Values.rserve.number_of_workers }}
+          env:
             - name: SECRET_KEY_BASE
               value: {{ .Values.web.secret_key_value }}
           livenessProbe:
