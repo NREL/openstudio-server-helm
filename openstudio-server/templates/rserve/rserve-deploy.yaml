@@ -35,6 +35,8 @@ spec:
           env:
             - name: SECRET_KEY_BASE
               value: {{ .Values.web.secret_key_value }}
+            - name: OS_SERVER_NUMBER_OF_WORKERS
+              value: {{ .Values.rserve.number_of_workers | quote }}
           livenessProbe:
             exec:
               command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]

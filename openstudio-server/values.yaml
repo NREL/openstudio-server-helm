@@ -98,6 +98,7 @@ redis_svc:
 rserve:
   name: "rserve"
   label: "rserve" 
+  number_of_workers: "7"
   container:
     name: "rserve"
     image: "nrel/openstudio-rserve:3.3.0"
