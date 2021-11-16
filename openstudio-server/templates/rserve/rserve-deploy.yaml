@@ -39,7 +39,7 @@ spec:
               value: {{ .Values.rserve.number_of_workers | quote }}
           livenessProbe:
             exec:
-              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
+              command: ["ls", "/mnt/openstudio"]
             initialDelaySeconds: 5
             periodSeconds: 30
             timeoutSeconds: 30

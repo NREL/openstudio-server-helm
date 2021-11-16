@@ -59,11 +59,11 @@ spec:
             failureThreshold: 5
           livenessProbe:
             exec:
-              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
-            initialDelaySeconds: 5
+              command: ["ls", "/mnt/openstudio"]
+            initialDelaySeconds: 30
             periodSeconds: 30
-            timeoutSeconds: 30
-            failureThreshold: 3
+            timeoutSeconds: 10
+            failureThreshold: 2
       priorityClassName: high-priority
       volumes:
        - name: nfs
