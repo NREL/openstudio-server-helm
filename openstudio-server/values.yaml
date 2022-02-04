@@ -7,6 +7,9 @@
 provider: 
   name: ""
 
+tags:
+  log_stack: false
+
 cluster:
   name: "openstudio-server" 
 
@@ -55,6 +58,33 @@ load_balancer:
     https_name: "https"
     https_port: 443
     https_protocol: "TCP"
+    kibana_name: "kibana"
+    kibana_port: 5601
+    kibana_protocol: "TCP"
+  loadBalancerSourceRanges: 0.0.0.0/0
+
+
+elastic_job:
+  name: "elastic-job"
+  label: "elastic-job"
+  container:
+    name: "elastic-job"
+    image: "elasticdump/elasticsearch-dump"
+    resources:
+      limits:
+        cpu: 0.25
+        memory: "512Mi"
+      requests:
+        cpu: 0.1
+        memory: "256Mi"
+
+elasticsearch:
+  replicas: 1
+  persistence:
+    enabled: true
+  esConfig:
+    elasticsearch.yml: |
+      xpack.security.enabled: false
 
 nfs:
   name: "nfs"
