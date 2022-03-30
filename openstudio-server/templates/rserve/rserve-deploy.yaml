@@ -26,17 +26,20 @@ spec:
             requests:
               cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
               memory:  {{  .Values.rserve.container.resources.requests.memory  }}
-            limits:
-              cpu:  {{  .Values.rserve.container.resources.limits.cpu  }}
-              memory:  {{  .Values.rserve.container.resources.limits.memory  }}
           volumeMounts:
             - name: osdata
               mountPath: "/mnt/openstudio"
           env:
-            - name: SECRET_KEY_BASE
-              value: {{ .Values.web.secret_key_value }}
-            - name: OS_SERVER_NUMBER_OF_WORKERS
-              value: {{ .Values.rserve.number_of_workers | quote }}
+             - name: OS_SERVER_NUMBER_OF_WORKERS
+               value: {{ .Values.rserve.number_of_workers | quote }}
+             - name: SECRET_KEY_BASE
+               value: {{ .Values.web.secret_key_value }}
+             - name: REDIS_URL
+               value: {{ .Values.redis_svc.url  }}
+             - name: MONGO_USER
+               value: {{ .Values.db.username }}
+             - name: MONGO_PASSWORD
+               value: {{ .Values.db.password }}
           livenessProbe:
             exec:
               command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]

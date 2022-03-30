@@ -19,6 +19,10 @@ spec:
         app: {{ .Values.web.name  }}
         release: {{ .Release.Name }}
     spec:
+      initContainers:
+         - name: init-wait-for-db
+           image: alpine
+           command: ["/bin/sh", "-c", "for i in $(seq 1 300); do nc -zvw1 {{  .Values.db.name  }} {{ .Values.db.container.ports.db_port }} && exit 0 || sleep 3; done; exit 1"]        
       containers:
         - name:  {{ .Values.web.container.name  }}
           image: {{ .Values.web.container.image  }}
@@ -54,9 +58,9 @@ spec:
             httpGet:
               path: /
               port: 80
-            initialDelaySeconds: 5
+            initialDelaySeconds: 60
             periodSeconds: 30
-            failureThreshold: 5
+            failureThreshold: 10
           livenessProbe:
             exec:
               command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
