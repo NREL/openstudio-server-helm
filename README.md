@@ -9,7 +9,7 @@ You can interface with the OpenStudio-server cluster using the [Parametric Analy
 
 ## Prerequisites
 
-- Kubernetes 1.6+ cluster.  Please refer to cluster setup instructions for [google](/google/README.md) or [aws](/aws/README.md) for information on how to provision a cluster. 
+- Kubernetes 1.19+ cluster.  Please refer to cluster setup instructions for [google](/google/README.md) or [aws](/aws/README.md) for information on how to provision a cluster. 
 - [helm client](https://helm.sh/docs/intro/install/) (v3.4.2 or higher)
 - [kubectl client](https://kubernetes.io/docs/tasks/tools/install-kubectl/) (v1.20.0 or higher) 
 
