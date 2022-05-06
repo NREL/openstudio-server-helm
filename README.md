@@ -9,7 +9,7 @@ You can interface with the OpenStudio-server cluster using the [Parametric Analy
 
 ## Prerequisites
 
-- Kubernetes 1.6+ cluster.  Please refer to cluster setup instructions for [google](/google/README.md) or [aws](/aws/README.md) for information on how to provision a cluster. 
+- Kubernetes 1.19+ cluster.  Please refer to cluster setup instructions for [google](/google/README.md) or [aws](/aws/README.md) for information on how to provision a cluster. 
 - [helm client](https://helm.sh/docs/intro/install/) (v3.4.2 or higher)
 - [kubectl client](https://kubernetes.io/docs/tasks/tools/install-kubectl/) (v1.20.0 or higher) 
 
@@ -58,10 +58,10 @@ worker_hpa.minReplicas | Worker pods that run the simulations | 1 |
 worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
 web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
-web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.4.0-rc1 |
-web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server::3.4.0-rc1 |
-worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server::3.4.0-rc1 |
-rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve::3.4.0-rc1 |
+web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.4.0 |
+web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server::3.4.0 |
+worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server::3.4.0 |
+rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve::3.4.0 |
 
 
 ## Accessing OpenStudio Server
