@@ -24,7 +24,7 @@ Below is an example that will create an AWS EKS cluster that has 3 nodes of inst
 ```
 eksctl create cluster \
     --name openstudio-server \
-    --version 1.18 \
+    --version 1.22 \
     --region us-west-2 \
     --nodegroup-name standard-workers \
     --node-type t2.xlarge\
