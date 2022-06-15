@@ -24,11 +24,30 @@ spec:
           image: {{ .Values.rserve.container.image }} 
           resources:
             requests:
-              cpu: {{ .Values.rserve.container.cpu }} 
-              memory: {{ .Values.rserve.container.memory }} 
+              cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
+              memory:  {{  .Values.rserve.container.resources.requests.memory  }}
           volumeMounts:
             - name: osdata
               mountPath: "/mnt/openstudio"
+          env:
+             - name: OS_SERVER_NUMBER_OF_WORKERS
+               value: {{ .Values.rserve.number_of_workers | quote }}
+             - name: SECRET_KEY_BASE
+               value: {{ .Values.web.secret_key_value }}
+             - name: REDIS_URL
+               value: {{ .Values.redis_svc.url  }}
+             - name: MONGO_USER
+               value: {{ .Values.db.username }}
+             - name: MONGO_PASSWORD
+               value: {{ .Values.db.password }}
+          livenessProbe:
+            exec:
+              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 30
+            failureThreshold: 3
+      priorityClassName: high-priority
       volumes:
         - name: osdata
           persistentVolumeClaim:
