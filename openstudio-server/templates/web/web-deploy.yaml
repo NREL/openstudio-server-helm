@@ -53,6 +53,10 @@ spec:
               value: {{ .Values.db.username }}
             - name: MONGO_PASSWORD
               value: {{ .Values.db.password }}
+            - name: MAX_REQUESTS
+              value: {{ .Values.web.passenger_max_request_queue_size | quote }}
+            - name: MAX_POOL
+              value: {{ .Values.web.passenger_max_pool_size | quote }}
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
           readinessProbe:
             httpGet:

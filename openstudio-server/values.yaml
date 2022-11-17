@@ -131,6 +131,8 @@ web:
   name: "web"
   label: "web"
   secret_key_value: "c4ab6d293e4bf52ee92e8dda6e16dc9b5448d0c5f7908ee40c66736d515f3c29142d905b283d73e5e9cef6b13cd8e38be6fd3b5e25d00f35b259923a86c7c473"
+  passenger_max_request_queue_size: "111"
+  passenger_max_pool_size: "21"
   container:
     name: "web"
     image: "nrel/openstudio-server:3.5.0"
