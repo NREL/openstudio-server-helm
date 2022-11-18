@@ -15,4 +15,9 @@ spec:
     - name: {{ .Values.load_balancer.ports.https_name }}
       protocol:  {{ .Values.load_balancer.ports.https_protocol }}
       port:   {{ .Values.load_balancer.ports.https_port }}
+    - name: {{ .Values.load_balancer.ports.kibana_name }}
+      protocol: {{ .Values.load_balancer.ports.kibana_protocol }}
+      port: {{ .Values.load_balancer.ports.kibana_port }}
+
+
 

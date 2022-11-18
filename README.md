@@ -27,6 +27,27 @@ For Amazon
 For Azure  
 `helm install openstudio-server ./openstudio-server --set provider.name=azure`
 
+## Installing optional logging stack
+
+The helm chart contains optional subcharts for advanced logging features. This includes the Elastic logging stack with a GUI dashboard called Kibana. It allows users to access the web GUI Kibana and investigate container logs and resource consumption such as cpu, memory, disk utilization, network I/O. To enable this optional logging feature, first you will need to install the dependencies (command below starting in the root of the repo)
+
+```bash 
+cd openstudio-server
+helm repo add elastic https://helm.elastic.co
+helm dependency update
+```
+
+Once the dependencies ares installed, pass in the optional arg `tags.log_stack=true` to helm (examples below) to enable this feature.
+
+For Google  
+`helm install openstudio-server ./openstudio-server --set provider.name=google--set tags.log_stack=true`
+
+For Amazon  
+`helm install openstudio-server ./openstudio-server --set provider.name=aws --set tags.log_stack=true`
+
+For Azure  
+`helm install openstudio-server ./openstudio-server --set provider.name=azure --set tags.log_stack=true`
+
 ## Uninstalling the Chart
 
 To uninstall/delete the `openstudio-server` helm chart:

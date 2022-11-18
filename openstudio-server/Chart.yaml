@@ -28,3 +28,24 @@ appVersion: 3.5.0
 #  - name: nfs-server-provisioner
 #    version:  1.0.0
 #    repository: "@stable"
+dependencies:
+  - name: elasticsearch
+    version: 7.16.3
+    repository: https://helm.elastic.co
+    tags:
+      - log_stack
+  - name: filebeat
+    version: 7.16.3
+    repository: https://helm.elastic.co
+    tags:
+      - log_stack
+  - name: kibana
+    version: 7.16.3
+    repository: https://helm.elastic.co
+    tags:
+      - log_stack
+  - name: metricbeat
+    version: 7.16.3
+    repository: https://helm.elastic.co
+    tags:
+      - log_stack
