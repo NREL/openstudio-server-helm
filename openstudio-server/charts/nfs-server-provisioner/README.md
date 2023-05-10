@@ -16,7 +16,7 @@ $ helm install stable/nfs-server-provisioner
 ```
 
 > **Warning**: While installing in the default configuration will work, any data stored on
-the dynamic volumes provisioned by this chart will not be persistent!
+> the dynamic volumes provisioned by this chart will not be persistent!
 
 ## Introduction
 
@@ -52,36 +52,36 @@ deletes the release.
 The following table lists the configurable parameters of the kibana chart and
 their default values.
 
-| Parameter                      | Description                                                                                                     | Default                                                  |
-|:-------------------------------|:----------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------|
-| `extraArgs` | [Additional command line arguments](https://github.com/kubernetes-incubator/external-storage/blob/master/nfs/docs/deployment.md#arguments) | `{}`
-| `imagePullSecrets`             | Specify image pull secrets                                                                                      | `nil` (does not add image pull secrets to deployed pods) |
-| `image.repository`             | The image repository to pull from                                                                               | `quay.io/kubernetes_incubator/nfs-provisioner`           |
-| `image.tag`                    | The image tag to pull from                                                                                      | `v2.2.2`                                                 |
-| `image.pullPolicy`             | Image pull policy                                                                                               | `IfNotPresent`                                           |
-| `service.type`                 | service type                                                                                                    | `ClusterIP`                                              |
-| `service.nfsPort`              | TCP port on which the nfs-server-provisioner NFS service is exposed                                                    | `2049`                                                   |
-| `service.mountdPort`           | TCP port on which the nfs-server-provisioner mountd service is exposed                                                 | `20048`                                                  |
-| `service.rpcbindPort`          | TCP port on which the nfs-server-provisioner RPC service is exposed                                                    | `111`                                                    |
-| `service.nfsNodePort`          | if `service.type` is `NodePort` and this is non-empty, sets the nfs-server-provisioner node port of the NFS service    | `nil`                                                    |
-| `service.mountdNodePort`       | if `service.type` is `NodePort` and this is non-empty, sets the nfs-server-provisioner node port of the mountd service | `nil`                                                    |
-| `service.rpcbindNodePort`      | if `service.type` is `NodePort` and this is non-empty, sets the nfs-server-provisioner node port of the RPC service    | `nil`                                                    |
-| `persistence.enabled`          | Enable config persistence using PVC                                                                             | `false`                                                  |
-| `persistence.storageClass`     | PVC Storage Class for config volume                                                                             | `nil`                                                    |
-| `persistence.accessMode`       | PVC Access Mode for config volume                                                                               | `ReadWriteOnce`                                          |
-| `persistence.size`             | PVC Storage Request for config volume                                                                           | `1Gi`                                                    |
-| `storageClass.create`          | Enable creation of a StorageClass to consume this nfs-server-provisioner instance                                      | `true`                                                   |
-| `storageClass.provisionerName` | The provisioner name for the storageclass                                                                       | `cluster.local/{release-name}-{chart-name}`              |
-| `storageClass.defaultClass`    | Whether to set the created StorageClass as the clusters default StorageClass                                    | `false`                                                  |
-| `storageClass.name`            | The name to assign the created StorageClass                                                                     | `nfs`                                                    |
-| `storageClass.allowVolumeExpansion` | Allow base storage PCV to be dynamically resizeable (set to null to disable )                              | `true                                                    |
-| `storageClass.parameters`      | Parameters for StorageClass                                                                                     | `{}`                                                     |
-| `storageClass.mountOptions`    | Mount options for StorageClass                                                                                  | `[ "vers=3" ]`                                           |
-| `storageClass.reclaimPolicy`   | ReclaimPolicy field of the class, which can be either Delete or Retain                                          | `Delete`                                                    |
-| `resources`                    | Resource limits for nfs-server-provisioner pod                                                                          | `{}`                                                     |
-| `nodeSelector`                 | Map of node labels for pod assignment                                                                           | `{}`                                                     |
-| `tolerations`                  | List of node taints to tolerate                                                                                 | `[]`                                                     |
-| `affinity`                     | Map of node/pod affinities                                                                                      | `{}`                                                     |
+| Parameter                           | Description                                                                                                                                | Default                                                  |
+| :---------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------- |
+| `extraArgs`                         | [Additional command line arguments](https://github.com/kubernetes-incubator/external-storage/blob/master/nfs/docs/deployment.md#arguments) | `{}`                                                     |
+| `imagePullSecrets`                  | Specify image pull secrets                                                                                                                 | `nil` (does not add image pull secrets to deployed pods) |
+| `image.repository`                  | The image repository to pull from                                                                                                          | `quay.io/kubernetes_incubator/nfs-provisioner`           |
+| `image.tag`                         | The image tag to pull from                                                                                                                 | `v2.2.2`                                                 |
+| `image.pullPolicy`                  | Image pull policy                                                                                                                          | `IfNotPresent`                                           |
+| `service.type`                      | service type                                                                                                                               | `ClusterIP`                                              |
+| `service.nfsPort`                   | TCP port on which the nfs-server-provisioner NFS service is exposed                                                                        | `2049`                                                   |
+| `service.mountdPort`                | TCP port on which the nfs-server-provisioner mountd service is exposed                                                                     | `20048`                                                  |
+| `service.rpcbindPort`               | TCP port on which the nfs-server-provisioner RPC service is exposed                                                                        | `111`                                                    |
+| `service.nfsNodePort`               | if `service.type` is `NodePort` and this is non-empty, sets the nfs-server-provisioner node port of the NFS service                        | `nil`                                                    |
+| `service.mountdNodePort`            | if `service.type` is `NodePort` and this is non-empty, sets the nfs-server-provisioner node port of the mountd service                     | `nil`                                                    |
+| `service.rpcbindNodePort`           | if `service.type` is `NodePort` and this is non-empty, sets the nfs-server-provisioner node port of the RPC service                        | `nil`                                                    |
+| `persistence.enabled`               | Enable config persistence using PVC                                                                                                        | `false`                                                  |
+| `persistence.storageClass`          | PVC Storage Class for config volume                                                                                                        | `nil`                                                    |
+| `persistence.accessMode`            | PVC Access Mode for config volume                                                                                                          | `ReadWriteOnce`                                          |
+| `persistence.size`                  | PVC Storage Request for config volume                                                                                                      | `1Gi`                                                    |
+| `storageClass.create`               | Enable creation of a StorageClass to consume this nfs-server-provisioner instance                                                          | `true`                                                   |
+| `storageClass.provisionerName`      | The provisioner name for the storageclass                                                                                                  | `cluster.local/{release-name}-{chart-name}`              |
+| `storageClass.defaultClass`         | Whether to set the created StorageClass as the clusters default StorageClass                                                               | `false`                                                  |
+| `storageClass.name`                 | The name to assign the created StorageClass                                                                                                | `nfs`                                                    |
+| `storageClass.allowVolumeExpansion` | Allow base storage PCV to be dynamically resizeable (set to null to disable )                                                              | `true                                                    |
+| `storageClass.parameters`           | Parameters for StorageClass                                                                                                                | `{}`                                                     |
+| `storageClass.mountOptions`         | Mount options for StorageClass                                                                                                             | `[ "vers=3" ]`                                           |
+| `storageClass.reclaimPolicy`        | ReclaimPolicy field of the class, which can be either Delete or Retain                                                                     | `Delete`                                                 |
+| `resources`                         | Resource limits for nfs-server-provisioner pod                                                                                             | `{}`                                                     |
+| `nodeSelector`                      | Map of node labels for pod assignment                                                                                                      | `{}`                                                     |
+| `tolerations`                       | List of node taints to tolerate                                                                                                            | `[]`                                                     |
+| `affinity`                          | Map of node/pod affinities                                                                                                                 | `{}`                                                     |
 
 ```console
 $ helm install stable/nfs-server-provisioner --name my-release \
@@ -201,5 +201,5 @@ An example of the necessary `PersistentVolume`:
         name: data-nfs-server-provisioner-0
 
 > **Warning**: `hostPath` volumes cannot be migrated between machines by Kubernetes, as such,
-in this example, we have restricted the `nfs-server-provisioner` pod to run on a single node. This
-is unsuitable for production deployments.
+> in this example, we have restricted the `nfs-server-provisioner` pod to run on a single node. This
+> is unsuitable for production deployments.

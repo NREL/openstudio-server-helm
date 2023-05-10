@@ -13,5 +13,3 @@ spec:
     - name: https
       protocol: TCP
       port:  {{ .Values.web_svc.ports.https   }}
-
-

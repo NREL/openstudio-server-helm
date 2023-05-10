@@ -4,11 +4,11 @@
 
 
 # Set to google, aws or azure
-provider: 
+provider:
   name: ""
 
 cluster:
-  name: "openstudio-server" 
+  name: "openstudio-server"
 
 nfs-server-provisioner:
   persistence:
@@ -18,7 +18,7 @@ nfs-server-provisioner:
   storageClass:
     allowVolumeExpansion: false
     mountOptions:
-      - vers=4 
+      - vers=4
       - sync
 db:
   name:  "db"
@@ -49,7 +49,7 @@ load_balancer:
   externalTrafficPolicy: "Local"
   label: "web"
   ports:
-    http_name: "http" 
+    http_name: "http"
     http_port: 80
     http_protocol: "TCP"
     https_name: "https"
@@ -59,11 +59,11 @@ load_balancer:
 nfs:
   name: "nfs"
 
-nfs_pvc: 
+nfs_pvc:
   name: "nfs-pvc"
-  accessModes: 
-    - "ReadWriteMany"  
-  storage_class: "" 
+  accessModes:
+    - "ReadWriteMany"
+  storage_class: ""
   storage: "1Mi"
 
 
@@ -97,7 +97,7 @@ redis_svc:
 
 rserve:
   name: "rserve"
-  label: "rserve" 
+  label: "rserve"
   number_of_workers: "1"
   container:
     name: "rserve"
@@ -106,19 +106,19 @@ rserve:
       requests:
         cpu: 1
         memory: "2Gi"
-    
+
 rserve_svc:
   name: "rserve"
   label: "rserve"
   port: 6311
 
-web_background: 
+web_background:
   name: "web-background"
-  label: "web-background" 
+  label: "web-background"
   replicas: 1
   container:
-    name: "web-background" 
-    image: "nrel/openstudio-server:3.5.1" 
+    name: "web-background"
+    image: "nrel/openstudio-server:3.5.1"
     resources:
       limits:
         cpu: 0.5
@@ -147,8 +147,8 @@ web:
      http: 80
      https: 443
 
-# For this to work and have more than 1 web pod we'll need to implement 
-# a distributed file locking scheme such a https://github.com/antirez/redlock-rbs 
+# For this to work and have more than 1 web pod we'll need to implement
+# a distributed file locking scheme such a https://github.com/antirez/redlock-rbs
 # as even with using NFS via sync it cannot guarantee file locking using multiple clients
 web_hpa:
   name: "web"
@@ -156,16 +156,16 @@ web_hpa:
   maxReplicas: 1
   targetCPUUtilizationPercentage: 50
 
-web_svc: 
-  name: "web" 
-  label: "web" 
+web_svc:
+  name: "web"
+  label: "web"
   ports:
-    http: 80 
+    http: 80
     https: 443
 
 worker:
-  name: "worker" 
-  label: "worker" 
+  name: "worker"
+  label: "worker"
   container:
     name: "worker"
     image: "nrel/openstudio-server:3.5.0"
@@ -177,12 +177,12 @@ worker:
         cpu: 1
         memory: "3Gi"
     terminationGracePeriodSeconds: 86400
-      
-worker_hpa: 
+
+worker_hpa:
   name: "worker"
   minReplicas: 2
   maxReplicas: 20
   targetCPUUtilizationPercentage: 50
 
 
- 
+

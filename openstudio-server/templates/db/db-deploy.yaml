@@ -44,4 +44,3 @@ spec:
         - name: {{ .Values.db.name }}
           persistentVolumeClaim:
             claimName: {{ .Values.db.name }}
-
