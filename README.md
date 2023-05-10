@@ -18,14 +18,20 @@ You can interface with the OpenStudio-server cluster using the [Parametric Analy
 To install the helm chart with the chart name `openstudio-server`, you can run the following command in the root directory of this repo. This assumes you already have a Kubernetes cluster up and running. If you do not, please refer to [google](/google/README.md) or [aws](/aws/README.md) in this repo.  
 
 
-For Google  
-`helm install openstudio-server ./openstudio-server --set provider.name=google`
+### For Google  
+```bash
+helm install openstudio-server ./openstudio-server --set provider.name=google
+```
 
-For Amazon  
-`helm install openstudio-server ./openstudio-server --set provider.name=aws`
+### For Amazon  
+```bash
+helm install openstudio-server ./openstudio-server --set provider.name=aws
+```
 
-For Azure  
-`helm install openstudio-server ./openstudio-server --set provider.name=azure`
+### For Azure  
+```bash
+helm install openstudio-server ./openstudio-server --set provider.name=azure
+```
 
 ## Uninstalling the Chart
 
@@ -39,40 +45,46 @@ The command removes all the Kubernetes components associated with the chart and 
 
 The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values by specifying each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example, to change the data storage for NFS which stores the data points to 300GB you would run this install command:
 
-For Google  
-`helm install openstudio-server ./openstudio-server --set provider.name=google --set nfs-server-provisioner.persistence.size=300Gi`
+### For Google  
+```bash
+helm install openstudio-server ./openstudio-server --set provider.name=google --set nfs-server-provisioner.persistence.size=300Gi
+```
 
-For Amazon  
-`helm install openstudio-server ./openstudio-server --set provider.name=aws --set nfs-server-provisioner.persistence.size=300Gi`
+### For Amazon  
+```bash
+helm install openstudio-server ./openstudio-server --set provider.name=aws --set nfs-server-provisioner.persistence.size=300Gi
+```
+### For Azure  
+```bash
+helm install openstudio-server ./openstudio-server --set provider.name=azure --set nfs-server-provisioner.persistence.size=300Gi
+```
 
-For Azure  
-`helm install openstudio-server ./openstudio-server --set provider.name=azure --set nfs-server-provisioner.persistence.size=300Gi`
-
-
-Parameter | Description | Default
---------- | ----------- | -------
-nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 200Gi |
-db.persistence.size | Size of the volume for MongoDB | 200Gi |
-cluster.name | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly | openstudio-server |
-worker_hpa.minReplicas | Worker pods that run the simulations | 1 |
-worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
-worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
-web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
-web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.5.0 |
-web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server::3.5.0 |
-worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server::3.5.0 |
-rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve::3.5.0 |
+| Parameter                                 | Description                                                                                                                                                                     | Default                       |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| nfs-server-provisioner.persistence.size   | Size of the volume for storing the data point results                                                                                                                           | 200Gi                         |
+| db.persistence.size                       | Size of the volume for MongoDB                                                                                                                                                  | 200Gi                         |
+| cluster.name                              | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly                         | openstudio-server             |
+| worker_hpa.minReplicas                    | Worker pods that run the simulations                                                                                                                                            | 1                             |
+| worker_hpa.maxReplicas                    | Maximum Worker pods that run the simulations                                                                                                                                    | 20                            |
+| worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling.                                                                                                             | 50                            |
+| web_background.replicas                   | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses. | 1                             |
+| web_background.container.image            | Container to run the web background. Can use a custom image to override default                                                                                                 | nrel/openstudio-server:3.5.0  |
+| web.container.image                       | Container to run the web front-end. Can use a custom image to override default                                                                                                  | nrel/openstudio-server::3.5.0 |
+| worker.container.image                    | Container to run the worker. Can use a custom image to override default                                                                                                         | nrel/openstudio-server::3.5.0 |
+| rserve.container.image                    | Container to run r server. Can use a custom image to override default                                                                                                           | nrel/openstudio-rserve::3.5.0 |
 
 
 ## Accessing OpenStudio Server
 
 First make sure all the Kubernetes pods are up in running. You can confirm this by running:
 
-`kubectl get po`  
+```bash
+kubectl get pods
+```
 
 example output of all pods running: 
 
-```
+```bash
 NAME                                                       READY   STATUS    RESTARTS   AGE
 db-679f8c764c-52c2r                                        1/1     Running   0          109s
 openstudio-server-nfs-server-provisioner-d7b798757-bt4p7   1/1     Running   0          109s
@@ -85,22 +97,22 @@ worker-cf755cccf-9twqw                                     1/1     Running   0  
 
 Once the cluster is up and running, you can use `kubectl` to determine the external IP or DN to access OpenStudio server and use this in PAT to connect to. For example, on AWS, a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com is the external name. See the examples below for each cloud provider. 
 
-AWS
-```
+AWS is the long domain (a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com)
+```bash
 $ kubectl get svc ingress-load-balancer
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                                               PORT(S)                      AGE
 ingress-load-balancer   LoadBalancer   10.100.91.255   a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com   80:31837/TCP,443:32347/TCP   3m51s
-
-
 ```
+
 Google is 35.247.75.9
-```
+```bash
 $ kubectl get svc ingress-load-balancer
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
 ingress-load-balancer   LoadBalancer   10.55.246.197   35.247.75.9   80:32613/TCP,443:31562/TCP   35m
 ```
+
 Azure is 20.190.10.17
-```
+```bash
 $ kubectl get svc ingress-load-balancer
 NAME                                       TYPE           CLUSTER-IP    EXTERNAL-IP    PORT(S)  AGE
 ingress-load-balancer                      LoadBalancer   10.0.248.18   20.190.10.17   80:31879/TCP 443:30780/TCP 3m53s
