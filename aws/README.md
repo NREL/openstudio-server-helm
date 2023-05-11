@@ -3,11 +3,11 @@ Below is a guide to help setup a AWS Elastic Kubernetes Cluster (EKS) cluster us
 ## Prerequisites
 
 - AWS Account with EKS privileges
-- AWS [eksctl client](https://docs.aws.amazon.com/eks/latest/userguide/eksctl) (v0.34.0 or higher)
+- AWS [eksctl client](https://docs.aws.amazon.com/eks/latest/userguide/eksctl) (v1.40.0 or higher)
 
 ## Install eksctl client
 
-https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html#installing-eksctl (0.34.0 or higher)
+https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html#installing-eksctl (v1.40.0 or higher)
 
 ## Create a cluster using eksctl
 
@@ -24,7 +24,7 @@ Below is an example that will create an AWS EKS cluster that has 3 nodes of inst
 ```bash
 eksctl create cluster \
     --name openstudio-server \
-    --version 1.22 \
+    --version 1.26 \
     --region us-west-2 \
     --nodegroup-name standard-workers \
     --node-type t2.xlarge\
@@ -77,6 +77,30 @@ This is an example of the output you should see when you create the cluster:
 [ℹ]  node "ip-192-168-81-118.us-west-2.compute.internal" is ready
 [ℹ]  kubectl command should work with "/Users/tijcolem/.kube/config", try 'kubectl get nodes'
 [✔]  EKS cluster "openstudio-server" in "us-west-2" region is ready
+```
+
+## EKS Add-On services
+
+As of Kubernetes version 1.23, to use EBS volumes you must install an EKS Add-On service called EBS CSI driver. Once the cluster is up and running, follow the steps posted on [AWS](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html)  to install the Add-On service. If this is a new cluster it should be a few commands to install. For example, below are the commands to add the Add-On feature for a new cluster using EKS v1.26
+
+1 ) Create an IAM OIDC identity provider for your cluster (replace "openstudio-server" if your cluster is named differently)
+`eksctl utils associate-iam-oidc-provider --cluster openstudio-server --approve`
+
+2 ) Create your Amazon EBS CSI plugin IAM role with eksctl (replace "openstudio-server" if your cluster is named differently). 
+
+```bash 
+eksctl create iamserviceaccount \
+  --name ebs-csi-controller-sa \
+  --namespace kube-system \
+  --cluster openstudio-server \
+  --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+  --approve \
+  --role-only \
+  --role-name AmazonEKS_EBS_CSI_DriverRole
+```
+3 ) Install the Add-On (replace 111122223333 with your account id)
+```bash 
+eksctl create addon --name aws-ebs-csi-driver --cluster openstudio-server --service-account-role-arn arn:aws:iam::111122223333:role/AmazonEKS_EBS_CSI_DriverRole --force
 ```
 
 ## Connecting to your cluster using kubectl
