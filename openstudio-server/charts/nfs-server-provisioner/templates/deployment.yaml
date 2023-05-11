@@ -121,4 +121,3 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.persistence.name }}
       {{- end }}
-

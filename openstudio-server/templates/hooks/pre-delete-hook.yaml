@@ -27,4 +27,3 @@ spec:
               kubectl delete deployment rserve;
               sleep 60;
       restartPolicy: Never
-

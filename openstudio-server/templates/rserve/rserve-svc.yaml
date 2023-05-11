@@ -10,5 +10,3 @@ spec:
     - name: rserve
       protocol: TCP
       port: {{ .Values.rserve_svc.port  }}
-
-

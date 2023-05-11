@@ -26,7 +26,7 @@ spec:
           lifecycle:
             preStop:
               exec:
-                # This command checks to see if there is a running openstudio process and resque 'ruby' process. 
+                # This command checks to see if there is a running openstudio process and resque 'ruby' process.
                 # idle state should only have 1 ruby proc and 0 openstudio proc.
                 command: ['/bin/sh','-c', 'pkill -3 -f resque;  while [ $(eval "pgrep -c ruby") -gt 1 ] || [ $(eval "pgrep -c openstudio") -gt 0 ]  ; do sleep 5;  done; pkill -P 1;']
           resources:
@@ -53,7 +53,7 @@ spec:
             - name: MONGO_PASSWORD
               value: {{ .Values.db.password }}
           command: ["/usr/local/bin/start-workers"]
-      terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs. 
+      terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs.
       priorityClassName: low-priority
       volumes:
         - name: osdata-worker

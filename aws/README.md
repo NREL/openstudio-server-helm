@@ -1,30 +1,30 @@
-
-Below is a guide to help setup a AWS Elastic Kubernetes Cluster (EKS) cluster using the AWS eksclt cli utility. This guide is meant to provide steps to setup the EKS cluster. Please refer to the [helm chart](/README.md) to install openstudio-server chart once the EKS cluster is up and running.  
+Below is a guide to help setup a AWS Elastic Kubernetes Cluster (EKS) cluster using the AWS eksclt cli utility. This guide is meant to provide steps to setup the EKS cluster. Please refer to the [helm chart](/README.md) to install openstudio-server chart once the EKS cluster is up and running.
 
 ## Prerequisites
 
 - AWS Account with EKS privileges
-- AWS [eksctl client](https://docs.aws.amazon.com/eks/latest/userguide/eksctl) (v0.34.0 or higher)
+- AWS [eksctl client](https://docs.aws.amazon.com/eks/latest/userguide/eksctl) (v1.40.0 or higher)
 
 ## Install eksctl client
-https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html#installing-eksctl (0.34.0 or higher)
 
+https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html#installing-eksctl (v1.40.0 or higher)
 
 ## Create a cluster using eksctl
 
 eksctl will need access to AWS. You can provide access by setting ENV variables in your shell before running the cli (example below). More advanced info on eksctl can be found here: https://eksctl.io/
 
+```bash
+export AWS_ACCESS_KEY_ID="YOUR_AWS_ACCESS_KEY_ID"
+export AWS_SECRET_ACCESS_KEY="YOUR_AWS_SECRET_ACCESS_KEY"
+export AWS_DEFAULT_REGION="YOUR_AWS_DEFAULT_REGION"
 ```
- export AWS_ACCESS_KEY_ID="YOUR_AWS_ACCESS_KEY_ID"
- export AWS_SECRET_ACCESS_KEY="YOUR_AWS_SECRET_ACCESS_KEY"
- export AWS_DEFAULT_REGION="YOUR_AWS_DEFAULT_REGION"
-```
-Below is an example that will create an AWS EKS cluster that has 3 nodes of instance type `t2.xlarge` with max nodes = 8. This cluster is set to autoscale up to this max node amount. You can change the instance type and min and max node setting to your use case.  More info on [AWS instance types](https://aws.amazon.com/ec2/instance-types/)
 
-```
+Below is an example that will create an AWS EKS cluster that has 3 nodes of instance type `t2.xlarge` with max nodes = 8. This cluster is set to autoscale up to this max node amount. You can change the instance type and min and max node setting to your use case. More info on [AWS instance types](https://aws.amazon.com/ec2/instance-types/)
+
+```bash
 eksctl create cluster \
     --name openstudio-server \
-    --version 1.22 \
+    --version 1.26 \
     --region us-west-2 \
     --nodegroup-name standard-workers \
     --node-type t2.xlarge\
@@ -39,16 +39,16 @@ eksctl create cluster \
     --tags environment=production
 ```
 
-This is an example of the output you should see when you create the cluster: 
+This is an example of the output you should see when you create the cluster:
 
-```
+```bash
 [ℹ]  eksctl version 0.34.0
 [ℹ]  using region us-west-2
 [ℹ]  setting availability zones to [us-west-2a us-west-2d us-west-2c]
 [ℹ]  subnets for us-west-2a - public:192.168.0.0/19 private:192.168.96.0/19
 [ℹ]  subnets for us-west-2d - public:192.168.32.0/19 private:192.168.128.0/19
 [ℹ]  subnets for us-west-2c - public:192.168.64.0/19 private:192.168.160.0/19
-[ℹ]  using SSH public key "/Users/tijcolem/.ssh/id_rsa.pub" as "eksctl-openstudio-server-nodegroup-standard-workers-8d:9e:ea:30:c1:55:57:67:3a:0e:f8:73:68:79:92:a9" 
+[ℹ]  using SSH public key "/Users/tijcolem/.ssh/id_rsa.pub" as "eksctl-openstudio-server-nodegroup-standard-workers-8d:9e:ea:30:c1:55:57:67:3a:0e:f8:73:68:79:92:a9"
 [ℹ]  using Kubernetes version 1.18
 [ℹ]  creating EKS cluster "openstudio-server" in "us-west-2" region with managed nodes
 [ℹ]  will create 2 separate CloudFormation stacks for cluster itself and the initial managed nodegroup
@@ -79,19 +79,43 @@ This is an example of the output you should see when you create the cluster:
 [✔]  EKS cluster "openstudio-server" in "us-west-2" region is ready
 ```
 
+## EKS Add-On services
+
+As of Kubernetes version 1.23, to use EBS volumes you must install an EKS Add-On service called EBS CSI driver. Once the cluster is up and running, follow the steps posted on [AWS](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html)  to install the Add-On service. If this is a new cluster it should be a few commands to install. For example, below are the commands to add the Add-On feature for a new cluster using EKS v1.26
+
+1 ) Create an IAM OIDC identity provider for your cluster (replace "openstudio-server" if your cluster is named differently)
+`eksctl utils associate-iam-oidc-provider --cluster openstudio-server --approve`
+
+2 ) Create your Amazon EBS CSI plugin IAM role with eksctl (replace "openstudio-server" if your cluster is named differently). 
+
+```bash 
+eksctl create iamserviceaccount \
+  --name ebs-csi-controller-sa \
+  --namespace kube-system \
+  --cluster openstudio-server \
+  --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+  --approve \
+  --role-only \
+  --role-name AmazonEKS_EBS_CSI_DriverRole
+```
+3 ) Install the Add-On (replace 111122223333 with your account id)
+```bash 
+eksctl create addon --name aws-ebs-csi-driver --cluster openstudio-server --service-account-role-arn arn:aws:iam::111122223333:role/AmazonEKS_EBS_CSI_DriverRole --force
+```
+
 ## Connecting to your cluster using kubectl
 
-Once eksctl is done setting up the cluster, it will automatically setup the connection by creating a `~/.kube/config` file so you and can begin using helm and kubectl cli tools to communicate to the cluster.  occasionally, you need to run generate this config manually. If you are not able to run `kubectl get nodes` you can re-run the kube config setup by running `aws eks update-kubeconfig --name openstudio-server`  Change the `--name` to match the cluster name if different from the example.  
+Once eksctl is done setting up the cluster, it will automatically setup the connection by creating a `~/.kube/config` file so you and can begin using helm and kubectl cli tools to communicate to the cluster. occasionally, you need to run generate this config manually. If you are not able to run `kubectl get nodes` you can re-run the kube config setup by running `aws eks update-kubeconfig --name openstudio-server` Change the `--name` to match the cluster name if different from the example.
 
 ## Delete the cluster using eksctl
 
-To delete the cluster you just need to specify the name of the cluster. 
+To delete the cluster you just need to specify the name of the cluster.
 
 `eksctl delete cluster --name openstudio-server`
 
-This is an example of the output you should see when you delete the cluster: 
+This is an example of the output you should see when you delete the cluster:
 
-```
+```bash
 [ℹ]  eksctl version 0.18.0
 [ℹ]  using region us-west-2
 [ℹ]  deleting EKS cluster "openstudio-server"
@@ -105,19 +129,8 @@ This is an example of the output you should see when you delete the cluster:
 [✔]  all cluster resources were deleted
 ```
 
-It's always good idea to verify the cluster has been deleted. 
+It's always good idea to verify the cluster has been deleted.
 
 `eksctl get cluster`
 
-This cmd should return no clusters. You can also use the web console in your AWS account to verify as well. 
-
-
-
-
-
-
-
-
-
-
-
+This cmd should return no clusters. You can also use the web console in your AWS account to verify as well.

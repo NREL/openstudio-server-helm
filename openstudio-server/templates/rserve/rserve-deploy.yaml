@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.rserve.name  }} 
+  name: {{ .Values.rserve.name  }}
 spec:
   replicas: 1
   selector:
@@ -20,8 +20,8 @@ spec:
         release: {{ .Release.Name }}
     spec:
       containers:
-        - name: {{ .Values.rserve.container.name }} 
-          image: {{ .Values.rserve.container.image }} 
+        - name: {{ .Values.rserve.container.name }}
+          image: {{ .Values.rserve.container.image }}
           resources:
             requests:
               cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
