@@ -98,14 +98,14 @@ eksctl create iamserviceaccount \
   --role-only \
   --role-name AmazonEKS_EBS_CSI_DriverRole
 ```
-3 ) Install the Add-On (replace 111122223333 with your account id)
+3 ) Install the Add-On (replace 111122223333 with your account id). An easy way to get your account id is to run the following cmd `eksctl get cluster openstudio-server -o yaml | grep arn`
 ```bash 
 eksctl create addon --name aws-ebs-csi-driver --cluster openstudio-server --service-account-role-arn arn:aws:iam::111122223333:role/AmazonEKS_EBS_CSI_DriverRole --force
 ```
 
 ## Connecting to your cluster using kubectl
 
-Once eksctl is done setting up the cluster, it will automatically setup the connection by creating a `~/.kube/config` file so you and can begin using helm and kubectl cli tools to communicate to the cluster. occasionally, you need to run generate this config manually. If you are not able to run `kubectl get nodes` you can re-run the kube config setup by running `aws eks update-kubeconfig --name openstudio-server` Change the `--name` to match the cluster name if different from the example.
+Once eksctl is done setting up the cluster, it will automatically setup the connection by creating a `~/.kube/config` file so you and can begin using helm and kubectl cli tools to communicate to the cluster. occasionally, you need to run generate this config manually. If you are not able to run `kubectl get nodes` you can re-run the kube config setup by running `aws eks update-kubeconfig --name openstudio-server` Change the `--name` to match the cluster name if different from the example. Now that the cluster is ready, you can now deploy the helm chart. Please refer the main README.md doc for deploying the helm chart. 
 
 ## Delete the cluster using eksctl
 
