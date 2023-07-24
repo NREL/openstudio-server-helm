@@ -98,10 +98,23 @@ eksctl create iamserviceaccount \
   --role-only \
   --role-name AmazonEKS_EBS_CSI_DriverRole
 ```
-3 ) Install the Add-On (replace 111122223333 with your account id). An easy way to get your account id is to run the following cmd `eksctl get cluster openstudio-server -o yaml | grep arn`
+3 ) Install the Add-On (replace \<YOUR ACCOUNT ID\> with your account id). An easy way to get your account id is to run the following cmd `eksctl get cluster openstudio-server -o yaml | grep arn`
 ```bash 
-eksctl create addon --name aws-ebs-csi-driver --cluster openstudio-server --service-account-role-arn arn:aws:iam::111122223333:role/AmazonEKS_EBS_CSI_DriverRole --force
+eksctl create addon --name aws-ebs-csi-driver --cluster openstudio-server --service-account-role-arn arn:aws:iam::<YOUR ACCOUNT ID>:role/AmazonEKS_EBS_CSI_DriverRole --force
 ```
+
+4 ) Update kubernetes cluster __and__ add-on version in aws console.
+If you see update option in eks console for cluster and/or add-on of EBS. Just update both. Otherwise could cause issue like:
+
+The pvc could be keeping pending forever.  
+
+If you do `kubectl describe pvc <pvc-id>` it may raise issue:  
+
+```bash
+caused by: AccessDenied: Not authorized to perform sts:AssumeRoleWithWebIdentity
+          status code: 403, request id: 60da95cf-c66e-471e-96a5-bd8915983baf
+```
+
 
 ## Connecting to your cluster using kubectl
 
@@ -134,3 +147,5 @@ It's always good idea to verify the cluster has been deleted.
 `eksctl get cluster`
 
 This cmd should return no clusters. You can also use the web console in your AWS account to verify as well.
+
+
