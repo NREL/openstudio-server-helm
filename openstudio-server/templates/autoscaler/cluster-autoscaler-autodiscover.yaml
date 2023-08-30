@@ -148,6 +148,9 @@ spec:
             requests:
               cpu: 100m
               memory: 300Mi
+          env:
+            - name: AWS_REGION
+              value: us-west-2
           command:
             - ./cluster-autoscaler
             - --v=4
