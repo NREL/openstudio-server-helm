@@ -8,13 +8,13 @@ provider:
   name: ""
 
 cluster:
-  name: "openstudio-server"
+  name: "openstudio-server-03"
 
 nfs-server-provisioner:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 200Gi
+    size: 7Ti 
   storageClass:
     allowVolumeExpansion: false
     mountOptions:
@@ -40,7 +40,7 @@ db:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 200Gi
+    size: 7Ti
     accessModes:
       - "ReadWriteOnce"
 
