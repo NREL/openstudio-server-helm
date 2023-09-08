@@ -14,7 +14,7 @@ nfs-server-provisioner:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 7Ti 
+    size: 30Ti 
   storageClass:
     allowVolumeExpansion: false
     mountOptions:
@@ -27,11 +27,11 @@ db:
   password: "openstudio"
   container:
     name: "mongo-db"
-    image: "mongo:4.4.2"
+    image: "mongo:6.0.7"
     resources:
       limits:
-        cpu: 1
-        memory: "8Gi"
+        cpu: 12
+        memory: "20Gi"
       requests:
         cpu: 1
         memory: "4Gi"
@@ -40,7 +40,7 @@ db:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 7Ti
+    size: 200Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -64,7 +64,7 @@ nfs_pvc:
   accessModes:
     - "ReadWriteMany"
   storage_class: ""
-  storage: "1Mi"
+  storage: "1Gi"
 
 
 redis:
@@ -76,16 +76,16 @@ redis:
     image: "redis:6.0.9"
     resources:
       limits:
-        cpu: 0.5
-        memory: "2Gi"
+        cpu: 8
+        memory: "16Gi"
       requests:
-        cpu: 0.25
-        memory: "1Gi"
+        cpu: 1
+        memory: "2Gi"
     port: 6379
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 5Gi
+    size: 200Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -103,9 +103,12 @@ rserve:
     name: "rserve"
     image: "nrel/openstudio-rserve:3.6.1-1"
     resources:
+      limits:
+        cpu: 8
+        memory: "24Gi"
       requests:
-        cpu: 1
-        memory: "2Gi"
+        cpu: 2
+        memory: "4Gi"
 
 rserve_svc:
   name: "rserve"
@@ -121,28 +124,28 @@ web_background:
     image: "nrel/openstudio-server:3.6.1-1" 
     resources:
       limits:
-        cpu: 0.5
-        memory: "1Gi"
+        cpu: 16
+        memory: "32Gi"
       requests:
-        cpu: 0.25
-        memory: "512Mi"
+        cpu: 1
+        memory: "2Gi"
 
 web:
   name: "web"
   label: "web"
   secret_key_value: "c4ab6d293e4bf52ee92e8dda6e16dc9b5448d0c5f7908ee40c66736d515f3c29142d905b283d73e5e9cef6b13cd8e38be6fd3b5e25d00f35b259923a86c7c473"
-  passenger_max_request_queue_size: "1000"
-  passenger_max_pool_size: "100"
+  passenger_max_request_queue_size: "620"
+  passenger_max_pool_size: "128"
   container:
     name: "web"
     image: "nrel/openstudio-server:3.6.1-1"
     resources:
       limits:
-        cpu: 4
-        memory: "12Gi"
+        cpu: 16
+        memory: "32Gi"
       requests:
-        cpu: 2
-        memory: "4Gi"
+        cpu: 4
+        memory: "8Gi"
     port:
      http: 80
      https: 443
@@ -172,16 +175,16 @@ worker:
     resources:
       limits:
         cpu: 1
-        memory: "3Gi"
+        memory: "2Gi"
       requests:
         cpu: 1
-        memory: "3Gi"
+        memory: "2Gi"
     terminationGracePeriodSeconds: 86400
 
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 20
+  maxReplicas: 350
   targetCPUUtilizationPercentage: 50
 
 
