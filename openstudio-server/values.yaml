@@ -14,7 +14,7 @@ nfs-server-provisioner:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 30Ti 
+    size: 15Ti 
   storageClass:
     allowVolumeExpansion: false
     mountOptions:
