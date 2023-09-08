@@ -23,9 +23,6 @@ spec:
         - name: {{ .Values.rserve.container.name }}
           image: {{ .Values.rserve.container.image }}
           resources:
-            limits:
-              cpu:  {{  .Values.rserve.container.resources.limits.cpu  }}
-              memory:  {{  .Values.rserve.container.resources.limits.memory  }} 
             requests:
               cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
               memory:  {{  .Values.rserve.container.resources.requests.memory  }}

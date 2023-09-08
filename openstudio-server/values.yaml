@@ -29,9 +29,6 @@ db:
     name: "mongo-db"
     image: "mongo:6.0.7"
     resources:
-      limits:
-        cpu: 12
-        memory: "20Gi"
       requests:
         cpu: 1
         memory: "4Gi"
@@ -75,9 +72,6 @@ redis:
     name: "redis"
     image: "redis:6.0.9"
     resources:
-      limits:
-        cpu: 8
-        memory: "16Gi"
       requests:
         cpu: 1
         memory: "2Gi"
@@ -103,9 +97,6 @@ rserve:
     name: "rserve"
     image: "nrel/openstudio-rserve:3.6.1-1"
     resources:
-      limits:
-        cpu: 8
-        memory: "24Gi"
       requests:
         cpu: 2
         memory: "4Gi"
@@ -123,9 +114,6 @@ web_background:
     name: "web-background" 
     image: "nrel/openstudio-server:3.6.1-1" 
     resources:
-      limits:
-        cpu: 16
-        memory: "32Gi"
       requests:
         cpu: 1
         memory: "2Gi"
@@ -140,9 +128,6 @@ web:
     name: "web"
     image: "nrel/openstudio-server:3.6.1-1"
     resources:
-      limits:
-        cpu: 16
-        memory: "32Gi"
       requests:
         cpu: 4
         memory: "8Gi"

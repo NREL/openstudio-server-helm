@@ -21,9 +21,6 @@ spec:
             requests:
               cpu:  {{  .Values.redis.container.resources.requests.cpu  }}
               memory:  {{  .Values.redis.container.resources.requests.memory  }}
-            limits:
-              cpu:  {{  .Values.redis.container.resources.limits.cpu  }}
-              memory:  {{  .Values.redis.container.resources.limits.memory  }}
           ports:
             - containerPort: {{ .Values.redis.container.port  }}
           volumeMounts:
