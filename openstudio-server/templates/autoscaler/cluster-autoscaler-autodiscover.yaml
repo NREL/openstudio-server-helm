@@ -143,8 +143,8 @@ spec:
           name: cluster-autoscaler
           resources:
             limits:
-              cpu: 100m
-              memory: 300Mi
+              cpu: 1000m
+              memory: 2Gi
             requests:
               cpu: 100m
               memory: 300Mi

@@ -61,7 +61,7 @@ nfs_pvc:
   accessModes:
     - "ReadWriteMany"
   storage_class: ""
-  storage: "1Gi"
+  storage: "256Mi"
 
 
 redis:
@@ -160,7 +160,7 @@ worker:
     resources:
       limits:
         cpu: 1
-        memory: "2Gi"
+        memory: "4Gi"
       requests:
         cpu: 1
         memory: "2Gi"
