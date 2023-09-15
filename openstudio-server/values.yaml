@@ -129,8 +129,8 @@ web:
     image: "nrel/openstudio-server:3.6.1-1"
     resources:
       requests:
-        cpu: 4
-        memory: "8Gi"
+        cpu: 3
+        memory: "6Gi"
     port:
      http: 80
      https: 443
@@ -168,7 +168,7 @@ worker:
 
 worker_hpa:
   name: "worker"
-  minReplicas: 2
+  minReplicas: 300
   maxReplicas: 350
   targetCPUUtilizationPercentage: 50
 
