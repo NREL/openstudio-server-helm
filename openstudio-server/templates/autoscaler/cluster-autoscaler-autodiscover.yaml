@@ -146,8 +146,8 @@ spec:
               cpu: 1000m
               memory: 2Gi
             requests:
-              cpu: 100m
-              memory: 300Mi
+              cpu: 1000m
+              memory: 2Gi
           env:
             - name: AWS_REGION
               value: us-west-2
