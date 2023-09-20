@@ -5,7 +5,7 @@
 
 # Set to google, aws or azure
 provider:
-  name: "aws"
+  name: ""
 
 cluster:
   name: "openstudio-server-03"
