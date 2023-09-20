@@ -14,7 +14,7 @@ nfs-server-provisioner:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 15Ti 
+    size: 200Gi 
   storageClass:
     allowVolumeExpansion: false
     mountOptions:
@@ -129,8 +129,8 @@ web:
     image: "nrel/openstudio-server:3.6.1-1"
     resources:
       requests:
-        cpu: 3
-        memory: "6Gi"
+        cpu: 4
+        memory: "8Gi"
     port:
      http: 80
      https: 443
