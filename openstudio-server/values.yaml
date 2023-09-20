@@ -5,10 +5,10 @@
 
 # Set to google, aws or azure
 provider:
-  name: ""
+  name: "aws"
 
 cluster:
-  name: "openstudio-server"
+  name: "openstudio-server-03"
 
 nfs-server-provisioner:
   persistence:
@@ -70,7 +70,7 @@ redis:
   password: "openstudio"
   container:
     name: "redis"
-    image: "redis:6.0.9"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/redis:6.0.9"
     resources:
       requests:
         cpu: 1
@@ -95,7 +95,7 @@ rserve:
   number_of_workers: "1"
   container:
     name: "rserve"
-    image: "nrel/openstudio-rserve:3.6.1-1"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-1"
     resources:
       requests:
         cpu: 2
@@ -112,7 +112,7 @@ web_background:
   replicas: 1
   container:
     name: "web-background" 
-    image: "nrel/openstudio-server:3.6.1-1" 
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-1" 
     resources:
       requests:
         cpu: 1
@@ -126,7 +126,7 @@ web:
   passenger_max_pool_size: "128"
   container:
     name: "web"
-    image: "nrel/openstudio-server:3.6.1-1"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-1"
     resources:
       requests:
         cpu: 4
