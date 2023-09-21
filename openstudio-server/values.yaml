@@ -14,7 +14,7 @@ nfs-server-provisioner:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 10Ti 
+    size: "10Ti"
   storageClass:
     allowVolumeExpansion: false
     mountOptions:
