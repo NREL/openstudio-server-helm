@@ -14,7 +14,7 @@ nfs-server-provisioner:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 200Gi 
+    size: 10Ti 
   storageClass:
     allowVolumeExpansion: false
     mountOptions:
@@ -168,8 +168,8 @@ worker:
 
 worker_hpa:
   name: "worker"
-  minReplicas: 300
-  maxReplicas: 350
+  minReplicas: 10
+  maxReplicas: 400
   targetCPUUtilizationPercentage: 50
 
 
