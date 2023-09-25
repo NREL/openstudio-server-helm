@@ -112,7 +112,7 @@ web_background:
   replicas: 1
   container:
     name: "web-background" 
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-1" 
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:develop" 
     resources:
       requests:
         cpu: 1
@@ -126,7 +126,7 @@ web:
   passenger_max_pool_size: "128"
   container:
     name: "web"
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-1"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:develop"
     resources:
       requests:
         cpu: 4
@@ -156,7 +156,7 @@ worker:
   label: "worker"
   container:
     name: "worker"
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-1"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:develop"
     resources:
       limits:
         cpu: 1
