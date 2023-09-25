@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.initiator.name   }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.initiator.name }}
+      release: {{ .Release.Name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.initiator.name }}
+        release: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Values.initiator.container.name   }}
+          image: {{ .Values.initiator.container.image   }}
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu:  {{  .Values.initiator.container.resources.requests.cpu  }}
+              memory:  {{  .Values.initiator.container.resources.requests.memory  }}
+          volumeMounts:
+            - name: initiator
+              mountPath: "/mnt/openstudio"
+          env:
+            - name:  QUEUES
+              value: initiators
+            - name: SECRET_KEY_BASE
+              value: {{ .Values.web.secret_key_value }}
+            - name: REDIS_URL
+              value: {{ .Values.redis_svc.url  }}
+            - name: MONGO_USER
+              value: {{ .Values.db.username }}
+            - name: MONGO_PASSWORD
+              value: {{ .Values.db.password }}
+      priorityClassName: low-priority
+      volumes:
+        - name: initiator
+          persistentVolumeClaim:
+            claimName: nfs-pvc

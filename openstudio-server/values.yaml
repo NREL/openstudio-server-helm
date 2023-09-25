@@ -172,5 +172,16 @@ worker_hpa:
   maxReplicas: 400
   targetCPUUtilizationPercentage: 50
 
+initiator:
+  name: "initiator"
+  label: "initiator"
+  container:
+    name: "initiator"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-1"
+    resources:
+      requests:
+        cpu: 4
+        memory: "8Gi"
+
 
 
