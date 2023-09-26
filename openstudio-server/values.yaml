@@ -95,7 +95,7 @@ rserve:
   number_of_workers: "1"
   container:
     name: "rserve"
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-rserve:3.6.1-1"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-rserve:develop"
     resources:
       requests:
         cpu: 2
