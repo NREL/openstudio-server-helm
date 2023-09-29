@@ -30,8 +30,8 @@ db:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/mongo:6.0.7"
     resources:
       requests:
-        cpu: 1
-        memory: "4Gi"
+        cpu: 500m
+        memory: "2Gi"
     ports:
       db_port: 27017
   persistence:
@@ -73,8 +73,8 @@ redis:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/redis:6.0.9"
     resources:
       requests:
-        cpu: 1
-        memory: "2Gi"
+        cpu: 500m
+        memory: "1Gi"
     port: 6379
   persistence:
     enabled: true
@@ -98,8 +98,8 @@ rserve:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-rserve:develop"
     resources:
       requests:
-        cpu: 2
-        memory: "4Gi"
+        cpu: 500m
+        memory: "1Gi"
 
 rserve_svc:
   name: "rserve"
@@ -116,7 +116,7 @@ web_background:
     resources:
       requests:
         cpu: 1
-        memory: "2Gi"
+        memory: "1Gi"
 
 web:
   name: "web"
@@ -129,8 +129,8 @@ web:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:develop"
     resources:
       requests:
-        cpu: 4
-        memory: "8Gi"
+        cpu: 2
+        memory: "6Gi"
     port:
      http: 80
      https: 443
@@ -164,12 +164,13 @@ worker:
       requests:
         cpu: 1
         memory: "2Gi"
-    terminationGracePeriodSeconds: 86400
+    terminationGracePeriodSeconds: 1800
 
+# maxReplicas of 510 seems to work with 64 t3.2xlarge instances
 worker_hpa:
   name: "worker"
-  minReplicas: 10
-  maxReplicas: 400
+  minReplicas: 2
+  maxReplicas: 510
   targetCPUUtilizationPercentage: 50
 
 

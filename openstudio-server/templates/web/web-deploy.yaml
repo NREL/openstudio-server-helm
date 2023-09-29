@@ -60,14 +60,15 @@ spec:
               path: /
               port: 80
             initialDelaySeconds: 60
-            periodSeconds: 30
+            periodSeconds: 200
+            timeoutSeconds: 120
             failureThreshold: 10
           livenessProbe:
             exec:
               command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
             initialDelaySeconds: 5
-            periodSeconds: 30
-            timeoutSeconds: 30
+            periodSeconds: 200
+            timeoutSeconds: 120
             failureThreshold: 3
       priorityClassName: high-priority
       volumes:
