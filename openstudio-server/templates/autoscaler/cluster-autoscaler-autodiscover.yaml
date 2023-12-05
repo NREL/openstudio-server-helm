@@ -150,7 +150,7 @@ spec:
               memory: 2Gi
           env:
             - name: AWS_REGION
-              value: us-west-2
+              value: us-east-1
           command:
             - ./cluster-autoscaler
             - --v=4
