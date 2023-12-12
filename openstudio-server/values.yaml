@@ -8,7 +8,7 @@ provider:
   name: ""
 
 cluster:
-  name: "openstudio-server-03"
+  name: "openstudio-server"
 
 nfs-server-provisioner:
   persistence:
