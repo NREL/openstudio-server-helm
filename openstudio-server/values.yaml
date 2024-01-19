@@ -8,7 +8,7 @@ provider:
   name: ""
 
 cluster:
-  name: "openstudio-server"
+  name: "openstudio-server-03"
 
 nfs-server-provisioner:
   persistence:
@@ -29,12 +29,9 @@ db:
     name: "mongo-db"
     image: "mongo:6.0.7"
     resources:
-      limits:
-        cpu: 1
-        memory: "8Gi"
       requests:
-        cpu: 1
-        memory: "4Gi"
+        cpu: 500m
+        memory: "2Gi"
     ports:
       db_port: 27017
   persistence:
@@ -64,7 +61,7 @@ nfs_pvc:
   accessModes:
     - "ReadWriteMany"
   storage_class: ""
-  storage: "1Mi"
+  storage: "256Mi"
 
 
 redis:
@@ -75,17 +72,14 @@ redis:
     name: "redis"
     image: "redis:6.0.9"
     resources:
-      limits:
-        cpu: 0.5
-        memory: "2Gi"
       requests:
-        cpu: 0.25
+        cpu: 500m
         memory: "1Gi"
     port: 6379
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 5Gi
+    size: 200Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -101,11 +95,11 @@ rserve:
   number_of_workers: "1"
   container:
     name: "rserve"
-    image: "nrel/openstudio-rserve:3.7.0"
+    image: "nrel/openstudio-rserve:3.6.1-4"
     resources:
       requests:
-        cpu: 1
-        memory: "2Gi"
+        cpu: 500m
+        memory: "1Gi"
 
 rserve_svc:
   name: "rserve"
@@ -118,31 +112,25 @@ web_background:
   replicas: 1
   container:
     name: "web-background" 
-    image: "nrel/openstudio-server:3.7.0"
+    image: "nrel/openstudio-server:3.6.1-4"
     resources:
-      limits:
-        cpu: 0.5
-        memory: "1Gi"
       requests:
-        cpu: 0.25
-        memory: "512Mi"
+        cpu: 1
+        memory: "1Gi"
 
 web:
   name: "web"
   label: "web"
   secret_key_value: "c4ab6d293e4bf52ee92e8dda6e16dc9b5448d0c5f7908ee40c66736d515f3c29142d905b283d73e5e9cef6b13cd8e38be6fd3b5e25d00f35b259923a86c7c473"
-  passenger_max_request_queue_size: "111"
-  passenger_max_pool_size: "21"
+  passenger_max_request_queue_size: "620"
+  passenger_max_pool_size: "128"
   container:
     name: "web"
-    image: "nrel/openstudio-server:3.7.0"
+    image: "nrel/openstudio-server:3.6.1-4"
     resources:
-      limits:
+      requests:
         cpu: 2
         memory: "6Gi"
-      requests:
-        cpu: 1
-        memory: "2Gi"
     port:
      http: 80
      https: 443
@@ -168,20 +156,21 @@ worker:
   label: "worker"
   container:
     name: "worker"
-    image: "nrel/openstudio-server:3.7.0"
+    image: "nrel/openstudio-server:3.6.1-4"
     resources:
       limits:
         cpu: 1
-        memory: "3Gi"
+        memory: "4Gi"
       requests:
         cpu: 1
-        memory: "3Gi"
-    terminationGracePeriodSeconds: 86400
+        memory: "2Gi"
+    terminationGracePeriodSeconds: 1800
 
+# maxReplicas of 510 seems to work with 64 t3.2xlarge instances
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 20
+  maxReplicas: 510
   targetCPUUtilizationPercentage: 50
 
 

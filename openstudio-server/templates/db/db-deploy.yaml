@@ -31,9 +31,6 @@ spec:
             requests:
               cpu:  {{  .Values.db.container.resources.requests.cpu  }}
               memory:  {{  .Values.db.container.resources.requests.memory  }}
-            limits:
-              cpu:  {{  .Values.db.container.resources.limits.cpu  }}
-              memory:  {{  .Values.db.container.resources.limits.memory  }}
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
               value: {{ .Values.db.username }}
