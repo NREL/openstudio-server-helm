@@ -27,7 +27,7 @@ db:
   password: "openstudio"
   container:
     name: "mongo-db"
-    image: "mongo:6.0.7"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/mongo:6.0.7"
     resources:
       requests:
         cpu: 500m
@@ -95,7 +95,7 @@ rserve:
   number_of_workers: "1"
   container:
     name: "rserve"
-    image: "nrel/openstudio-rserve:3.6.1-4"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-rserve:3.6.1-4"
     resources:
       requests:
         cpu: 500m
@@ -112,7 +112,7 @@ web_background:
   replicas: 1
   container:
     name: "web-background" 
-    image: "nrel/openstudio-server:3.6.1-4"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-4" 
     resources:
       requests:
         cpu: 1
@@ -126,7 +126,7 @@ web:
   passenger_max_pool_size: "128"
   container:
     name: "web"
-    image: "nrel/openstudio-server:3.6.1-4"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-4"
     resources:
       requests:
         cpu: 2
@@ -156,7 +156,7 @@ worker:
   label: "worker"
   container:
     name: "worker"
-    image: "nrel/openstudio-server:3.6.1-4"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-4"
     resources:
       limits:
         cpu: 1
