@@ -19,6 +19,15 @@ spec:
         app: {{ .Values.worker.name }}
         release: {{ .Release.Name }}
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nodegroup
+                    operator: In
+                    values:
+                      - worker-group
       containers:
         - name: {{ .Values.worker.container.name   }}
           image: {{ .Values.worker.container.image   }}
@@ -33,9 +42,6 @@ spec:
             requests:
               cpu:  {{  .Values.worker.container.resources.requests.cpu  }}
               memory:  {{  .Values.worker.container.resources.requests.memory  }}
-            limits:
-              cpu:  {{  .Values.worker.container.resources.limits.cpu  }}
-              memory:  {{  .Values.worker.container.resources.limits.memory  }}
           volumeMounts:
             - name: osdata-worker
               mountPath: "/mnt/openstudio"

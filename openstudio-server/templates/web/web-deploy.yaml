@@ -19,6 +19,15 @@ spec:
         app: {{ .Values.web.name  }}
         release: {{ .Release.Name }}
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nodegroup
+                    operator: In
+                    values:
+                      - web-group
       initContainers:
          - name: init-wait-for-db
            image: alpine

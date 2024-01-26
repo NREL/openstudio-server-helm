@@ -84,11 +84,12 @@ rbac:
   ##
   serviceAccountName: default
 
-resources: {}
+resources: 
+  requests:
+    cpu: 2
+    memory: 8Gi
+
   # limits:
-  #  cpu: 100m
-  #  memory: 128Mi
-  # requests:
   #  cpu: 100m
   #  memory: 128Mi
 

@@ -19,6 +19,15 @@ spec:
         app: {{  .Values.web_background.name  }}
         release: {{ .Release.Name }}
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nodegroup
+                    operator: In
+                    values:
+                      - web-group
       containers:
         - name:  {{  .Values.web_background.container.name  }}
           image:  {{  .Values.web_background.container.image  }}

@@ -138,6 +138,15 @@ spec:
         prometheus.io/scrape: 'true'
         prometheus.io/port: '8085'
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nodegroup
+                    operator: In
+                    values:
+                      - web-group
       serviceAccountName: cluster-autoscaler
       containers:
         - image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.26.6

@@ -1,4 +1,4 @@
-apiVersion: autoscaling/v1
+apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: {{ .Values.worker_hpa.name  }}
@@ -9,4 +9,17 @@ spec:
     name: {{ .Values.worker.name  }}
   minReplicas: {{ .Values.worker_hpa.minReplicas  }}
   maxReplicas: {{ .Values.worker_hpa.maxReplicas  }}
-  targetCPUUtilizationPercentage: {{ .Values.worker_hpa.targetCPUUtilizationPercentage  }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.worker_hpa.stabilizationWindowSeconds  }}
+      policies:
+      - type: Percent
+        value: 25
+        periodSeconds: 60
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.worker_hpa.targetCPUUtilizationPercentage  }}
