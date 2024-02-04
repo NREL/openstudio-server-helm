@@ -13,7 +13,7 @@ cluster:
 nfs-server-provisioner:
   persistence:
     enabled: true
-    storageClass: "ssd"
+    storageClass: "region2astorageclass"
     size: 200Gi
   storageClass:
     allowVolumeExpansion: false
@@ -36,7 +36,7 @@ db:
       db_port: 27017
   persistence:
     enabled: true
-    storageClass: "ssd"
+    storageClass: "region2astorageclass"
     size: 200Gi
     accessModes:
       - "ReadWriteOnce"
@@ -78,7 +78,7 @@ redis:
     port: 6379
   persistence:
     enabled: true
-    storageClass: "ssd"
+    storageClass: "region2astorageclass"
     size: 200Gi
     accessModes:
       - "ReadWriteOnce"
@@ -168,8 +168,8 @@ worker:
 worker_hpa:
   name: "worker"
   minReplicas: 3
-  maxReplicas: 2470
-  targetCPUUtilizationPercentage: 50
+  maxReplicas: 3015
+  targetCPUUtilizationPercentage: 20
   stabilizationWindowSeconds: 900
 
 
