@@ -14,7 +14,7 @@ nfs-server-provisioner:
   persistence:
     enabled: true
     storageClass: "region2astorageclass"
-    size: 200Gi
+    size: 550Gi
   storageClass:
     allowVolumeExpansion: false
     mountOptions:
@@ -61,7 +61,7 @@ nfs_pvc:
   accessModes:
     - "ReadWriteMany"
   storage_class: ""
-  storage: "150Gi"
+  storage: "500Gi"
 
 
 redis:
@@ -122,16 +122,18 @@ web:
   name: "web"
   label: "web"
   secret_key_value: "c4ab6d293e4bf52ee92e8dda6e16dc9b5448d0c5f7908ee40c66736d515f3c29142d905b283d73e5e9cef6b13cd8e38be6fd3b5e25d00f35b259923a86c7c473"
-  passenger_max_request_queue_size: "1600"
-  passenger_max_pool_size: "21"
-  passenger_min_instances: "3"
+  # passenger_max_request_queue_size: "1600"
+  # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
+  # passenger_max_pool_size: "21"
+  # This value is typically between 150 and 400, find this by ssh into web pod and doing `passenger-status`
+  passenger_memory_per_process: 250
   container:
     name: "web"
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-4"
     resources:
       requests:
         cpu: 6
-        memory: "15Gi"
+        memory: "50Gi"
     port:
      http: 80
      https: 443
@@ -160,17 +162,16 @@ worker:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-4"
     resources:
       requests:
-        cpu: 1
-        memory: "1Gi"
-    terminationGracePeriodSeconds: 1800
+        cpu: 700m
+        memory: "900Mi"
+    terminationGracePeriodSeconds: 5200
 
-# maxReplicas of 510 seems to work with 64 t3.2xlarge instances
 worker_hpa:
   name: "worker"
-  minReplicas: 3
-  maxReplicas: 3015
-  targetCPUUtilizationPercentage: 20
-  stabilizationWindowSeconds: 900
+  minReplicas: 2
+  maxReplicas: 3800
+  targetCPUUtilizationPercentage: 12
+  stabilizationWindowSeconds: 3600
 
 
 

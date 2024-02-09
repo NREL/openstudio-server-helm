@@ -60,9 +60,9 @@ spec:
             - name: MONGO_PASSWORD
               value: {{ .Values.db.password }}
             - name: MAX_REQUESTS
-              value: {{ .Values.web.passenger_max_request_queue_size | quote }}
+              value: {{ (ceil (mulf .Values.worker_hpa.maxReplicas 1.05)) | quote }}
             - name: MAX_POOL
-              value: {{ .Values.web.passenger_max_pool_size | quote }}
+              value: {{ (ceil (divf (mulf (trimSuffix "Gi" .Values.web.container.resources.requests.memory) 1024 0.75) .Values.web.passenger_memory_per_process)) | quote }}
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
           readinessProbe:
             httpGet:
