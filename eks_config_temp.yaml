@@ -1,0 +1,84 @@
+# A simple example of ClusterConfig object with two nodegroups:
+--- 
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: openstudio-server2
+  region: us-east-1
+  version: "1.29"
+
+vpc:
+  cidr: 192.168.0.0/16
+  autoAllocateIPv6: true
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+
+iam:
+  withOIDC: true
+  serviceAccounts:
+  - metadata:
+      name: ebs-csi-controller-sa
+      namespace: kube-system
+    wellKnownPolicies:
+      ebsCSIController: true
+  - metadata:
+      name: efs-csi-controller-sa
+      namespace: kube-system
+    wellKnownPolicies:
+      efsCSIController: true
+
+managedNodeGroups:
+  - name: web-node-group
+    instanceType: m7i.xlarge
+    minSize: 0
+    maxSize: 2
+    desiredCapacity: 1
+    labels:
+      nodegroup: web-group
+    privateNetworking: true
+    iam:
+      withAddonPolicies:
+        imageBuilder: true
+        autoScaler: true
+        externalDNS: true
+        certManager: true
+        ebs: true
+        fsx: true
+        efs: true
+    ssh:
+      allow: true
+      # Update publicKeyPath for your public key
+      publicKeyPath: ~/.ssh/id_rsa.pub
+    volumeSize: 550
+    volumeType: gp3
+
+  - name: worker-node-group
+    instanceType: c7i.xlarge
+    minSize: 0
+    maxSize: 3
+    desiredCapacity: 1
+    labels:
+      nodegroup: worker-group
+    privateNetworking: true
+    iam:
+      withAddonPolicies:
+        imageBuilder: true
+        autoScaler: true
+        externalDNS: true
+        certManager: true
+        ebs: true
+        fsx: true
+        efs: true
+    ssh:
+      allow: true
+      # Update publicKeyPath for your public key
+      publicKeyPath: ~/.ssh/id_rsa.pub
+    volumeSize: 400
+    volumeType: gp3
+
+addons:
+  - name: aws-ebs-csi-driver
+    wellKnownPolicies:      # add IAM and service account
+      ebsCSIController: true
