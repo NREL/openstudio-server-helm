@@ -4,7 +4,7 @@ apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
 
 metadata:
-  name: openstudio-server2
+  name: openstudio-server
   region: us-east-1
   version: "1.29"
 
@@ -46,8 +46,10 @@ managedNodeGroups:
     volumeSize: 550
     volumeType: gp3
 
-  - name: worker-node-group
-    instanceType: c7i.24xlarge
+  - name: worker-node-group-spot
+    instanceTypes: ["c5.metal", "c5a.24xlarge", "c5ad.24xlarge", "c5d.metal",
+    "c6a.24xlarge", "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge",
+    "c7a.24xlarge", "c7i.24xlarge", "c7i.metal-24xl", "inf1.24xlarge"]
     minSize: 0
     maxSize: 50
     desiredCapacity: 1
@@ -60,6 +62,7 @@ managedNodeGroups:
         externalDNS: true
         certManager: true
         ebs: true
+    spot: true
     ssh:
       allow: true
       # Update publicKeyPath for your public key
