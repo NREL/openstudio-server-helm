@@ -71,20 +71,22 @@ helm install openstudio-server ./openstudio-server --set provider.name=azure --s
 
 Parameter | Description | Default
 --------- | ----------- | -------
-nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 200Gi |
+nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 550Gi |
 db.persistence.size | Size of the volume for MongoDB | 200Gi |
 cluster.name | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly | openstudio-server |
-worker_hpa.minReplicas | Worker pods that run the simulations | 1 |
+worker_hpa.minReplicas | Worker pods that run the simulations | 2 |
 worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
 web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
-web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.6.0 |
-web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server::3.6.0 |
-worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server::3.6.0 |
-rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve::3.6.0 |
+web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
+web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
+worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
+rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve:3.7.0 |
 
 #### For Large Workloads
-Copy the text from inside the file `\openstudio-server\values_large.templateyaml` and paste it inside of `\openstudio-server\values.yaml`. Do this before using the `helm install ...` command.
+Copy the text from inside the [large template values file](/openstudio-server/values_large.templateyaml)] and paste it inside of the [values file](/openstudio-server/values.yaml). Do this before using the `helm install ...` command.
+
+Additionally, note that with large workloads you may have issues with downloading container images from Docker Hub if you have a lot of worker nodes. Therefore, you may want to upload the container images into the cloud's container registry and then update the container image path in the [values file](/openstudio-server/values.yaml). This [article](https://docs.aws.amazon.com/AmazonECR/latest/userguide/docker-push-ecr-image.html#:~:text=Identify%20the%20local%20image%20to,container%20images%20on%20your%20system.&text=You%20can%20identify%20an%20image,tag%20name%20combination%20to%20use.) has instructions on how to do this for aws' Elastic Container Registry (ECR).
 
 ## Accessing OpenStudio Server
 
