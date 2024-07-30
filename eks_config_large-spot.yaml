@@ -5,16 +5,20 @@ kind: ClusterConfig
 
 metadata:
   name: openstudio-server
-  region: us-east-1
-  version: "1.29"
+  region: us-west-2
+  version: "1.30"
 
 vpc:
   cidr: 192.168.0.0/16
   autoAllocateIPv6: true
   clusterEndpoints:
-    publicAccess: true
     privateAccess: true
-
+  subnets:
+    private:
+      us-west-2a:
+        id: "subnet-02213ae644f5f392e"
+      us-west-2b:
+        id: "subnet-081506cc8b6d3dbb2"
 iam:
   withOIDC: true
   serviceAccounts:
@@ -42,10 +46,13 @@ managedNodeGroups:
     ssh:
       allow: true
       # Update publicKeyPath for your public key
-      publicKeyPath: ~/.ssh/id_rsa.pub
-    availabilityZones: ["us-east-1a"]
+      publicKeyPath: ~/.ssh/id_rsa_179d.pub
+    availabilityZones: ["us-west-2a"]
     volumeSize: 550
     volumeType: gp3
+    tags:
+      'org': 'nrel179d'
+      'billingId': '230030'
 
   - name: worker-node-group-spot
     instanceTypes: ["c5.metal", "c5a.24xlarge", "c5ad.24xlarge", "c5d.metal",
@@ -67,10 +74,13 @@ managedNodeGroups:
     ssh:
       allow: true
       # Update publicKeyPath for your public key
-      publicKeyPath: ~/.ssh/id_rsa.pub
-    availabilityZones: ["us-east-1b"]
+      publicKeyPath: ~/.ssh/id_rsa_179d.pub
+    availabilityZones: ["us-west-2b"]
     volumeSize: 400
     volumeType: gp3
+    tags:
+      'org': 'nrel179d'
+      'billingId': '230030'
 
 addons:
   - name: aws-ebs-csi-driver
