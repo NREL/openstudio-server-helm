@@ -8,7 +8,7 @@ provider:
   name: ""
 
 cluster:
-  name: "openstudio-server"
+  name: "openstudio-server-03"
 
 nfs-server-provisioner:
   persistence:
@@ -27,11 +27,11 @@ db:
   password: "openstudio"
   container:
     name: "mongo-db"
-    image: "mongo:6.0.7"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/mongo:6.0.7"
     resources:
       requests:
         cpu: 4
-        memory: "22Gi"
+        memory: "12Gi"
     ports:
       db_port: 27017
   persistence:
@@ -70,7 +70,7 @@ redis:
   password: "openstudio"
   container:
     name: "redis"
-    image: "redis:6.0.9"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/redis:6.0.9"
     resources:
       requests:
         cpu: 3
@@ -95,7 +95,7 @@ rserve:
   number_of_workers: "1"
   container:
     name: "rserve"
-    image: "nrel/openstudio-rserve:3.7.0"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-rserve:3.6.1-3"
     resources:
       requests:
         cpu: 1
@@ -112,7 +112,7 @@ web_background:
   replicas: 1
   container:
     name: "web-background" 
-    image: "nrel/openstudio-server:3.7.0"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-3"
     resources:
       requests:
         cpu: 2
@@ -129,7 +129,7 @@ web:
   passenger_memory_per_process: 250
   container:
     name: "web"
-    image: "nrel/openstudio-server:3.7.0"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-3"
     resources:
       requests:
         cpu: 6
@@ -159,19 +159,17 @@ worker:
   label: "worker"
   container:
     name: "worker"
-    image: "nrel/openstudio-server:3.7.0"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-3"
     resources:
       requests:
-        cpu: 700m
-        memory: "900Mi"
-    terminationGracePeriodSeconds: 5200
+        cpu: 1
+        memory: "1Gi"
+    terminationGracePeriodSeconds: 1800
 
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 3800
-  targetCPUUtilizationPercentage: 50
+  maxReplicas: 3200
+  targetCPUUtilizationPercentage: 75
   stabilizationWindowSeconds: 3600
-
-
-
+  scaleDownPolicyValue: 15

@@ -1,0 +1,85 @@
+# A simple example of ClusterConfig object with two nodegroups:
+--- 
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: openstudio-server
+  region: us-west-2
+  version: "1.29"
+
+vpc:
+  # cidr: 192.168.0.0/16
+  autoAllocateIPv6: true
+  clusterEndpoints:
+    privateAccess: true
+  subnets:
+    private:
+      us-west-2a:
+        id: "subnet-d8a6bfac"
+      us-west-2b:
+        id: "subnet-5306fe36"
+      us-west-2c:
+        id: "subnet-ab1028ed"
+      us-west-2d:
+        id: "subnet-51151979"
+iam:
+  withOIDC: true
+  serviceAccounts:
+  - metadata:
+      name: ebs-csi-controller-sa
+      namespace: kube-system
+    wellKnownPolicies:
+      ebsCSIController: true
+
+managedNodeGroups:
+  - name: web-node-group
+    instanceType: m7i.xlarge
+    minSize: 0
+    maxSize: 2
+    desiredCapacity: 1
+    labels:
+      nodegroup: web-group
+    privateNetworking: true
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        externalDNS: true
+        certManager: true
+        ebs: true
+    ssh:
+      allow: true
+      # Update publicKeyPath for your public key
+      publicKeyPath: ~/.ssh/id_rsa_179d.pub
+    availabilityZones: ["us-west-2b"]
+    volumeSize: 550
+    volumeType: gp3
+
+  - name: worker-node-group-spot
+    instanceTypes: ["c7a.xlarge", "c7i.xlarge", 
+    "c6a.xlarge", "c6i.xlarge", "c6id.xlarge"]
+    minSize: 0
+    maxSize: 3
+    # desiredCapacity: 1
+    labels:
+      nodegroup: worker-group
+    privateNetworking: true
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        externalDNS: true
+        certManager: true
+        ebs: true
+    spot: true
+    ssh:
+      allow: true
+      # Update publicKeyPath for your public key
+      publicKeyPath: ~/.ssh/id_rsa_179d.pub
+    availabilityZones: ["us-west-2a", "us-west-2c", "us-west-2d"]
+    volumeSize: 400
+    volumeType: gp3
+
+addons:
+  - name: aws-ebs-csi-driver
+    wellKnownPolicies:      # add IAM and service account
+      ebsCSIController: true

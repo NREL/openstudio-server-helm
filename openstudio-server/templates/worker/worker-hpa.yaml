@@ -14,7 +14,7 @@ spec:
       stabilizationWindowSeconds: {{ .Values.worker_hpa.stabilizationWindowSeconds  }}
       policies:
       - type: Percent
-        value: 25
+        value: {{ .Values.worker_hpa.scaleDownPolicyValue  }}
         periodSeconds: 60
   metrics:
     - type: Resource

@@ -1,0 +1,44 @@
+# A simple example of ClusterConfig object with two nodegroups:
+--- 
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: openstudio-server-03
+  region: us-west-2
+  version: "1.27"
+
+vpc:
+  clusterEndpoints:
+    privateAccess: true
+
+managedNodeGroups:
+  - name: worker-node-group-spot-02
+    instanceTypes: ["c7i.metal-24xl", "c6a.24xlarge", "c7i.24xlarge", "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge",
+    "c7a.24xlarge"]
+    minSize: 0
+    maxSize: 50
+    desiredCapacity: 0
+    labels:
+      nodegroup: worker-group
+    privateNetworking: true
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        externalDNS: true
+        certManager: true
+        ebs: true
+    spot: true
+    ssh:
+      allow: true
+      # Update publicKeyPath for your public key
+      publicKeyPath: ~/.ssh/calc179d_id_rsa.pub
+    volumeSize: 400
+    volumeType: gp3
+    tags:
+      'org': 'calc179d'
+      'billingId': '230043'
+    subnets:
+      - subnet-04bbcd385d4d482cc
+      - subnet-00c5a82bb58556223
+      - subnet-08a05df026b4ec9a8
