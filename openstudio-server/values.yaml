@@ -60,7 +60,7 @@ nfs_pvc:
   name: "nfs-pvc"
   accessModes:
     - "ReadWriteMany"
-  storage_class: ""
+  storageClass: "ssd"
   storage: "500Gi"
 
 
@@ -68,6 +68,7 @@ redis:
   name: "redis"
   label: "redis"
   password: "openstudio"
+  maxclients: 40000
   container:
     name: "redis"
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/redis:6.0.9"
@@ -162,14 +163,14 @@ worker:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-3"
     resources:
       requests:
-        cpu: 1
+        cpu: 500m
         memory: "1Gi"
-    terminationGracePeriodSeconds: 1800
+    terminationGracePeriodSeconds: 180
 
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 3200
-  targetCPUUtilizationPercentage: 75
-  stabilizationWindowSeconds: 3600
-  scaleDownPolicyValue: 15
+  maxReplicas: 6600
+  targetCPUUtilizationPercentage: 10
+  stabilizationWindowSeconds: 300
+  scalePolicyValue: 950

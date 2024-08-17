@@ -1,0 +1,40 @@
+# A simple example of ClusterConfig object with two nodegroups:
+--- 
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: openstudio-server-03
+  region: us-west-2
+  version: "1.27"
+
+
+vpc:
+  clusterEndpoints:
+    privateAccess: true
+
+managedNodeGroups:
+  - name: web-node-group4
+    instanceType: m7i.8xlarge
+    minSize: 0
+    maxSize: 1
+    desiredCapacity: 1
+    labels:
+      nodegroup: web-group
+    privateNetworking: true
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        externalDNS: true
+        certManager: true
+        ebs: true
+    ssh:
+      allow: true
+      # Update publicKeyPath for your public key
+      publicKeyPath: ~/.ssh/id_rsa.pub
+    subnets:
+      - subnet-02213ae644f5f392e
+    volumeSize: 550
+    volumeType: gp3
+    updateConfig:
+      maxUnavailable: 1

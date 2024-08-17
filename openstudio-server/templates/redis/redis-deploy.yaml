@@ -35,7 +35,7 @@ spec:
           volumeMounts:
             - mountPath: /data
               name: {{ .Values.redis.name }}
-          args: ["redis-server", "--appendonly yes", "--requirepass", "{{ .Values.redis.password  }}"]
+          args: ["redis-server", "--appendonly yes", "--requirepass", "{{ .Values.redis.password  }}", "--maxclients", "{{ .Values.redis.maxclients  }}"]
       priorityClassName: high-priority
       volumes:
         - name: {{ .Values.redis.name }}

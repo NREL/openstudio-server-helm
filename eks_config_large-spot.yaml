@@ -79,7 +79,7 @@ managedNodeGroups:
     subnets:
       - subnet-08a05df026b4ec9a8
       - subnet-00ea3f10afdc9fb8e
-    volumeSize: 100
+    volumeSize: 250
     volumeType: gp3
     tags:
       'org': 'nrel179d'
@@ -110,7 +110,7 @@ managedNodeGroups:
     subnets:
       - subnet-00c5a82bb58556223
       - subnet-0027c0fd03f5cb2bb
-    volumeSize: 100
+    volumeSize: 250
     volumeType: gp3
     tags:
       'org': 'nrel179d'
@@ -140,7 +140,7 @@ managedNodeGroups:
     # availabilityZones: ["us-west-2d"]
     subnets:
       - subnet-04bbcd385d4d482cc
-    volumeSize: 100
+    volumeSize: 250
     volumeType: gp3
     tags:
       'org': 'nrel179d'

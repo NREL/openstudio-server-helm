@@ -10,11 +10,16 @@ spec:
   minReplicas: {{ .Values.worker_hpa.minReplicas  }}
   maxReplicas: {{ .Values.worker_hpa.maxReplicas  }}
   behavior:
+    scaleUp:
+      policies:
+      - type: Pods
+        value: {{ .Values.worker_hpa.scalePolicyValue  }}
+        periodSeconds: 60
     scaleDown:
       stabilizationWindowSeconds: {{ .Values.worker_hpa.stabilizationWindowSeconds  }}
       policies:
-      - type: Percent
-        value: {{ .Values.worker_hpa.scaleDownPolicyValue  }}
+      - type: Pods
+        value: {{ .Values.worker_hpa.scalePolicyValue  }}
         periodSeconds: 60
   metrics:
     - type: Resource

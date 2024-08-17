@@ -17,8 +17,10 @@ managedNodeGroups:
   - name: worker-node-group-spot-2a
     instanceTypes: ["c7i.48xlarge", "c7a.48xlarge", "c7i.metal-48xl", "c7a.metal-48xl"]
     minSize: 0
-    maxSize: 10
+    maxSize: 5
     desiredCapacity: 0
+    maxPodsPerNode: 360
+    registryQps: 0
     labels:
       nodegroup: worker-group
     privateNetworking: true
@@ -28,6 +30,8 @@ managedNodeGroups:
         externalDNS: true
         certManager: true
         ebs: true
+        cni: true
+    propagateASGTags: true
     spot: true
     ssh:
       allow: true
@@ -37,19 +41,22 @@ managedNodeGroups:
     subnets:
       - subnet-08a05df026b4ec9a8
       - subnet-00ea3f10afdc9fb8e
-    volumeSize: 100
+    volumeSize: 1500
     volumeType: gp3
     tags:
       'org': 'nrel179d'
       'billingId': '230030'
+      'cluster-autoscaler.kubernetes.io/safe-to-evict': 'false'
     updateConfig:
-      maxUnavailable: 1  # Or use maxUnavailablePercentage
+      maxUnavailable: 1
 
   - name: worker-node-group-spot-2c
     instanceTypes: ["c7i.48xlarge", "c7a.48xlarge", "c7i.metal-48xl", "c7a.metal-48xl"]
     minSize: 0
-    maxSize: 10
+    maxSize: 16
     desiredCapacity: 0
+    maxPodsPerNode: 360
+    registryQps: 0
     labels:
       nodegroup: worker-group
     privateNetworking: true
@@ -59,6 +66,8 @@ managedNodeGroups:
         externalDNS: true
         certManager: true
         ebs: true
+        cni: true
+    propagateASGTags: true
     spot: true
     ssh:
       allow: true
@@ -68,19 +77,23 @@ managedNodeGroups:
     subnets:
       - subnet-00c5a82bb58556223
       - subnet-0027c0fd03f5cb2bb
-    volumeSize: 100
+      - subnet-099feb77ea09bd101
+    volumeSize: 1500
     volumeType: gp3
     tags:
       'org': 'nrel179d'
       'billingId': '230030'
+      'cluster-autoscaler.kubernetes.io/safe-to-evict': 'false'
     updateConfig:
-      maxUnavailable: 1  # Or use maxUnavailablePercentage
+      maxUnavailable: 1
 
   - name: worker-node-group-spot-2d
     instanceTypes: ["c7i.48xlarge", "c7a.48xlarge", "c7i.metal-48xl", "c7a.metal-48xl"]
     minSize: 0
-    maxSize: 10
+    maxSize: 5
     desiredCapacity: 0
+    maxPodsPerNode: 360
+    registryQps: 0
     labels:
       nodegroup: worker-group
     privateNetworking: true
@@ -90,6 +103,8 @@ managedNodeGroups:
         externalDNS: true
         certManager: true
         ebs: true
+        cni: true
+    propagateASGTags: true
     spot: true
     ssh:
       allow: true
@@ -98,10 +113,11 @@ managedNodeGroups:
     # availabilityZones: ["us-west-2d"]
     subnets:
       - subnet-04bbcd385d4d482cc
-    volumeSize: 100
+    volumeSize: 1500
     volumeType: gp3
     tags:
       'org': 'nrel179d'
       'billingId': '230030'
+      'cluster-autoscaler.kubernetes.io/safe-to-evict': 'false'
     updateConfig:
-      maxUnavailable: 1  # Or use maxUnavailablePercentage
+      maxUnavailable: 1
