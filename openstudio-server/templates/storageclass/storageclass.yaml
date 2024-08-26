@@ -22,8 +22,3 @@ reclaimPolicy: Delete
 mountOptions:
   - debug
 volumeBindingMode: Immediate
-allowedTopologies:
-- matchLabelExpressions:
-  - key: nodegroup
-    values:
-      - web-group

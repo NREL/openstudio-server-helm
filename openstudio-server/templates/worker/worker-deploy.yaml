@@ -19,15 +19,6 @@ spec:
         app: {{ .Values.worker.name }}
         release: {{ .Release.Name }}
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - worker-group
       containers:
         - name: {{ .Values.worker.container.name   }}
           image: {{ .Values.worker.container.image   }}

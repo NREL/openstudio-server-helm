@@ -13,7 +13,8 @@ image:
 
 # For a list of available arguments
 # Please see https://github.com/kubernetes-incubator/external-storage/blob/master/nfs/docs/deployment.md#arguments
-extraArgs: {}
+extraArgs:
+  {}
   # device-based-fsids: false
 
 service:
@@ -84,7 +85,8 @@ rbac:
   ##
   serviceAccountName: default
 
-resources: {}
+resources:
+  {}
   # limits:
   #  cpu: 100m
   #  memory: 128Mi
@@ -93,12 +95,4 @@ nodeSelector: {}
 
 tolerations: []
 
-affinity:
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-      - matchExpressions:
-        - key: nodegroup
-          operator: In
-          values:
-          - web-group
+affinity: {}
