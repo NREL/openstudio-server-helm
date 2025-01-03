@@ -135,6 +135,9 @@ web:
       requests:
         cpu: 6
         memory: "50Gi"
+      limits:
+        cpu: 8
+        memory: "60Gi"
     port:
      http: 80
      https: 443
