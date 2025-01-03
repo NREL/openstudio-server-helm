@@ -35,7 +35,7 @@ spec:
       containers:
         - name:  {{ .Values.web.container.name  }}
           image: {{ .Values.web.container.image  }}
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           resources:
             requests:
               cpu:  {{  .Values.web.container.resources.requests.cpu  }}
