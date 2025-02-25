@@ -45,6 +45,7 @@ load_balancer:
   name: "ingress-load-balancer"
   externalTrafficPolicy: "Local"
   label: "web"
+  internal: false
   ports:
     http_name: "http"
     http_port: 80
