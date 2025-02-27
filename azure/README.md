@@ -9,6 +9,14 @@ Below is a guide to help setup a Microsoft Azure Kubernetes Cluster (AKS) using 
 
 https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
 
+## Define environment variables
+
+```bash
+export MY_RESOURCE_GROUP_NAME="openstudio-server"
+export REGION="westus2"
+export MY_AKS_CLUSTER_NAME="openstudio-server"
+```
+
 ## Use az to login to your account.
 
 ```bash
@@ -22,27 +30,31 @@ This will allow you to login to your Azure account. If your using only a termina
 Create a resource group and specifiy a data center location. The example below uses westus2 region.
 
 ```bash
-az group create --name openstudio-server --location westus2
+az group create --name $MY_RESOURCE_GROUP_NAME --location $REGION
 ```
 
-## Create the cluster. Change the --max-count and --node-vm-size to your use case.
+## Create the cluster. This example will create a cluster with 2 nodes of instance type Standard_DS2_v2 with max nodes = 6. This cluster is set to autoscale up to this max node amount. Vary the kubernetes version to your needs.
 
 ```bash
-az aks create --resource-group openstudio-server \
-    --name openstudio-server \
-    --kubernetes-version 1.18.14 \
-    --node-count 3 \
-    --node-vm-size Standard_D4_v4 \
-    --enable-cluster-autoscaler \
-    --min-count 3 \
-    --max-count 8 \
-    --ssh-key-value  ~/.ssh/id_rsa.pub
+az deployment group create \
+  --resource-group $MY_RESOURCE_GROUP_NAME \
+  --template-file aks_config.bicep \
+  --parameters clusterName=$MY_AKS_CLUSTER_NAME kubernetesVersion=1.29 \
+```
+
+## For large scale analysis, create the cluster using these parameters.
+
+```bash
+az deployment group create \
+  --resource-group $MY_RESOURCE_GROUP_NAME \
+  --template-file aks_config.bicep \
+  --parameters clusterName=$MY_AKS_CLUSTER_NAME agentVMSize=D32ps_v6 kubernetesVersion=1.29 \
 ```
 
 ## Set credentials to use cluster.
 
 ```bash
-az aks get-credentials --resource-group openstudio-server --name openstudio-server
+az aks get-credentials --resource-group $MY_RESOURCE_GROUP_NAME --name $MY_AKS_CLUSTER_NAME
 ```
 
 The above command creates the config in ~/.kube/config which is needed to use the `kubectl` cli to interface with the cluster. Once this is ran, confirm that you are connected and able to interface with the cluster by running the following.

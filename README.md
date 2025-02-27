@@ -143,7 +143,12 @@ Once the cluster is up and running, you can use `kubectl` to determine the exter
 AWS is the long domain (a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com)
 
 ```bash
-$ kubectl get svc ingress-load-balancer
+kubectl get svc ingress-load-balancer
+```
+
+example output:
+
+```bash
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                                               PORT(S)                      AGE
 ingress-load-balancer   LoadBalancer   10.100.246.21   a52e7c2e22f3940a8aa9d80b5220d468-1479205808.us-east-1.elb.amazonaws.com   80:32739/TCP,443:31344/TCP   5m56s
 ```
@@ -151,7 +156,12 @@ ingress-load-balancer   LoadBalancer   10.100.246.21   a52e7c2e22f3940a8aa9d80b5
 Google is 35.247.75.9
 
 ```bash
-$ kubectl get svc ingress-load-balancer
+kubectl get svc ingress-load-balancer
+```
+
+example output:
+
+```bash
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
 ingress-load-balancer   LoadBalancer   10.55.246.197   35.247.75.9   80:32613/TCP,443:31562/TCP   35m
 ```
@@ -159,7 +169,12 @@ ingress-load-balancer   LoadBalancer   10.55.246.197   35.247.75.9   80:32613/TC
 Azure is 20.190.10.17
 
 ```bash
-$ kubectl get svc ingress-load-balancer
+kubectl get svc ingress-load-balancer
+```
+
+example output:
+
+```bash
 NAME                                       TYPE           CLUSTER-IP    EXTERNAL-IP    PORT(S)  AGE
 ingress-load-balancer                      LoadBalancer   10.0.248.18   20.190.10.17   80:31879/TCP 443:30780/TCP 3m53s
 ```
