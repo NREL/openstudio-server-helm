@@ -1,12 +1,12 @@
 # A simple example of ClusterConfig object with two nodegroups:
---- 
+---
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
 
 metadata:
-  name: openstudio-server2
-  region: us-east-1
-  version: "1.29"
+  name: openstudio-server
+  region: us-east-2
+  version: "1.31"
 
 vpc:
   cidr: 192.168.0.0/16
@@ -43,6 +43,8 @@ managedNodeGroups:
       allow: true
       # Update publicKeyPath for your public key
       publicKeyPath: ~/.ssh/id_rsa.pub
+    availabilityZones:
+      - us-east-2a
     volumeSize: 550
     volumeType: gp3
 
@@ -64,10 +66,18 @@ managedNodeGroups:
       allow: true
       # Update publicKeyPath for your public key
       publicKeyPath: ~/.ssh/id_rsa.pub
+    availabilityZones:
+      - us-east-2c
     volumeSize: 400
     volumeType: gp3
 
 addons:
+  - name: eks-pod-identity-agent
+    version: latest
   - name: aws-ebs-csi-driver
-    wellKnownPolicies:      # add IAM and service account
-      ebsCSIController: true
+    version: latest
+  - name: vpc-cni
+    version: latest
+
+addonsConfig:
+  autoApplyPodIdentityAssociations: true
