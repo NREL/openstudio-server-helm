@@ -35,9 +35,12 @@ spec:
       containers:
         - name:  {{ .Values.web.container.name  }}
           image: {{ .Values.web.container.image  }}
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           resources:
             requests:
+              cpu:  {{  .Values.web.container.resources.requests.cpu  }}
+              memory:  {{  .Values.web.container.resources.requests.memory  }}
+            limits: # Add limits that are equal to requests
               cpu:  {{  .Values.web.container.resources.requests.cpu  }}
               memory:  {{  .Values.web.container.resources.requests.memory  }}
           ports:

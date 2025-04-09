@@ -146,6 +146,7 @@ spec:
                     operator: In
                     values:
                       - web-group
+      priorityClassName: system-cluster-critical
       serviceAccountName: cluster-autoscaler
       containers:
         - image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.26.6
@@ -165,7 +166,15 @@ spec:
             - --skip-nodes-with-local-storage=false
             - --expander=least-waste
             - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/{{ .Values.cluster.name }}
-            - --scale-down-unneeded-time=5m
+            - --balance-similar-node-groups=true
+            # - --skip-nodes-with-system-pods
+            - --scale-down-utilization-threshold=0.1
+            - --scale-down-unneeded-time=1m
+            # - --max-scale-down-parallelism=15 # Number of nodes to scale down in parallel
+            # - --max-drain-parallelism=15 # Number of nodes to drain in parallel
+            # - --max-empty-bulk-delete=15
+            - --max-graceful-termination-sec=30
+            - --scale-down-delay-after-failure=1m
           volumeMounts:
             - name: ssl-certs
               mountPath: /etc/ssl/certs/ca-certificates.crt

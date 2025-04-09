@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.worker.name   }}
+  annotations:
+    cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
 spec:
   replicas: 1
   selector:
@@ -31,11 +33,11 @@ spec:
       containers:
         - name: {{ .Values.worker.container.name   }}
           image: {{ .Values.worker.container.image   }}
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           lifecycle:
             preStop:
               exec:
-                command: ['/bin/sh','-c', 'pkill -3 -f resque;  while [ $(eval "pgrep -c ruby") -gt 1 ] || [ $(eval "pgrep -c openstudio") -gt 0 ]  ; do sleep 300;  done; pkill -P 1;']
+                command: ['/bin/sh', '-c', 'echo "Creating kill.worker file" >&2; touch /opt/openstudio/server/bin/kill.worker; echo "Sending QUIT signal to Resque" >&2; pkill -f -QUIT resque; echo "Waiting for Ruby or OpenStudio processes to end" >&2; while [ $(eval "pgrep -c ruby") -gt 1 ] || [ $(eval "pgrep -c openstudio") -gt 0 ]; do sleep 15; echo "Still waiting..." >&2; done; echo "Killing remaining processes" >&2; pkill -P 1;']
           resources:
             requests:
               cpu:  {{  .Values.worker.container.resources.requests.cpu  }}
@@ -45,7 +47,7 @@ spec:
               mountPath: "/mnt/openstudio"
           env:
             - name:  QUEUES
-              value: simulations
+              value: requeued,simulations
             - name:  COUNT
               value: "1"
             - name: SECRET_KEY_BASE

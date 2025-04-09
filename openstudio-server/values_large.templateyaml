@@ -31,7 +31,7 @@ db:
     resources:
       requests:
         cpu: 4
-        memory: "22Gi"
+        memory: "12Gi"
     ports:
       db_port: 27017
   persistence:
@@ -96,7 +96,7 @@ rserve:
   number_of_workers: "1"
   container:
     name: "rserve"
-    image: "nrel/openstudio-rserve:3.8.0-1"
+    image: "nrel/openstudio-rserve:3.9.0"
     resources:
       requests:
         cpu: 1
@@ -113,7 +113,7 @@ web_background:
   replicas: 1
   container:
     name: "web-background" 
-    image: "nrel/openstudio-server:3.8.0-1"
+    image: "nrel/openstudio-server:3.9.0"
     resources:
       requests:
         cpu: 2
@@ -130,7 +130,7 @@ web:
   passenger_memory_per_process: 250
   container:
     name: "web"
-    image: "nrel/openstudio-server:3.8.0-1"
+    image: "nrel/openstudio-server:3.9.0"
     resources:
       requests:
         cpu: 6
@@ -160,19 +160,17 @@ worker:
   label: "worker"
   container:
     name: "worker"
-    image: "nrel/openstudio-server:3.8.0-1"
+    image: "nrel/openstudio-server:3.9.0"
     resources:
       requests:
-        cpu: 700m
-        memory: "900Mi"
-    terminationGracePeriodSeconds: 5200
+        cpu: 1
+        memory: "1Gi"
+    terminationGracePeriodSeconds: 1800
 
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 3800
-  targetCPUUtilizationPercentage: 50
+  maxReplicas: 3200
+  targetCPUUtilizationPercentage: 10
   stabilizationWindowSeconds: 3600
-
-
-
+  scaleDownPolicyValue: 5
