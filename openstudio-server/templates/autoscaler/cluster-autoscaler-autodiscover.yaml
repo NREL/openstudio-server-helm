@@ -1,3 +1,4 @@
+{{ if eq .Values.provider.name "aws" }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -184,3 +185,4 @@ spec:
         - name: ssl-certs
           hostPath:
             path: "/etc/ssl/certs/ca-bundle.crt"
+{{ end }}
