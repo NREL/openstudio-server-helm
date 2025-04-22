@@ -173,4 +173,4 @@ worker_hpa:
   maxReplicas: 3200
   targetCPUUtilizationPercentage: 10
   stabilizationWindowSeconds: 3600
-  scaleDownPolicyValue: 5
+  scalePolicyValue: 950
