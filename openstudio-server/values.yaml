@@ -5,7 +5,7 @@
 
 # Set to google, aws or azure
 provider:
-  name: "google"
+  name: ""
 
 cluster:
   name: "openstudio-server"
@@ -61,7 +61,7 @@ nfs_pvc:
   name: "nfs-pvc"
   accessModes:
     - "ReadWriteMany"
-  storage_class: ""
+  storage_class: "nfs"
   storage: "100Gi"
 
 

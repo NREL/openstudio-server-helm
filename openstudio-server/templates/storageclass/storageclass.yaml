@@ -11,7 +11,7 @@ parameters:
 {{ if eq .Values.provider.name "google" }}
 provisioner: pd.csi.storage.gke.io
 parameters:
-  type: pd-standard
+  type: pd-ssd
   replication-type: none
 {{ end }}
 {{ if eq .Values.provider.name "azure" }}
@@ -23,6 +23,6 @@ parameters:
 reclaimPolicy: Delete
 allowVolumeExpansion: true
 mountOptions:
-  - debug
+  - vers=4
 volumeBindingMode: WaitForFirstConsumer
 {{- end }}
