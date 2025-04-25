@@ -11,7 +11,7 @@ parameters:
 {{ if eq .Values.provider.name "google" }}
 provisioner: kubernetes.io/gce-pd
 parameters:
-  type: pd-ssd
+  type: pd-standard
 {{ end }}
 {{ if eq .Values.provider.name "azure" }}
 provisioner: kubernetes.io/azure-disk
@@ -22,10 +22,12 @@ parameters:
 reclaimPolicy: Delete
 mountOptions:
   - debug
-volumeBindingMode: Immediate
-allowedTopologies:
-- matchLabelExpressions:
-  - key: nodegroup
-    values:
-      - web-group
+volumeBindingMode: WaitForFirstConsumer
+# GKE uses its own topology system with topology.gke.io/zone
+# We'll use node affinity in the pod spec instead of storage topology
+# allowedTopologies:
+# - matchLabelExpressions:
+#   - key: nodegroup
+#     values:
+#       - web-group
 {{- end }}

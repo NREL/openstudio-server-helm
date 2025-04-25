@@ -5,7 +5,7 @@
 
 # Set to google, aws or azure
 provider:
-  name: ""
+  name: "google"
 
 cluster:
   name: "openstudio-server"
@@ -14,7 +14,7 @@ nfs-server-provisioner:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 550Gi
+    size: 100Gi
   storageClass:
     allowVolumeExpansion: false
     mountOptions:
@@ -37,7 +37,7 @@ db:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 200Gi
+    size: 100Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -61,8 +61,9 @@ nfs_pvc:
   name: "nfs-pvc"
   accessModes:
     - "ReadWriteMany"
-  storage_class: "nfs"
-  storage: "500Gi"
+  storage_class: ""
+  storage: "100Gi"
+
 
 redis:
   name: "redis"
@@ -79,7 +80,7 @@ redis:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 200Gi
+    size: 100Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -111,7 +112,7 @@ web_background:
   label: "web-background"
   replicas: 1
   container:
-    name: "web-background" 
+    name: "web-background"
     image: "nrel/openstudio-server:3.8.0-1"
     resources:
       requests:
