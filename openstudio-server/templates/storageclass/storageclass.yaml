@@ -22,7 +22,5 @@ parameters:
 {{ end }}
 reclaimPolicy: Delete
 allowVolumeExpansion: true
-mountOptions:
-  - vers=4
 volumeBindingMode: WaitForFirstConsumer
 {{- end }}
