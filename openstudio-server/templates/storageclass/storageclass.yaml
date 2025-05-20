@@ -9,9 +9,10 @@ parameters:
   type: gp3
 {{ end }}
 {{ if eq .Values.provider.name "google" }}
-provisioner: kubernetes.io/gce-pd
+provisioner: pd.csi.storage.gke.io
 parameters:
   type: pd-ssd
+  replication-type: none
 {{ end }}
 {{ if eq .Values.provider.name "azure" }}
 provisioner: kubernetes.io/azure-disk
@@ -20,12 +21,6 @@ parameters:
   storageaccounttype: StandardSSD_LRS
 {{ end }}
 reclaimPolicy: Delete
-mountOptions:
-  - debug
-volumeBindingMode: Immediate
-allowedTopologies:
-- matchLabelExpressions:
-  - key: nodegroup
-    values:
-      - web-group
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
 {{- end }}
