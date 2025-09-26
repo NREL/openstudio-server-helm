@@ -3,9 +3,11 @@
 # Declare variables to be passed into your templates.
 
 
-# Set to google, aws or azure
+# Set to google, aws, azure, or openstack
 provider:
-  name: ""
+  name: "openstack"
+storageclass:
+  createSsd: false
 
 cluster:
   name: "openstudio-server"
@@ -13,8 +15,8 @@ cluster:
 nfs-server-provisioner:
   persistence:
     enabled: true
-    storageClass: "ssd"
-    size: 110Gi
+    storageClass: "nfs-client"
+    size: 5Gi
   storageClass:
     allowVolumeExpansion: false
     mountOptions:
@@ -36,8 +38,8 @@ db:
       db_port: 27017
   persistence:
     enabled: true
-    storageClass: "ssd"
-    size: 100Gi
+    storageClass: "nfs-client"
+    size: 2Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -61,8 +63,8 @@ nfs_pvc:
   name: "nfs-pvc"
   accessModes:
     - "ReadWriteMany"
-  storage_class: "nfs"
-  storage: "100Gi"
+  storage_class: "nfs-client"
+  storage: "5Gi"
 
 
 redis:
@@ -79,8 +81,8 @@ redis:
     port: 6379
   persistence:
     enabled: true
-    storageClass: "ssd"
-    size: 100Gi
+    storageClass: "nfs-client"
+    size: 1Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -173,6 +175,3 @@ worker_hpa:
   maxReplicas: 20
   targetCPUUtilizationPercentage: 50
   stabilizationWindowSeconds: 3600
-
-
-

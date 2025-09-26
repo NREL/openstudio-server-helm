@@ -9,6 +9,8 @@ metadata:
     service.beta.kubernetes.io/azure-load-balancer-internal: "true"
 {{- else if and (eq .Values.provider.name "google") .Values.load_balancer.internal }}
     cloud.google.com/load-balancer-type: "Internal"
+{{- else if and (eq .Values.provider.name "openstack") .Values.load_balancer.internal }}
+    service.beta.kubernetes.io/openstack-internal-load-balancer: "true"
 {{- end }}
 spec:
   type: LoadBalancer

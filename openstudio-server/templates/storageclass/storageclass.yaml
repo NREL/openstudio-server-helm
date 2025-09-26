@@ -1,4 +1,4 @@
-{{- if not (lookup "storage.k8s.io/v1" "StorageClass" "" "ssd") }}
+{{- if (and .Values.storageclass.createSsd (not (lookup "storage.k8s.io/v1" "StorageClass" "" "ssd"))) }}
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -7,18 +7,18 @@ metadata:
 provisioner: kubernetes.io/aws-ebs
 parameters:
   type: gp3
-{{ end }}
-{{ if eq .Values.provider.name "google" }}
+{{ else if eq .Values.provider.name "google" }}
 provisioner: pd.csi.storage.gke.io
 parameters:
   type: pd-ssd
   replication-type: none
-{{ end }}
-{{ if eq .Values.provider.name "azure" }}
+{{ else if eq .Values.provider.name "azure" }}
 provisioner: kubernetes.io/azure-disk
 parameters:
   kind: Managed
   storageaccounttype: StandardSSD_LRS
+{{ else if eq .Values.provider.name "openstack" }}
+provisioner: cinder.csi.openstack.org
 {{ end }}
 reclaimPolicy: Delete
 allowVolumeExpansion: true

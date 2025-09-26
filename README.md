@@ -37,6 +37,14 @@ helm install openstudio-server ./openstudio-server --set provider.name=aws
 helm install openstudio-server ./openstudio-server --set provider.name=azure
 ```
 
+### For OpenStack
+
+First, create the Kubernetes cluster using the OpenTofu scripts in the `openstack` directory. Then, install the Helm chart:
+
+```bash
+helm install openstudio-server ./openstudio-server --set provider.name=openstack
+```
+
 ## Uninstalling the Chart
 
 To uninstall/delete the `openstudio-server` helm chart:
