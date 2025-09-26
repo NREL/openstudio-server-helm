@@ -3,7 +3,7 @@
 # Declare variables to be passed into your templates.
 
 
-# Set to google, aws or azure
+# Set to google, aws, azure, or openstack
 provider:
   name: ""
 
@@ -27,7 +27,7 @@ db:
   password: "openstudio"
   container:
     name: "mongo-db"
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/mongo:6.0.7"
+    image: "mongo:6.0.7"
     resources:
       requests:
         cpu: 4
@@ -71,7 +71,7 @@ redis:
   maxclients: 40000
   container:
     name: "redis"
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/redis:6.0.9"
+    image: "redis:6.0.9"
     resources:
       requests:
         cpu: 3
@@ -96,7 +96,7 @@ rserve:
   number_of_workers: "1"
   container:
     name: "rserve"
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-rserve:3.6.1-3"
+    image: "nrel/openstudio-rserve:3.6.1-3"
     resources:
       requests:
         cpu: 1
@@ -112,8 +112,8 @@ web_background:
   label: "web-background"
   replicas: 1
   container:
-    name: "web-background" 
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-3"
+    name: "web-background"
+    image: "nrel/openstudio-server:3.6.1-3"
     resources:
       requests:
         cpu: 2
@@ -130,7 +130,7 @@ web:
   passenger_memory_per_process: 250
   container:
     name: "web"
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-3"
+    image: "nrel/openstudio-server:3.6.1-3"
     resources:
       requests:
         cpu: 6
@@ -163,7 +163,7 @@ worker:
   label: "worker"
   container:
     name: "worker"
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.6.1-3"
+    image: "nrel/openstudio-server:3.6.1-3"
     resources:
       requests:
         cpu: 500m
