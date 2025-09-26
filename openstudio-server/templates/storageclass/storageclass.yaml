@@ -20,6 +20,12 @@ parameters:
   kind: Managed
   storageaccounttype: StandardSSD_LRS
 {{ end }}
+{{ if eq .Values.provider.name "openstack" }}
+provisioner: kubernetes.io/cinder
+parameters:
+  availability: nova
+  type: __DEFAULT__
+{{ end }}
 reclaimPolicy: Delete
 allowVolumeExpansion: true
 volumeBindingMode: WaitForFirstConsumer
