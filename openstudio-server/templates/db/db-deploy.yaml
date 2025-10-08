@@ -24,10 +24,17 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
+                  {{- if .Values.openstack.enabled }}
+                  - key: capi.stackhpc.com/node-group
+                    operator: In
+                    values:
+                      - web
+                  {{- else }}
                   - key: nodegroup
                     operator: In
                     values:
                       - web-group
+                  {{- end }}
       containers:
         - name: {{ .Values.db.container.name }}
           image: {{ .Values.db.container.image }}
@@ -45,7 +52,6 @@ spec:
               value: {{ .Values.db.username }}
             - name: MONGO_INITDB_ROOT_PASSWORD
               value: {{ .Values.db.password }}
-      priorityClassName: high-priority
       volumes:
         - name: {{ .Values.db.name }}
           persistentVolumeClaim:

@@ -93,6 +93,9 @@ nodeSelector: {}
 
 tolerations: []
 
+# Affinity configuration
+# Default: targets nodes with nodegroup label (AWS, GCP, Azure)
+# Override in parent values.yaml for OpenStack to use capi.stackhpc.com/node-group
 affinity:
   nodeAffinity:
     requiredDuringSchedulingIgnoredDuringExecution:

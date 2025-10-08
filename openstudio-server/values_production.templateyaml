@@ -1,0 +1,255 @@
+# Production values for openstudio-server.
+# This is a YAML-formatted file optimized for production workloads.
+# Declare variables to be passed into your templates.
+
+# Set to google, aws, azure, or openstack
+provider:
+  name: "openstack"
+
+# OpenStack-specific configuration
+openstack:
+  enabled: true  # Set to false when not using OpenStack
+
+storageclass:
+  createSsd: false
+
+cluster:
+  name: "openstudio-server-prod"
+
+# NFS Server Provisioner - Increased storage for production workloads
+nfs-server-provisioner:
+  persistence:
+    enabled: true
+    storageClass: "csi-cinder"
+    size: 50Gi  # Increased from 5Gi for production
+  storageClass:
+    allowVolumeExpansion: true  # Enable expansion for future growth
+    mountOptions:
+      - vers=4
+      - sync
+      - rsize=1048576  # Optimize read performance
+      - wsize=1048576  # Optimize write performance
+  # OpenStack-specific node affinity to target web nodes
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: capi.stackhpc.com/node-group
+            operator: In
+            values:
+            - web
+
+# Database - Enhanced for production
+db:
+  name: "db"
+  label: "db"
+  username: "openstudio"
+  password: "openstudio"  # Should be changed and stored in secrets
+  container:
+    name: "mongo-db"
+    image: "mongo:6.0.7"
+    resources:
+      requests:
+        cpu: 2          # Increased from 1 for better performance
+        memory: "8Gi"   # Increased from 4Gi for production workloads
+      limits:
+        cpu: 4          # Set limits for resource management
+        memory: "12Gi"
+    ports:
+      db_port: 27017
+  persistence:
+    enabled: true
+    storageClass: "nfs"
+    size: 20Gi        # Increased from 2Gi for production data
+    accessModes:
+      - "ReadWriteOnce"
+
+load_balancer:
+  name: "ingress-load-balancer"
+  externalTrafficPolicy: "Cluster"
+  label: "web"
+  internal: false
+  ports:
+    http_name: "http"
+    http_port: 80
+    http_protocol: "TCP"
+    https_name: "https"
+    https_port: 443
+    https_protocol: "TCP"
+
+nfs:
+  name: "nfs"
+
+# NFS PVC - Increased storage for production
+nfs_pvc:
+  name: "nfs-pvc"
+  accessModes:
+    - "ReadWriteMany"
+  storage_class: "nfs"
+  storage: "10Gi"     # Increased from 2Gi for production shared storage
+
+# Redis - Enhanced for production
+redis:
+  name: "redis"
+  label: "redis"
+  password: "openstudio"  # Should be changed and stored in secrets
+  container:
+    name: "redis"
+    image: "redis:6.0.9"
+    resources:
+      requests:
+        cpu: 0.5        # Increased from 0.25 for better queue performance
+        memory: "2Gi"   # Increased from 1Gi for larger queues
+      limits:
+        cpu: 1
+        memory: "3Gi"
+    port: 6379
+  persistence:
+    enabled: true
+    storageClass: "nfs"
+    size: 5Gi         # Increased from 1Gi for production queues
+    accessModes:
+      - "ReadWriteOnce"
+
+redis_svc:
+  name: "queue"
+  label: "redis"
+  port: 6379
+  url: "redis://:openstudio@queue:6379"
+
+# RServe - Enhanced for production
+rserve:
+  name: "rserve"
+  label: "rserve"
+  number_of_workers: "2"  # Increased from 1 for better R processing
+  container:
+    name: "rserve"
+    image: "nrel/openstudio-rserve:3.8.0-1"
+    resources:
+      requests:
+        cpu: 2          # Increased from 1 for better R performance
+        memory: "4Gi"   # Increased from 2Gi for larger R workloads
+      limits:
+        cpu: 4
+        memory: "6Gi"
+
+rserve_svc:
+  name: "rserve"
+  label: "rserve"
+  port: 6311
+
+# Web Background - Enhanced for production
+web_background:
+  name: "web-background"
+  label: "web-background"
+  replicas: 2           # Increased from 1 for redundancy
+  container:
+    name: "web-background"
+    image: "nrel/openstudio-server:3.8.0-1"
+    resources:
+      requests:
+        cpu: 0.5        # Increased from 0.25 for better background processing
+        memory: "1Gi"   # Increased from 512Mi
+      limits:
+        cpu: 1
+        memory: "2Gi"
+
+# Web - Enhanced for production with proper passenger configuration
+web:
+  name: "web"
+  label: "web"
+  secret_key_value: "c4ab6d293e4bf52ee92e8dda6e16dc9b5448d0c5f7908ee40c66736d515f3c29142d905b283d73e5e9cef6b13cd8e38be6fd3b5e25d00f35b259923a86c7c473"
+  # Production passenger configuration
+  passenger_max_request_queue_size: "2000"    # Increased for production load
+  # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
+  passenger_max_pool_size: "24"              # Calculated: (1024 * 8 * 0.75) / 250 ≈ 24
+  passenger_memory_per_process: 250          # Keep existing optimized value
+  container:
+    name: "web"
+    image: "nrel/openstudio-server:3.8.0-1"
+    resources:
+      requests:
+        cpu: 2          # Increased from 1 for better web performance
+        memory: "8Gi"   # Increased from 2Gi for production load
+      limits:
+        cpu: 4
+        memory: "12Gi"
+    port:
+      http: 80
+      https: 443
+
+# Web HPA - Configured for production scaling
+web_hpa:
+  name: "web"
+  minReplicas: 2        # Increased from 1 for high availability
+  maxReplicas: 5        # Increased from 1 for production scaling
+  targetCPUUtilizationPercentage: 70  # Slightly higher threshold for stability
+  # Note: Distributed file locking still needed for >1 replica
+
+web_svc:
+  name: "web"
+  label: "web"
+  ports:
+    http: 80
+    https: 443
+
+# Worker - Enhanced for production
+worker:
+  name: "worker"
+  label: "worker"
+  container:
+    name: "worker"
+    image: "nrel/openstudio-server:3.8.0-1"
+    resources:
+      requests:
+        cpu: 1          # Increased from 700m for better performance
+        memory: "2Gi"   # Increased from 900Mi for larger simulations
+      limits:
+        cpu: 2
+        memory: "3Gi"
+    terminationGracePeriodSeconds: 5200
+
+# Worker HPA - Optimized for production workloads
+worker_hpa:
+  name: "worker"
+  minReplicas: 5        # Increased from 2 for baseline production capacity
+  maxReplicas: 50       # Increased from 20 for larger simulation batches
+  targetCPUUtilizationPercentage: 60  # Slightly higher for stability
+  stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
+
+# Production-specific additions
+tolerations: []
+nodeSelector: {}
+affinity: {}
+
+# Resource quotas and limits (optional)
+resourceQuota:
+  enabled: false
+  hard:
+    requests.cpu: "50"
+    requests.memory: "100Gi"
+    limits.cpu: "100"
+    limits.memory: "200Gi"
+
+# Network policies (optional)
+networkPolicy:
+  enabled: false
+
+# Pod security policies (optional)
+podSecurityPolicy:
+  enabled: false
+
+# Monitoring and observability
+monitoring:
+  enabled: false
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+
+# Backup configuration
+backup:
+  enabled: false
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention: "30d"

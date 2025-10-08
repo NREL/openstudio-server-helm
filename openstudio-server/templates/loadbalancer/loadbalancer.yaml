@@ -13,7 +13,7 @@ metadata:
     service.beta.kubernetes.io/openstack-internal-load-balancer: "true"
 {{- end }}
 spec:
-  type: LoadBalancer
+  type: {{ .Values.load_balancer.type | default "LoadBalancer" }}
   externalTrafficPolicy: {{ .Values.load_balancer.externalTrafficPolicy }}
   selector:
     app: {{ .Values.load_balancer.label }}

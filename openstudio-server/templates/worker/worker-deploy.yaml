@@ -24,10 +24,17 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
+                  {{- if .Values.openstack.enabled }}
+                  - key: capi.stackhpc.com/node-group
+                    operator: In
+                    values:
+                      - worker
+                  {{- else }}
                   - key: nodegroup
                     operator: In
                     values:
                       - worker-group
+                  {{- end }}
       containers:
         - name: {{ .Values.worker.container.name   }}
           image: {{ .Values.worker.container.image   }}
@@ -58,7 +65,6 @@ spec:
               value: {{ .Values.db.password }}
           command: ["/usr/local/bin/start-workers"]
       terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs.
-      priorityClassName: low-priority
       volumes:
         - name: osdata-worker
           emptyDir: {}

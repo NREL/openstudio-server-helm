@@ -19,10 +19,17 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
+                  {{- if .Values.openstack.enabled }}
+                  - key: capi.stackhpc.com/node-group
+                    operator: In
+                    values:
+                      - web
+                  {{- else }}
                   - key: nodegroup
                     operator: In
                     values:
                       - web-group
+                  {{- end }}
       containers:
         - name: {{ .Values.redis.container.name  }}
           image: {{ .Values.redis.container.image  }}
@@ -36,7 +43,6 @@ spec:
             - mountPath: /data
               name: {{ .Values.redis.name }}
           args: ["redis-server", "--appendonly yes", "--requirepass", "{{ .Values.redis.password  }}"]
-      priorityClassName: high-priority
       volumes:
         - name: {{ .Values.redis.name }}
           persistentVolumeClaim:

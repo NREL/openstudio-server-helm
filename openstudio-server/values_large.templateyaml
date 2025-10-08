@@ -7,6 +7,10 @@
 provider:
   name: ""
 
+# OpenStack-specific configuration
+openstack:
+  enabled: false  # Set to true when using OpenStack
+
 cluster:
   name: "openstudio-server"
 
@@ -20,6 +24,16 @@ nfs-server-provisioner:
     mountOptions:
       - vers=4
       - sync
+  # Non-OpenStack node affinity (AWS, GCP, Azure)
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: nodegroup
+            operator: In
+            values:
+            - web-group
 db:
   name:  "db"
   label: "db"

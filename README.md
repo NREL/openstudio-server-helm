@@ -15,6 +15,32 @@ Note that this repository has both information for small and large workloads in 
 - [helm client](https://helm.sh/docs/intro/install/) (v3.12.0 or higher)
 - [kubectl client](https://kubernetes.io/docs/tasks/tools/install-kubectl/) (v1.27.0 or higher)
 
+## Configuration Setup
+
+Before installing the chart, you need to create your own `values.yaml` file from one of the provided templates:
+
+- `values_small.templateyaml` - For small workloads and testing
+- `values_large.templateyaml` - For large-scale production workloads
+- `values_production.templateyaml` - For general production deployments (specifically openstack)
+
+**Copy the appropriate template and customize it for your environment:**
+
+```bash
+cp openstudio-server/values_small.templateyaml openstudio-server/values.yaml
+# OR
+cp openstudio-server/values_large.templateyaml openstudio-server/values.yaml
+# OR
+cp openstudio-server/values_production.templateyaml openstudio-server/values.yaml
+```
+
+Then edit `openstudio-server/values.yaml` to:
+- Set your cloud provider (`google`, `aws`, `azure`, or `openstack`)
+- Change default passwords (db.password, redis.password, web.secret_key_value)
+- Adjust resource allocations for your workload
+- Configure storage sizes
+
+**Note:** The `values.yaml` file is gitignored and should never be committed to version control as it contains environment-specific configuration and secrets.
+
 ## Installing the Chart
 
 To install the helm chart with the chart name `openstudio-server`, you can run the following command in the root directory of this repo. This assumes you already have a Kubernetes cluster up and running. If you do not, please refer to [google](/google/README.md) or [aws](/aws/README.md) in this repo.
@@ -22,19 +48,19 @@ To install the helm chart with the chart name `openstudio-server`, you can run t
 ### For Google
 
 ```bash
-helm install openstudio-server ./openstudio-server --set provider.name=google
+helm install openstudio-server ./openstudio-server
 ```
 
 ### For Amazon
 
 ```bash
-helm install openstudio-server ./openstudio-server --set provider.name=aws
+helm install openstudio-server ./openstudio-server
 ```
 
 ### For Azure
 
 ```bash
-helm install openstudio-server ./openstudio-server --set provider.name=azure
+helm install openstudio-server ./openstudio-server
 ```
 
 ### For OpenStack
@@ -42,8 +68,10 @@ helm install openstudio-server ./openstudio-server --set provider.name=azure
 First, create the Kubernetes cluster using the OpenTofu scripts in the `openstack` directory. Then, install the Helm chart:
 
 ```bash
-helm install openstudio-server ./openstudio-server --set provider.name=openstack
+helm install openstudio-server ./openstudio-server
 ```
+
+**Note:** The provider name is now set in your `values.yaml` file, so you no longer need to specify `--set provider.name=...` during installation.
 
 ## Uninstalling the Chart
 
@@ -57,24 +85,14 @@ The command removes all the Kubernetes components associated with the chart and 
 
 ## Configuration
 
-The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values by specifying each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example, to change the data storage for NFS which stores the data points to 300GB you would run this install command:
+The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values in your `values.yaml` file (see Configuration Setup section above).
 
-### For Google
+For example, to change the data storage for NFS which stores the data points to 300GB, modify the `nfs-server-provisioner.persistence.size` parameter in your `values.yaml`:
 
-```bash
-helm install openstudio-server ./openstudio-server --set provider.name=google --set nfs-server-provisioner.persistence.size=300Gi
-```
-
-### For Amazon
-
-```bash
-helm install openstudio-server ./openstudio-server --set provider.name=aws --set nfs-server-provisioner.persistence.size=300Gi
-```
-
-### For Azure
-
-```bash
-helm install openstudio-server ./openstudio-server --set provider.name=azure --set nfs-server-provisioner.persistence.size=300Gi
+```yaml
+nfs-server-provisioner:
+  persistence:
+    size: 300Gi
 ```
 
 Parameter | Description | Default
@@ -91,10 +109,18 @@ web.container.image   | Container to run the web front-end. Can use a custom ima
 worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
 rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve:3.7.0 |
 
-#### For Large Workloads
-Copy the text from inside the [large template values file](/openstudio-server/values_large.templateyaml)] and paste it inside of the [values file](/openstudio-server/values.yaml). Do this before using the `helm install ...` command.
+**Note:** For best practices, create your own `values.yaml` from one of the template files rather than modifying configuration via `--set` flags. See the Configuration Setup section above.
 
-Additionally, note that with large workloads you may have issues with downloading container images from Docker Hub if you have a lot of worker nodes. Therefore, you may want to upload the container images into the cloud's container registry and then update the container image path in the [values file](/openstudio-server/values.yaml). This [article](https://docs.aws.amazon.com/AmazonECR/latest/userguide/docker-push-ecr-image.html#:~:text=Identify%20the%20local%20image%20to,container%20images%20on%20your%20system.&text=You%20can%20identify%20an%20image,tag%20name%20combination%20to%20use.) has instructions on how to do this for aws' Elastic Container Registry (ECR).
+#### For Large Workloads
+Use the [large template values file](/openstudio-server/values_large.templateyaml) as your starting point:
+
+```bash
+cp openstudio-server/values_large.templateyaml openstudio-server/values.yaml
+```
+
+Then customize as needed before running `helm install`.
+
+Additionally, note that with large workloads you may have issues with downloading container images from Docker Hub if you have a lot of worker nodes. Therefore, you may want to upload the container images into the cloud's container registry and then update the container image paths in your `values.yaml` file. This [article](https://docs.aws.amazon.com/AmazonECR/latest/userguide/docker-push-ecr-image.html#:~:text=Identify%20the%20local%20image%20to,container%20images%20on%20your%20system.&text=You%20can%20identify%20an%20image,tag%20name%20combination%20to%20use.) has instructions on how to do this for aws' Elastic Container Registry (ECR).
 
 ## Accessing OpenStudio Server
 

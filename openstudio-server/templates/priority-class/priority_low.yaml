@@ -1,9 +1,0 @@
-{{- if not (lookup "scheduling.k8s.io/v1" "PriorityClass" "" "high-priority") }}
-apiVersion: scheduling.k8s.io/v1
-kind: PriorityClass
-metadata:
-  name: low-priority
-value: 10000
-globalDefault: true
-description: "Used for non-core service pods only. This is default"
-{{- end }}

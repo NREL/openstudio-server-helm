@@ -142,10 +142,17 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
+                  {{- if .Values.openstack.enabled }}
+                  - key: capi.stackhpc.com/node-group
+                    operator: In
+                    values:
+                      - web
+                  {{- else }}
                   - key: nodegroup
                     operator: In
                     values:
                       - web-group
+                  {{- end }}
       serviceAccountName: cluster-autoscaler
       containers:
         - image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.26.6

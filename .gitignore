@@ -1,1 +1,6 @@
 .idea
+.env
+*.sh
+
+# Ignore environment-specific values.yaml (use template files instead)
+openstudio-server/values.yaml

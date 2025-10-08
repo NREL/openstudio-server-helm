@@ -24,10 +24,17 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
+                  {{- if .Values.openstack.enabled }}
+                  - key: capi.stackhpc.com/node-group
+                    operator: In
+                    values:
+                      - web
+                  {{- else }}
                   - key: nodegroup
                     operator: In
                     values:
                       - web-group
+                  {{- end }}
       containers:
         - name:  {{  .Values.web_background.container.name  }}
           image:  {{  .Values.web_background.container.image  }}
@@ -60,7 +67,6 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 30
             failureThreshold: 3
-      priorityClassName: high-priority
       volumes:
         - name: nfs
           persistentVolumeClaim:

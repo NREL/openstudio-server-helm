@@ -24,10 +24,17 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
+                  {{- if .Values.openstack.enabled }}
+                  - key: capi.stackhpc.com/node-group
+                    operator: In
+                    values:
+                      - web
+                  {{- else }}
                   - key: nodegroup
                     operator: In
                     values:
                       - web-group
+                  {{- end }}
       initContainers:
           - name: init-wait-for-db
             image: alpine
@@ -79,7 +86,6 @@ spec:
             periodSeconds: 200
             timeoutSeconds: 120
             failureThreshold: 3
-      priorityClassName: high-priority
       volumes:
         - name: nfs
           persistentVolumeClaim:
