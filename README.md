@@ -65,7 +65,11 @@ helm install openstudio-server ./openstudio-server
 
 ### For OpenStack
 
-First, create the Kubernetes cluster using the OpenTofu scripts in the `openstack` directory. Then, install the Helm chart:
+Use an existing OpenStack-managed Kubernetes cluster when possible (for example, a cluster created through Azimuth or provided by your OpenStack administrators). This is the recommended path.
+
+The `openstack/` directory in this repository contains legacy self-managed cluster automation (Terraform/OpenTofu + Kubespray). That path is not actively tested and may not work in all environments; use it at your own risk.
+
+Once your Kubernetes cluster is available and your kubeconfig is configured, install the Helm chart:
 
 ```bash
 helm install openstudio-server ./openstudio-server
