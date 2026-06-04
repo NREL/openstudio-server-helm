@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Values.rserve_svc.name  }}
+  name: {{ default "rserve" .Values.rserve_svc.name }}
 spec:
   selector:
-    app: {{ .Values.rserve.label }}
+    app: {{ default "rserve" .Values.rserve.label }}
     release: {{ .Release.Name }}
   ports:
     - name: rserve
       protocol: TCP
-      port: {{ .Values.rserve_svc.port  }}
+      port: {{ default 6311 .Values.rserve_svc.port }}

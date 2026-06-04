@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.worker.name   }}
+  name: worker
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: {{ .Values.worker.name }}
+      app: worker
       release: {{ .Release.Name }}
   strategy:
     type: RollingUpdate
@@ -16,28 +16,13 @@ spec:
   template:
     metadata:
       labels:
-        app: {{ .Values.worker.name }}
+        app: worker
         release: {{ .Release.Name }}
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  {{- if .Values.openstack.enabled }}
-                  - key: capi.stackhpc.com/node-group
-                    operator: In
-                    values:
-                      - worker
-                  {{- else }}
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - worker-group
-                  {{- end }}
+      {{- include "openstudio.affinityForRole" (dict "root" . "role" "worker") | nindent 6 }}
       containers:
-        - name: {{ .Values.worker.container.name   }}
-          image: {{ .Values.worker.container.image   }}
+        - name: {{ default "worker" .Values.worker.container.name }}
+          image: {{ default (include "openstudio.serverImage" .) .Values.worker.container.image }}
           imagePullPolicy: Always
           lifecycle:
             preStop:
@@ -58,7 +43,7 @@ spec:
             - name: SECRET_KEY_BASE
               value: {{ .Values.web.secret_key_value }}
             - name: REDIS_URL
-              value: {{ .Values.redis_svc.url  }}
+              value: {{ include "openstudio.redisUrl" . | quote }}
             - name: MONGO_USER
               value: {{ .Values.db.username }}
             - name: MONGO_PASSWORD

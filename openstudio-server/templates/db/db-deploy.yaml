@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.db.name }}
+  name: db
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: {{ .Values.db.name  }}
+      app: db
       release: {{ .Release.Name }}
   strategy:
     type: RollingUpdate
@@ -16,33 +16,20 @@ spec:
   template:
     metadata:
       labels:
-        app: {{ .Values.db.name }}
+        app: db
         release: {{ .Release.Name }}
+    {{ $dbContainer := (get .Values.db "container") | default (dict) }}
+    {{ $dbContainerPorts := (get $dbContainer "ports") | default (dict) }}
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  {{- if .Values.openstack.enabled }}
-                  - key: capi.stackhpc.com/node-group
-                    operator: In
-                    values:
-                      - web
-                  {{- else }}
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
-                  {{- end }}
+      {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
       containers:
-        - name: {{ .Values.db.container.name }}
+        - name: {{ default "mongo-db" .Values.db.container.name }}
           image: {{ .Values.db.container.image }}
           ports:
-            - containerPort:  {{ .Values.db.container.ports.db_port }}
+            - containerPort:  {{ default 27017 (get $dbContainerPorts "db_port") }}
           volumeMounts:
             - mountPath: /data/db
-              name: {{ .Values.db.name }}
+              name: db
           resources:
             requests:
               cpu:  {{  .Values.db.container.resources.requests.cpu  }}
@@ -53,7 +40,7 @@ spec:
             - name: MONGO_INITDB_ROOT_PASSWORD
               value: {{ .Values.db.password }}
       volumes:
-        - name: {{ .Values.db.name }}
+        - name: db
           persistentVolumeClaim:
-            claimName: {{ .Values.db.name }}
+            claimName: db
           

@@ -1,10 +1,10 @@
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
-  name: {{ .Values.nfs_pvc.name  }}
+  name: nfs-pvc
 spec:
   accessModes:
-    {{ .Values.nfs_pvc.accessModes }}
+    - ReadWriteMany
   storageClassName: "nfs"
   resources:
     requests:

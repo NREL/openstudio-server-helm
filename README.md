@@ -34,10 +34,44 @@ cp openstudio-server/values_production.templateyaml openstudio-server/values.yam
 ```
 
 Then edit `openstudio-server/values.yaml` to:
-- Set your cloud provider (`google`, `aws`, `azure`, or `openstack`)
+- Set your cloud provider in `global.provider.name` (`google`, `aws`, `azure`, or `openstack`)
 - Change default passwords (db.password, redis.password, web.secret_key_value)
 - Adjust resource allocations for your workload
 - Configure storage sizes
+
+Provider-aware scheduling defaults are automatic and based on `global.provider.name`:
+
+Provider | Label Key | Web Node Group | Worker Node Group
+---------|-----------|----------------|------------------
+openstack | `capi.stackhpc.com/node-group` | `web` | `worker`
+aws/google/azure (default) | `nodegroup` | `web-group` | `worker-group`
+
+Provider-aware infrastructure defaults are also automatic when values are omitted:
+
+Setting | openstack default | aws/google/azure default
+--------|-------------------|------------------------
+`db.persistence.storageClass` | `nfs` | `ssd`
+`redis.persistence.storageClass` | `nfs` | `ssd`
+`load_balancer.externalTrafficPolicy` | `Cluster` | `Local`
+
+NFS mount options are intentionally conservative by default in template files:
+
+- Default: `mountOptions: ["vers=4"]`
+- Optional tuning (environment dependent): `sync`, `rsize=...`, `wsize=...`
+
+These options are not cloud-provider features; compatibility depends on the Kubernetes node OS/kernel NFS client and the backing NFS server behavior.
+
+If your cluster uses different label names, set overrides in `global.nodeGroups`:
+
+```yaml
+global:
+  provider:
+    name: "openstack"
+  nodeGroups:
+    labelKey: ""
+    web: ""
+    worker: ""
+```
 
 **Note:** The `values.yaml` file is gitignored and should never be committed to version control as it contains environment-specific configuration and secrets.
 
@@ -75,7 +109,7 @@ Once your Kubernetes cluster is available and your kubeconfig is configured, ins
 helm install openstudio-server ./openstudio-server
 ```
 
-**Note:** The provider name is now set in your `values.yaml` file, so you no longer need to specify `--set provider.name=...` during installation.
+**Note:** Provider is read from `global.provider.name` in your `values.yaml`, so you do not need `--set` provider flags during installation.
 
 ## Uninstalling the Chart
 
@@ -108,10 +142,14 @@ worker_hpa.minReplicas | Worker pods that run the simulations | 2 |
 worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
 web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
-web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
-web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
-worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
-rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve:3.7.0 |
+global.images.org | Docker image organization/registry namespace for OpenStudio images | nrel |
+global.images.serverRepository | Repository name used by web, web-background, and worker containers | openstudio-server |
+global.images.rserveRepository | Repository name used by rserve container | openstudio-rserve |
+global.images.tag | Shared image tag used for both server and rserve repositories | 3.8.0-1 |
+web_background.container.image  | Optional explicit override for web-background image. If omitted, chart uses global.images.* defaults | (derived) |
+web.container.image   | Optional explicit override for web image. If omitted, chart uses global.images.* defaults | (derived) |
+worker.container.image   | Optional explicit override for worker image. If omitted, chart uses global.images.* defaults | (derived) |
+rserve.container.image   | Optional explicit override for rserve image. If omitted, chart uses global.images.* defaults | (derived) |
 
 **Note:** For best practices, create your own `values.yaml` from one of the template files rather than modifying configuration via `--set` flags. See the Configuration Setup section above.
 

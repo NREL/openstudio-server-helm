@@ -137,22 +137,7 @@ spec:
         prometheus.io/scrape: 'true'
         prometheus.io/port: '8085'
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  {{- if .Values.openstack.enabled }}
-                  - key: capi.stackhpc.com/node-group
-                    operator: In
-                    values:
-                      - web
-                  {{- else }}
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
-                  {{- end }}
+      {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
       serviceAccountName: cluster-autoscaler
       containers:
         - image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.26.6
@@ -168,7 +153,7 @@ spec:
             - ./cluster-autoscaler
             - --v=4
             - --stderrthreshold=info
-            - --cloud-provider={{ .Values.provider.name }}
+            - --cloud-provider={{ .Values.global.provider.name }}
             - --skip-nodes-with-local-storage=false
             - --expander=least-waste
             - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/{{ .Values.cluster.name }}

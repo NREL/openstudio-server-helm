@@ -102,9 +102,23 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- if .Values.affinity }}
       affinity:
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .Values.affinity | nindent 8 }}
+      {{- else }}
+      {{- $providerName := default "" .Values.global.provider.name }}
+      {{- $nodeGroups := default (dict) .Values.global.nodeGroups }}
+      {{- $labelKeyOverride := default "" (get $nodeGroups "labelKey") }}
+      {{- $webGroupOverride := default "" (get $nodeGroups "web") }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ if ne $labelKeyOverride "" }}{{ $labelKeyOverride }}{{ else if eq $providerName "openstack" }}capi.stackhpc.com/node-group{{ else }}nodegroup{{ end }}
+                    operator: In
+                    values:
+                      - {{ if ne $webGroupOverride "" }}{{ $webGroupOverride }}{{ else if eq $providerName "openstack" }}web{{ else }}web-group{{ end }}
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:

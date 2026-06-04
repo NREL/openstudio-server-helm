@@ -1,15 +1,17 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Values.web_svc.name   }}
+  name: {{ default "web" .Values.web_svc.name }}
+{{ $webSvc := (get .Values "web_svc") | default (dict) }}
+{{ $webSvcPorts := (get $webSvc "ports") | default (dict) }}
 spec:
   selector:
-    app: {{ .Values.web.name  }}
+    app: web
     release: {{ .Release.Name }}
   ports:
     - name: http
       protocol: TCP
-      port: {{ .Values.web_svc.ports.http   }}
+      port: {{ default 80 (get $webSvcPorts "http") }}
     - name: https
       protocol: TCP
-      port:  {{ .Values.web_svc.ports.https   }}
+      port:  {{ default 443 (get $webSvcPorts "https") }}

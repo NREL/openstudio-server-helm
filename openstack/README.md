@@ -152,10 +152,23 @@ kubectl apply -f storage-classes.yaml
 helm upgrade --install openstudio-server ../openstudio-server \
   --namespace openstudio-server \
   --create-namespace \
-  --set provider.name=openstack \
   --timeout=20m \
   --wait
 ```
+
+The chart now reads provider from `global.provider.name` in your values file and applies provider-aware node affinity defaults automatically. For OpenStack, the default node label assumptions are:
+
+- Label key: `capi.stackhpc.com/node-group`
+- Web node group value: `web`
+- Worker node group value: `worker`
+
+If your cluster uses different labels, set `global.nodeGroups.labelKey`, `global.nodeGroups.web`, and `global.nodeGroups.worker` in your values file.
+
+Additional OpenStack defaults are automatically applied when omitted in values:
+
+- `db.persistence.storageClass`: `nfs`
+- `redis.persistence.storageClass`: `nfs`
+- `load_balancer.externalTrafficPolicy`: `Cluster`
 
 ## 🏭 Architecture
 

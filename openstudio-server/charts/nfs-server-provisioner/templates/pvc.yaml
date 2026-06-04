@@ -1,9 +1,11 @@
+{{- $providerName := default "" .Values.global.provider.name }}
+{{- $defaultStorageClass := ternary "csi-cinder" "ssd" (eq $providerName "openstack") }}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: {{ .Values.persistence.name  }}
 spec:
-  storageClassName: {{ .Values.persistence.storageClass }}
+  storageClassName: {{ default $defaultStorageClass .Values.persistence.storageClass | quote }}
   accessModes:
     {{ .Values.persistence.accessModes }}
   resources:

@@ -1,12 +1,12 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ .Values.worker_hpa.name  }}
+  name: worker
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ .Values.worker.name  }}
+    name: worker
   minReplicas: {{ .Values.worker_hpa.minReplicas  }}
   maxReplicas: {{ .Values.worker_hpa.maxReplicas  }}
   behavior:

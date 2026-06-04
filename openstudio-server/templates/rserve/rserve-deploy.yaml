@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.rserve.name  }}
+  name: rserve
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: {{ .Values.rserve.name }}
+      app: rserve
       release: {{ .Release.Name }}
   strategy:
     type: RollingUpdate
@@ -16,28 +16,13 @@ spec:
   template:
     metadata:
       labels:
-        app: {{ .Values.rserve.name }}
+        app: rserve
         release: {{ .Release.Name }}
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  {{- if .Values.openstack.enabled }}
-                  - key: capi.stackhpc.com/node-group
-                    operator: In
-                    values:
-                      - web
-                  {{- else }}
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
-                  {{- end }}
+      {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
       containers:
-        - name: {{ .Values.rserve.container.name }}
-          image: {{ .Values.rserve.container.image }}
+        - name: {{ default "rserve" .Values.rserve.container.name }}
+          image: {{ default (include "openstudio.rserveImage" .) .Values.rserve.container.image }}
           resources:
             requests:
               cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
@@ -51,7 +36,7 @@ spec:
              - name: SECRET_KEY_BASE
                value: {{ .Values.web.secret_key_value }}
              - name: REDIS_URL
-               value: {{ .Values.redis_svc.url  }}
+               value: {{ include "openstudio.redisUrl" . | quote }}
              - name: MONGO_USER
                value: {{ .Values.db.username }}
              - name: MONGO_PASSWORD

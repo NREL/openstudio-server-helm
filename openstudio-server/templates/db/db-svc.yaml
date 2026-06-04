@@ -1,12 +1,14 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Values.db.name  }}
+  name: db
+{{ $dbContainer := (get .Values.db "container") | default (dict) }}
+{{ $dbContainerPorts := (get $dbContainer "ports") | default (dict) }}
 spec:
   selector:
-    app: {{ .Values.db.label  }}
+    app: {{ default "db" .Values.db.label }}
     release: {{ .Release.Name }}
   ports:
-    - name: {{ .Values.db.name  }}
+    - name: db
       protocol: TCP
-      port: {{ .Values.db.container.ports.db_port }}
+      port: {{ default 27017 (get $dbContainerPorts "db_port") }}

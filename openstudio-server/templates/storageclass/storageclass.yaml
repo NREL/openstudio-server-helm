@@ -1,23 +1,24 @@
-{{- if (and .Values.storageclass.createSsd (not (lookup "storage.k8s.io/v1" "StorageClass" "" "ssd"))) }}
+{{- $storageclass := (get .Values "storageclass") | default (dict) -}}
+{{- if (and (default false (get $storageclass "createSsd")) (not (lookup "storage.k8s.io/v1" "StorageClass" "" "ssd"))) }}
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: ssd
-{{ if eq .Values.provider.name "aws" }}
+{{ if eq .Values.global.provider.name "aws" }}
 provisioner: kubernetes.io/aws-ebs
 parameters:
   type: gp3
-{{ else if eq .Values.provider.name "google" }}
+{{ else if eq .Values.global.provider.name "google" }}
 provisioner: pd.csi.storage.gke.io
 parameters:
   type: pd-ssd
   replication-type: none
-{{ else if eq .Values.provider.name "azure" }}
+{{ else if eq .Values.global.provider.name "azure" }}
 provisioner: kubernetes.io/azure-disk
 parameters:
   kind: Managed
   storageaccounttype: StandardSSD_LRS
-{{ else if eq .Values.provider.name "openstack" }}
+{{ else if eq .Values.global.provider.name "openstack" }}
 provisioner: cinder.csi.openstack.org
 {{ end }}
 reclaimPolicy: Delete

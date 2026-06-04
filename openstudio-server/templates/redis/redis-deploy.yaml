@@ -1,49 +1,34 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.redis.name  }}
+  name: redis
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: {{ .Values.redis.name  }}
+      app: redis
       release: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app: {{ .Values.redis.name  }}
+        app: redis
         release: {{ .Release.Name }}
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  {{- if .Values.openstack.enabled }}
-                  - key: capi.stackhpc.com/node-group
-                    operator: In
-                    values:
-                      - web
-                  {{- else }}
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
-                  {{- end }}
+      {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
       containers:
-        - name: {{ .Values.redis.container.name  }}
+        - name: {{ default "redis" .Values.redis.container.name  }}
           image: {{ .Values.redis.container.image  }}
           resources:
             requests:
               cpu:  {{  .Values.redis.container.resources.requests.cpu  }}
               memory:  {{  .Values.redis.container.resources.requests.memory  }}
           ports:
-            - containerPort: {{ .Values.redis.container.port  }}
+            - containerPort: {{ default 6379 .Values.redis.container.port }}
           volumeMounts:
             - mountPath: /data
-              name: {{ .Values.redis.name }}
+              name: redis
           args: ["redis-server", "--appendonly yes", "--requirepass", "{{ .Values.redis.password  }}"]
       volumes:
-        - name: {{ .Values.redis.name }}
+        - name: redis
           persistentVolumeClaim:
-            claimName: {{ .Values.redis.name }}
+            claimName: redis
