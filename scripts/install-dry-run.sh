@@ -10,9 +10,16 @@ helm template openstudio-server "${CHART_DIR}" --set global.provider.name=aws >/
 helm template openstudio-server "${CHART_DIR}" --set global.provider.name=google >/dev/null
 helm template openstudio-server "${CHART_DIR}" --set global.provider.name=azure >/dev/null
 helm template openstudio-server "${CHART_DIR}" --set global.provider.name=openstack >/dev/null
-helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack.yaml" >/dev/null
-helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack-nfs.yaml" >/dev/null
-helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack-nfs-small.yaml" >/dev/null
+helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack.yaml" --set secrets.validateExistingSecret=false >/dev/null
+helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack-nfs.yaml" --set secrets.validateExistingSecret=false >/dev/null
+helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack-nfs-small.yaml" --set secrets.validateExistingSecret=false >/dev/null
+helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name=openstack \
+  --set autoscaler.enabled=true \
+  --set autoscaler.openstack.cloudConfigSecretName=cloud-config \
+  --set autoscaler.openstackNodeGroups[0].name=worker \
+  --set autoscaler.openstackNodeGroups[0].min=1 \
+  --set autoscaler.openstackNodeGroups[0].max=5 >/dev/null
 helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=aws \
   --set secrets.existingSecret= \
@@ -39,6 +46,22 @@ if helm template openstudio-server "${CHART_DIR}" \
   --set secrets.existingSecret=openstudio-app-secrets \
   --set secrets.create=true >/dev/null 2>&1; then
   echo "Expected failure when secrets.existingSecret and secrets.create=true are both set"
+  exit 1
+fi
+
+if helm template openstudio-server "${CHART_DIR}" \
+  -f "${ROOT_DIR}/openstack/values-openstack.yaml" >/dev/null 2>&1; then
+  echo "Expected failure when OpenStack values enable secrets.validateExistingSecret without a live cluster Secret"
+  exit 1
+fi
+
+if helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name=openstack \
+  --set autoscaler.enabled=true \
+  --set autoscaler.openstackNodeGroups[0].name=worker \
+  --set autoscaler.openstackNodeGroups[0].min=1 \
+  --set autoscaler.openstackNodeGroups[0].max=5 >/dev/null 2>&1; then
+  echo "Expected failure when OpenStack autoscaler is enabled without cloud config input"
   exit 1
 fi
 

@@ -247,6 +247,9 @@ By default, this chart enables Cluster Autoscaler on AWS and disables it for oth
 
 - `autoscaler.enabled: true`
 - `autoscaler.openstackNodeGroups` entries with `name`, `min`, and `max`
+- either `autoscaler.openstack.cloudConfigSecretName` **or** a `--cloud-config=...` arg in `autoscaler.extraArgs`
+
+`autoscaler.image.tag` defaults to `v<cluster-major>.<cluster-minor>.0` and is validated against cluster version to reduce Kubernetes/cluster-autoscaler version skew.
 
 When `autoscaler.enabled=true` on OpenStack, the chart performs a safety check and fails install/upgrade if a pre-existing `kube-system/cluster-autoscaler` deployment exists and is not owned by this Helm release. This prevents dual autoscaler configuration drift with platform-managed clusters (for example Azimuth).
 
@@ -255,6 +258,8 @@ Example:
 ```yaml
 autoscaler:
   enabled: true
+  openstack:
+    cloudConfigSecretName: cloud-config
   openstackNodeGroups:
     - name: web-group
       min: 1
@@ -270,6 +275,8 @@ The chart now reads provider from `global.provider.name` in your values file and
 - Web node group value: `web`
 - Worker node group value: `worker`
 
+OpenStack defaults to `global.nodeGroups.affinityMode: preferred` to avoid unschedulable pods when labels drift; set `required` to enforce strict placement.
+
 If your cluster uses different labels, set `global.nodeGroups.labelKey`, `global.nodeGroups.web`, and `global.nodeGroups.worker` in your values file.
 
 Additional OpenStack defaults are automatically applied when omitted in values:
@@ -278,19 +285,20 @@ Additional OpenStack defaults are automatically applied when omitted in values:
 - `redis.persistence.storageClass`: `nfs`
 - `load_balancer.externalTrafficPolicy`: `Cluster`
 
-For OpenStack block-backed PVCs, the chart now uses `global.storageClasses.block` (default `csi-cinder`) as the backing class for the NFS provisioner PVC.
+For OpenStack block-backed PVCs, the chart now uses `global.storageClasses.block` (default `cinder-csi`) as the backing class for the NFS provisioner PVC.
+`openstack/storage-classes.yaml` also includes a `csi-cinder` compatibility alias for older clusters/configs.
 
 For production hardening, the tracked `openstudio-server/values_production.templateyaml` explicitly sets:
 
-- `db.persistence.storageClass: csi-cinder`
-- `redis.persistence.storageClass: csi-cinder`
+- `db.persistence.storageClass: cinder-csi`
+- `redis.persistence.storageClass: cinder-csi`
 - `nfs-server-provisioner.persistence.size: 1Ti`
 
 Preflight check before deploy/upgrade:
 
 ```bash
 kubectl get storageclass
-kubectl get sc csi-cinder
+kubectl get sc cinder-csi
 ```
 
 If your cluster uses a different Cinder class name, set it explicitly in your values file:

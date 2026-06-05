@@ -111,7 +111,7 @@ Set the OpenStack block class explicitly in values and redeploy:
 ```yaml
 global:
   storageClasses:
-    block: csi-cinder
+    block: cinder-csi
 ```
 
 ### 3. Container Image Pull Failures

@@ -58,8 +58,8 @@ Setting | openstack default | aws/google/azure default
 
 For OpenStack production deployments, `values_production.templateyaml` explicitly sets:
 
-- `db.persistence.storageClass: csi-cinder`
-- `redis.persistence.storageClass: csi-cinder`
+- `db.persistence.storageClass: cinder-csi`
+- `redis.persistence.storageClass: cinder-csi`
 
 This keeps MongoDB/Redis off the shared NFS assets volume used by worker outputs.
 
@@ -80,6 +80,7 @@ global:
     labelKey: ""
     web: ""
     worker: ""
+    affinityMode: "preferred"  # required | preferred | disabled
 ```
 
 **Note:** `openstudio-server/values.yaml` is a tracked baseline for reproducible defaults. Put environment-specific or sensitive overrides in a separate local file (for example `openstudio-server/values.local.yaml`) and pass it with `-f`.
@@ -168,6 +169,7 @@ helm upgrade --install openstudio-server ./openstudio-server \
 
 **Note:** Instead of repeated `--set` flags, prefer an environment-specific values file and pass it with `-f`.
 Use `./scripts/install-dry-run.sh` to run lint/render checks across default and OpenStack values before deployment.
+For a quick install helper script, run `PROVIDER=openstack ./scripts/install.sh` (supported providers: `aws`, `google`, `azure`, `openstack`).
 
 ## Uninstalling the Chart
 
@@ -219,7 +221,7 @@ Use the [large template values file](/openstudio-server/values_large.templateyam
 cp openstudio-server/values_large.templateyaml openstudio-server/values.yaml
 ```
 
-Then customize as needed before running `helm install`.
+Then customize as needed before running `helm upgrade --install`.
 
 Additionally, note that with large workloads you may have issues with downloading container images from Docker Hub if you have a lot of worker nodes. Therefore, you may want to upload the container images into the cloud's container registry and then update the container image paths in your `values.yaml` file. This [article](https://docs.aws.amazon.com/AmazonECR/latest/userguide/docker-push-ecr-image.html#:~:text=Identify%20the%20local%20image%20to,container%20images%20on%20your%20system.&text=You%20can%20identify%20an%20image,tag%20name%20combination%20to%20use.) has instructions on how to do this for aws' Elastic Container Registry (ECR).
 

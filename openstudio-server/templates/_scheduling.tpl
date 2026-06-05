@@ -56,9 +56,36 @@
 {{- end -}}
 {{- end -}}
 
+{{- define "openstudio.nodeGroupAffinityMode" -}}
+{{- $nodeGroups := default (dict) .Values.global.nodeGroups -}}
+{{- $mode := lower (default "" (get $nodeGroups "affinityMode")) -}}
+{{- if ne $mode "" -}}
+{{- if not (has $mode (list "required" "preferred" "disabled")) -}}
+{{- fail (printf "global.nodeGroups.affinityMode=%q is unsupported. Supported values: required, preferred, disabled." $mode) -}}
+{{- end -}}
+{{- $mode -}}
+{{- else if eq (include "openstudio.providerName" .) "openstack" -}}
+{{- "preferred" -}}
+{{- else -}}
+{{- "required" -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "openstudio.affinityForRole" -}}
+{{- $mode := include "openstudio.nodeGroupAffinityMode" .root -}}
+{{- if ne $mode "disabled" -}}
 affinity:
   nodeAffinity:
+    {{- if eq $mode "preferred" }}
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - key: {{ include "openstudio.nodeGroupLabelKey" .root }}
+              operator: In
+              values:
+                - {{ include "openstudio.nodeGroupValueForRole" . }}
+    {{- else }}
     requiredDuringSchedulingIgnoredDuringExecution:
       nodeSelectorTerms:
         - matchExpressions:
@@ -66,6 +93,8 @@ affinity:
               operator: In
               values:
                 - {{ include "openstudio.nodeGroupValueForRole" . }}
+    {{- end }}
+{{- end -}}
 {{- end -}}
 
 {{- define "openstudio.defaultAppPersistenceStorageClass" -}}
@@ -79,7 +108,7 @@ affinity:
 {{- define "openstudio.openstackBlockStorageClass" -}}
 {{- $global := default (dict) .Values.global -}}
 {{- $storageClasses := default (dict) (get $global "storageClasses") -}}
-{{- default "csi-cinder" (get $storageClasses "block") -}}
+{{- default "cinder-csi" (get $storageClasses "block") -}}
 {{- end -}}
 
 {{- define "openstudio.defaultNfsProvisionerBackingStorageClass" -}}

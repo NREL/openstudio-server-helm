@@ -9,7 +9,17 @@ global:
   # Optional storage class defaults used by provider-aware chart logic.
   # For OpenStack, block is used as the backing class for the NFS provisioner PVC.
   storageClasses:
-    block: "csi-cinder"
+    block: "cinder-csi"
+  # Optional node-group scheduling controls.
+  # labelKey defaults by provider: openstack => capi.stackhpc.com/node-group, others => nodegroup.
+  # web/worker defaults by provider: openstack => web/worker, others => web-group/worker-group.
+  # affinityMode: required | preferred | disabled
+  # defaults by provider: openstack => preferred, others => required
+  nodeGroups:
+    # labelKey: ""
+    # web: ""
+    # worker: ""
+    # affinityMode: ""
   images:
     org: "nrel"
     serverRepository: "openstudio-server"
@@ -33,6 +43,17 @@ autoscaler:
   #   - name: worker-group
   #     min: 1
   #     max: 50
+  image:
+    repository: "registry.k8s.io/autoscaling/cluster-autoscaler"
+    # When empty, defaults to v<cluster-major>.<cluster-minor>.0.
+    tag: ""
+    pullPolicy: "IfNotPresent"
+  openstack:
+    # If set, chart mounts this secret and passes --cloud-config=<mountPath>.
+    # If unset, provide --cloud-config=<path> in autoscaler.extraArgs.
+    cloudConfigSecretName: ""
+    cloudConfigSecretKey: "cloud.conf"
+    cloudConfigMountPath: "/etc/kubernetes/cloud.conf"
   openstackNodeGroups: []
   extraArgs: []
 

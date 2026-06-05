@@ -2,8 +2,32 @@
 {{- $autoscaler := default (dict) .Values.autoscaler -}}
 {{- $autoscalerEnabled := default (eq $providerName "aws") (get $autoscaler "enabled") -}}
 {{- $openstackNodeGroups := default (list) (get $autoscaler "openstackNodeGroups") -}}
+{{- $autoscalerImage := default (dict) (get $autoscaler "image") -}}
+{{- $kubeMinor := regexFind "^[0-9]+" .Capabilities.KubeVersion.Minor -}}
+{{- $defaultAutoscalerTag := printf "v%s.%s.0" .Capabilities.KubeVersion.Major $kubeMinor -}}
+{{- $autoscalerImageTag := default $defaultAutoscalerTag (get $autoscalerImage "tag") -}}
+{{- $autoscalerImageRepo := default "registry.k8s.io/autoscaling/cluster-autoscaler" (get $autoscalerImage "repository") -}}
+{{- $autoscalerImagePullPolicy := default "IfNotPresent" (get $autoscalerImage "pullPolicy") -}}
+{{- $expectedTagPrefix := printf "v%s.%s." .Capabilities.KubeVersion.Major $kubeMinor -}}
+{{- $openstackAutoscaler := default (dict) (get $autoscaler "openstack") -}}
+{{- $cloudConfigSecretName := default "" (get $openstackAutoscaler "cloudConfigSecretName") -}}
+{{- $cloudConfigSecretKey := default "cloud.conf" (get $openstackAutoscaler "cloudConfigSecretKey") -}}
+{{- $cloudConfigMountPath := default "/etc/kubernetes/cloud.conf" (get $openstackAutoscaler "cloudConfigMountPath") -}}
+{{- $extraArgs := default (list) (get $autoscaler "extraArgs") -}}
+{{- $hasCloudConfigArg := false -}}
+{{- range $arg := $extraArgs -}}
+  {{- if regexMatch "^--cloud-config=.*" (printf "%v" $arg) -}}
+    {{- $hasCloudConfigArg = true -}}
+  {{- end -}}
+{{- end -}}
 {{- if and $autoscalerEnabled (eq $providerName "openstack") (eq (len $openstackNodeGroups) 0) -}}
 {{- fail "autoscaler.enabled=true for OpenStack requires autoscaler.openstackNodeGroups with at least one {name,min,max} entry." -}}
+{{- end -}}
+{{- if and $autoscalerEnabled (not (hasPrefix $expectedTagPrefix $autoscalerImageTag)) -}}
+{{- fail (printf "autoscaler.image.tag=%q should match cluster minor version prefix %q for compatibility with Kubernetes %s. Set autoscaler.image.tag explicitly." $autoscalerImageTag $expectedTagPrefix .Capabilities.KubeVersion.Version) -}}
+{{- end -}}
+{{- if and $autoscalerEnabled (eq $providerName "openstack") (eq $cloudConfigSecretName "") (not $hasCloudConfigArg) -}}
+{{- fail "OpenStack autoscaler requires cloud config. Set autoscaler.openstack.cloudConfigSecretName or provide --cloud-config=<path> in autoscaler.extraArgs." -}}
 {{- end -}}
 {{- $existingAutoscaler := lookup "apps/v1" "Deployment" "kube-system" "cluster-autoscaler" -}}
 {{- if and $autoscalerEnabled (eq $providerName "openstack") $existingAutoscaler -}}
@@ -158,7 +182,7 @@ spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
       serviceAccountName: cluster-autoscaler
       containers:
-        - image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.26.6
+        - image: {{ printf "%s:%s" $autoscalerImageRepo $autoscalerImageTag }}
           name: cluster-autoscaler
           resources:
             limits:
@@ -180,11 +204,26 @@ spec:
             {{- range $group := $openstackNodeGroups }}
             - --nodes={{ required "autoscaler.openstackNodeGroups[].min is required when autoscaler is enabled for openstack" $group.min }}:{{ required "autoscaler.openstackNodeGroups[].max is required when autoscaler is enabled for openstack" $group.max }}:{{ required "autoscaler.openstackNodeGroups[].name is required when autoscaler is enabled for openstack" $group.name }}
             {{- end }}
+            {{- if and (ne $cloudConfigSecretName "") (not $hasCloudConfigArg) }}
+            - --cloud-config={{ $cloudConfigMountPath }}
             {{- end }}
-            {{- $extraArgs := default (list) (get $autoscaler "extraArgs") }}
+            {{- end }}
             {{- range $arg := $extraArgs }}
             - {{ $arg }}
             {{- end }}
             - --scale-down-unneeded-time=5m
-          imagePullPolicy: "Always"
+          imagePullPolicy: {{ $autoscalerImagePullPolicy | quote }}
+          {{- if ne $cloudConfigSecretName "" }}
+          volumeMounts:
+            - name: openstack-cloud-config
+              mountPath: {{ $cloudConfigMountPath | quote }}
+              subPath: {{ $cloudConfigSecretKey | quote }}
+              readOnly: true
+          {{- end }}
+      {{- if ne $cloudConfigSecretName "" }}
+      volumes:
+        - name: openstack-cloud-config
+          secret:
+            secretName: {{ $cloudConfigSecretName | quote }}
+      {{- end }}
 {{- end }}
