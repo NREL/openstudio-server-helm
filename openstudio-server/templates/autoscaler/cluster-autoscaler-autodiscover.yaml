@@ -1,6 +1,10 @@
-{{- $providerName := default "" .Values.global.provider.name -}}
+{{- $providerName := include "openstudio.providerName" . -}}
 {{- $autoscaler := default (dict) .Values.autoscaler -}}
 {{- $autoscalerEnabled := default (eq $providerName "aws") (get $autoscaler "enabled") -}}
+{{- $openstackNodeGroups := default (list) (get $autoscaler "openstackNodeGroups") -}}
+{{- if and $autoscalerEnabled (eq $providerName "openstack") (eq (len $openstackNodeGroups) 0) -}}
+{{- fail "autoscaler.enabled=true for OpenStack requires autoscaler.openstackNodeGroups with at least one {name,min,max} entry." -}}
+{{- end -}}
 {{- $existingAutoscaler := lookup "apps/v1" "Deployment" "kube-system" "cluster-autoscaler" -}}
 {{- if and $autoscalerEnabled (eq $providerName "openstack") $existingAutoscaler -}}
 {{- $existingMetadata := default (dict) (get $existingAutoscaler "metadata") -}}
@@ -173,7 +177,6 @@ spec:
             {{- if eq $providerName "aws" }}
             - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/{{ .Values.cluster.name }}
             {{- else if eq $providerName "openstack" }}
-            {{- $openstackNodeGroups := default (list) (get $autoscaler "openstackNodeGroups") }}
             {{- range $group := $openstackNodeGroups }}
             - --nodes={{ required "autoscaler.openstackNodeGroups[].min is required when autoscaler is enabled for openstack" $group.min }}:{{ required "autoscaler.openstackNodeGroups[].max is required when autoscaler is enabled for openstack" $group.max }}:{{ required "autoscaler.openstackNodeGroups[].name is required when autoscaler is enabled for openstack" $group.name }}
             {{- end }}

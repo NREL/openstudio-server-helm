@@ -1,5 +1,8 @@
 {{- define "openstudio.providerName" -}}
-{{- default "" .Values.global.provider.name -}}
+{{- $global := default (dict) .Values.global -}}
+{{- $globalProvider := default (dict) (get $global "provider") -}}
+{{- $legacyProvider := default (dict) .Values.provider -}}
+{{- default (default "" (get $legacyProvider "name")) (get $globalProvider "name") -}}
 {{- end -}}
 
 {{- define "openstudio.nodeGroupLabelKey" -}}
@@ -72,6 +75,55 @@ affinity:
 {{- else -}}
 {{- "Local" -}}
 {{- end -}}
+{{- end -}}
+
+{{- define "openstudio.dbName" -}}
+{{- default "db" .Values.db.name -}}
+{{- end -}}
+
+{{- define "openstudio.redisName" -}}
+{{- default "redis" .Values.redis.name -}}
+{{- end -}}
+
+{{- define "openstudio.redisServiceName" -}}
+{{- $redisSvc := default (dict) (get .Values "redis_svc") -}}
+{{- default "queue" (get $redisSvc "name") -}}
+{{- end -}}
+
+{{- define "openstudio.webName" -}}
+{{- default "web" .Values.web.name -}}
+{{- end -}}
+
+{{- define "openstudio.webServiceName" -}}
+{{- $webSvc := default (dict) (get .Values "web_svc") -}}
+{{- default (include "openstudio.webName" .) (get $webSvc "name") -}}
+{{- end -}}
+
+{{- define "openstudio.webBackgroundName" -}}
+{{- default "web-background" .Values.web_background.name -}}
+{{- end -}}
+
+{{- define "openstudio.workerName" -}}
+{{- default "worker" .Values.worker.name -}}
+{{- end -}}
+
+{{- define "openstudio.rserveName" -}}
+{{- default "rserve" .Values.rserve.name -}}
+{{- end -}}
+
+{{- define "openstudio.rserveServiceName" -}}
+{{- $rserveSvc := default (dict) (get .Values "rserve_svc") -}}
+{{- default (include "openstudio.rserveName" .) (get $rserveSvc "name") -}}
+{{- end -}}
+
+{{- define "openstudio.webHpaName" -}}
+{{- $webHpa := default (dict) (get .Values "web_hpa") -}}
+{{- default (include "openstudio.webName" .) (get $webHpa "name") -}}
+{{- end -}}
+
+{{- define "openstudio.workerHpaName" -}}
+{{- $workerHpa := default (dict) (get .Values "worker_hpa") -}}
+{{- default (include "openstudio.workerName" .) (get $workerHpa "name") -}}
 {{- end -}}
 
 {{- define "openstudio.secretName" -}}

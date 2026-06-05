@@ -2,8 +2,9 @@
 # Based on values.yaml but adjusted for OpenStack Cinder CSI
 
 # Set to openstack provider
-provider:
-  name: "openstack"
+global:
+  provider:
+    name: "openstack"
 
 cluster:
   name: "openstudio-server"

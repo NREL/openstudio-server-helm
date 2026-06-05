@@ -1,4 +1,7 @@
-{{- $providerName := default "" .Values.global.provider.name }}
+{{- $global := default (dict) .Values.global -}}
+{{- $globalProvider := default (dict) (get $global "provider") -}}
+{{- $legacyProvider := default (dict) .Values.provider -}}
+{{- $providerName := default (default "" (get $legacyProvider "name")) (get $globalProvider "name") }}
 {{- $defaultStorageClass := ternary "csi-cinder" "ssd" (eq $providerName "openstack") }}
 kind: PersistentVolumeClaim
 apiVersion: v1

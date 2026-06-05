@@ -1,25 +1,36 @@
 {{- $storageclass := (get .Values "storageclass") | default (dict) -}}
-{{- if (and (default false (get $storageclass "createSsd")) (not (lookup "storage.k8s.io/v1" "StorageClass" "" "ssd"))) }}
+{{- $providerName := include "openstudio.providerName" . -}}
+{{- $defaultAppStorageClass := include "openstudio.defaultAppPersistenceStorageClass" . -}}
+{{- $dbStorageClass := default $defaultAppStorageClass .Values.db.persistence.storageClass -}}
+{{- $redisStorageClass := default $defaultAppStorageClass .Values.redis.persistence.storageClass -}}
+{{- $nfsProvisioner := default (dict) (get .Values "nfs-server-provisioner") -}}
+{{- $nfsPersistence := default (dict) (get $nfsProvisioner "persistence") -}}
+{{- $defaultNfsStorageClass := ternary "csi-cinder" "ssd" (eq $providerName "openstack") -}}
+{{- $nfsStorageClass := default $defaultNfsStorageClass (get $nfsPersistence "storageClass") -}}
+{{- $shouldCreateSsd := or (default false (get $storageclass "createSsd")) (eq $dbStorageClass "ssd") (eq $redisStorageClass "ssd") (eq $nfsStorageClass "ssd") -}}
+{{- if and $shouldCreateSsd (not (lookup "storage.k8s.io/v1" "StorageClass" "" "ssd")) }}
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: ssd
-{{ if eq .Values.global.provider.name "aws" }}
+{{ if eq $providerName "aws" }}
 provisioner: kubernetes.io/aws-ebs
 parameters:
   type: gp3
-{{ else if eq .Values.global.provider.name "google" }}
+{{ else if eq $providerName "google" }}
 provisioner: pd.csi.storage.gke.io
 parameters:
   type: pd-ssd
   replication-type: none
-{{ else if eq .Values.global.provider.name "azure" }}
+{{ else if eq $providerName "azure" }}
 provisioner: kubernetes.io/azure-disk
 parameters:
   kind: Managed
   storageaccounttype: StandardSSD_LRS
-{{ else if eq .Values.global.provider.name "openstack" }}
+{{ else if eq $providerName "openstack" }}
 provisioner: cinder.csi.openstack.org
+{{ else }}
+{{- fail (printf "storageclass: cannot create \"ssd\" for unsupported provider %q. Set storageclass.createSsd=false and provide an existing storageClass, or set a supported provider." $providerName) -}}
 {{ end }}
 reclaimPolicy: Delete
 allowVolumeExpansion: true

@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: worker
+  name: {{ include "openstudio.workerName" . }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: worker
+      app: {{ default "worker" .Values.worker.label }}
       release: {{ .Release.Name }}
   strategy:
     type: RollingUpdate
@@ -16,7 +16,7 @@ spec:
   template:
     metadata:
       labels:
-        app: worker
+        app: {{ default "worker" .Values.worker.label }}
         release: {{ .Release.Name }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "worker") | nindent 6 }}
@@ -51,7 +51,7 @@ spec:
                   name: {{ include "openstudio.secretName" . }}
                   key: {{ include "openstudio.secretKeyRedisPassword" . }}
             - name: REDIS_URL
-              value: redis://:$(REDIS_PASSWORD)@queue:6379
+              value: redis://:$(REDIS_PASSWORD)@{{ include "openstudio.redisServiceName" . }}:6379
             - name: MONGO_USER
               valueFrom:
                 secretKeyRef:

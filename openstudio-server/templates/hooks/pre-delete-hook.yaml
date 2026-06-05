@@ -1,9 +1,54 @@
 {{- $preDeleteHook := default (dict) .Values.hooks.preDeleteCleanup -}}
 {{- if default true (get $preDeleteHook "enabled") }}
+{{- $cleanupName := printf "%s-nfs-client-cleanup" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- $cleanupServiceAccount := printf "%s-sa" $cleanupName | trunc 63 | trimSuffix "-" -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $cleanupServiceAccount }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $cleanupName }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": hook-succeeded
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "delete", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $cleanupName }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ $cleanupServiceAccount }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $cleanupName }}
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nfs-client-cleanup
+  name: {{ $cleanupName }}
   namespace: {{ .Release.Namespace }}
   annotations:
     "helm.sh/hook": pre-delete
@@ -15,6 +60,7 @@ spec:
     metadata:
       name: nfs-client-cleanup
     spec:
+      serviceAccountName: {{ $cleanupServiceAccount }}
       containers:
         - name: kubectl
           image: "bitnami/kubectl:1.31"
@@ -30,8 +76,8 @@ spec:
           - /bin/sh
           - -c
           - >
-              kubectl -n {{ .Release.Namespace }} delete deployment web --ignore-not-found=true --wait=true --timeout=180s;
-              kubectl -n {{ .Release.Namespace }} delete deployment web-background --ignore-not-found=true --wait=true --timeout=180s;
-              kubectl -n {{ .Release.Namespace }} delete deployment rserve --ignore-not-found=true --wait=true --timeout=180s;
+              kubectl -n {{ .Release.Namespace }} delete deployment {{ include "openstudio.webName" . }} --ignore-not-found=true --wait=true --timeout=180s;
+              kubectl -n {{ .Release.Namespace }} delete deployment {{ include "openstudio.webBackgroundName" . }} --ignore-not-found=true --wait=true --timeout=180s;
+              kubectl -n {{ .Release.Namespace }} delete deployment {{ include "openstudio.rserveName" . }} --ignore-not-found=true --wait=true --timeout=180s;
       restartPolicy: Never
 {{- end }}

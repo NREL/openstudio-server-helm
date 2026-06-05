@@ -1,17 +1,17 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: redis
+  name: {{ include "openstudio.redisName" . }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: redis
+      app: {{ default "redis" .Values.redis.label }}
       release: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app: redis
+        app: {{ default "redis" .Values.redis.label }}
         release: {{ .Release.Name }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}

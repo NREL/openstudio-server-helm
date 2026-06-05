@@ -2,8 +2,9 @@
 # Based on values.yaml but adjusted for NFS storage with smaller disk sizes
 
 # Set to openstack provider
-provider:
-  name: "openstack"
+global:
+  provider:
+    name: "openstack"
 
 storageclass:
   createSsd: false

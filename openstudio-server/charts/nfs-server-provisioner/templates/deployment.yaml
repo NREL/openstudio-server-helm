@@ -106,7 +106,10 @@ spec:
       affinity:
         {{- toYaml .Values.affinity | nindent 8 }}
       {{- else }}
-      {{- $providerName := default "" .Values.global.provider.name }}
+      {{- $global := default (dict) .Values.global }}
+      {{- $globalProvider := default (dict) (get $global "provider") }}
+      {{- $legacyProvider := default (dict) .Values.provider }}
+      {{- $providerName := default (default "" (get $legacyProvider "name")) (get $globalProvider "name") }}
       {{- $nodeGroups := default (dict) .Values.global.nodeGroups }}
       {{- $labelKeyOverride := default "" (get $nodeGroups "labelKey") }}
       {{- $webGroupOverride := default "" (get $nodeGroups "web") }}

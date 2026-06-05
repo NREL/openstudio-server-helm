@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: db
+  name: {{ include "openstudio.dbName" . }}
 {{ $dbContainer := (get .Values.db "container") | default (dict) }}
 {{ $dbContainerPorts := (get $dbContainer "ports") | default (dict) }}
 spec:

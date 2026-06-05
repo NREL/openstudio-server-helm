@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: web-background
+  name: {{ include "openstudio.webBackgroundName" . }}
 spec:
   replicas: {{  .Values.web_background.replicas  }}
   selector:
     matchLabels:
-      app: web-background
+      app: {{ default "web-background" .Values.web_background.label }}
       release: {{ .Release.Name }}
   strategy:
     type: RollingUpdate
@@ -16,7 +16,7 @@ spec:
   template:
     metadata:
       labels:
-        app: web-background
+        app: {{ default "web-background" .Values.web_background.label }}
         release: {{ .Release.Name }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
@@ -47,7 +47,7 @@ spec:
                   name: {{ include "openstudio.secretName" . }}
                   key: {{ include "openstudio.secretKeyRedisPassword" . }}
             - name: REDIS_URL
-              value: redis://:$(REDIS_PASSWORD)@queue:6379
+              value: redis://:$(REDIS_PASSWORD)@{{ include "openstudio.redisServiceName" . }}:6379
             - name: MONGO_USER
               valueFrom:
                 secretKeyRef:

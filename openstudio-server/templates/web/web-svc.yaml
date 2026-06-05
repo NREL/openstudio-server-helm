@@ -1,12 +1,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ default "web" .Values.web_svc.name }}
+  name: {{ include "openstudio.webServiceName" . }}
 {{ $webSvc := (get .Values "web_svc") | default (dict) }}
+{{ $web := (get .Values "web") | default (dict) }}
 {{ $webSvcPorts := (get $webSvc "ports") | default (dict) }}
 spec:
   selector:
-    app: web
+    app: {{ default (default "web" (get $web "label")) (get $webSvc "label") }}
     release: {{ .Release.Name }}
   ports:
     - name: http
