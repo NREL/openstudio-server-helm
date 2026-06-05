@@ -237,7 +237,7 @@ Security hardening notes:
 - For normal upgrades in this environment, keep shared defaults in tracked `./openstudio-server/values.yaml` and put local overrides in `./openstudio-server/values.local.yaml`.
 - If your cluster policy blocks Helm hook jobs, disable cleanup hook with `--set hooks.preDeleteCleanup.enabled=false`.
 - If `secrets.existingSecret` is set, keep `secrets.create=false`; the chart now fails fast when both are enabled.
-- `provider.name` is not supported; use `global.provider.name`.
+- `provider.name` is deprecated and disabled by default; use `global.provider.name`. For temporary migration-only fallback, set `global.provider.allowLegacyName=true`.
 
 ### Upgrade migration for `--reuse-values` users
 

@@ -38,10 +38,20 @@ Then edit your chosen values file (for example `openstudio-server/values.yaml`) 
 - Configure your app secret source:
   - Primary path: set `secrets.existingSecret` and keep `secrets.create=false`
   - Alternate path: set `secrets.create=true` and provide `db.username`, `db.password`, `redis.password`, and `web.secret_key_value`
+- If Redis credentials include URI-reserved characters, set an explicit `redis.url` override (for example `redis://:encoded-password@queue:6379`).
 - Adjust resource allocations for your workload
 - Configure storage sizes
 
-`provider.name` is no longer supported. Any values file that still sets `provider.name` must be migrated to `global.provider.name`.
+`provider.name` is deprecated and disabled by default. Any values file that still sets `provider.name` should be migrated to `global.provider.name`.
+For temporary migration-only compatibility, you can opt in with:
+
+```yaml
+global:
+  provider:
+    allowLegacyName: true
+```
+
+This legacy fallback is intended for staged upgrades only.
 
 Provider-aware scheduling defaults are automatic and based on `global.provider.name`:
 
@@ -222,11 +232,13 @@ Parameter | Description | Default
 --------- | ----------- | -------
 nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 550Gi |
 db.persistence.size | Size of the volume for MongoDB | 200Gi |
+global.provider.allowLegacyName | Temporary migration flag that permits legacy `provider.name` only when `global.provider.name` is unset | false |
 cluster.name | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly | openstudio-server |
 worker_hpa.minReplicas | Worker pods that run the simulations | 2 |
 worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 50 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
 worker.queues | Comma-separated worker queues consumed by simulation workers. Include `requeued` to drain requeue backlog automatically. | simulations,requeued |
+redis.url | Optional explicit Redis URI used for `REDIS_URL`; recommended when credentials contain URI-reserved characters | "" |
 web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
 global.images.org | Docker image organization/registry namespace for OpenStudio images | nrel |
 global.images.serverRepository | Repository name used by web, web-background, and worker containers | openstudio-server |

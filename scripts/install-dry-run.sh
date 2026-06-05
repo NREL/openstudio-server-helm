@@ -48,6 +48,12 @@ if helm template openstudio-server "${CHART_DIR}" >/dev/null 2>&1; then
 fi
 
 if helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name=aws >/dev/null 2>&1; then
+  echo "Expected failure when secrets.validateExistingSecret defaults to true without a live cluster Secret"
+  exit 1
+fi
+
+if helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=aws \
   --set secrets.validateExistingSecret=false \
   --set secrets.create=true >/dev/null 2>&1; then
@@ -96,6 +102,20 @@ if helm template openstudio-server "${CHART_DIR}" \
   --set secrets.validateExistingSecret=false \
   --set provider.name=aws >/dev/null 2>&1; then
   echo "Expected failure when deprecated provider.name is set"
+  exit 1
+fi
+
+helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.allowLegacyName=true \
+  --set secrets.validateExistingSecret=false \
+  --set provider.name=aws >/dev/null
+
+if ! helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name=aws \
+  --set secrets.validateExistingSecret=false \
+  --set redis.url='redis://:pa%40ss@custom-redis:6380/0' \
+  | grep -q 'value: "redis://:pa%40ss@custom-redis:6380/0"'; then
+  echo "Expected redis.url override to render into REDIS_URL env values"
   exit 1
 fi
 

@@ -6,6 +6,9 @@ global:
   provider:
     # Required. Set one of: aws, google, azure, openstack.
     name: ""
+    # Migration compatibility toggle. When true, legacy provider.name can be used
+    # only if global.provider.name is unset. Keep false for strict mode.
+    allowLegacyName: false
   # Optional storage class defaults used by provider-aware chart logic.
   # For OpenStack, block is used as the backing class for the NFS provisioner PVC.
   storageClasses:
@@ -123,6 +126,9 @@ nfs_pvc:
 redis:
   # Required when secrets.create=true.
   password: ""
+  # Optional explicit Redis URI. When set, templates use this value for REDIS_URL.
+  # Use this if credentials include URI-reserved characters.
+  url: ""
   container:
     image: "redis:6.0.9"
     resources:

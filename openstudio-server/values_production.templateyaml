@@ -5,6 +5,9 @@
 global:
   provider:
     name: "openstack"
+    # Temporary migration toggle. Keep false unless upgrading legacy values
+    # that still set provider.name instead of global.provider.name.
+    allowLegacyName: false
   images:
     org: "nrel"
     serverRepository: "openstudio-server"
@@ -82,6 +85,9 @@ nfs_pvc:
 redis:
   # Required when secrets.create=true.
   password: ""
+  # Optional explicit Redis URI for REDIS_URL.
+  # Use this when credentials include URI-reserved characters.
+  url: ""
   container:
     image: "redis:6.0.9"
     resources:

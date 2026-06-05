@@ -19,6 +19,7 @@ spec:
         app: {{ default "web-background" .Values.web_background.label }}
         release: {{ .Release.Name }}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
+    {{ $redis := default (dict) .Values.redis }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
       {{- if (default true (get $priorityClasses "enabled")) }}
@@ -51,7 +52,7 @@ spec:
                   name: {{ include "openstudio.secretName" . }}
                   key: {{ include "openstudio.secretKeyRedisPassword" . }}
             - name: REDIS_URL
-              value: redis://:$(REDIS_PASSWORD)@{{ include "openstudio.redisServiceName" . }}:6379
+              value: {{ default (printf "redis://:$(REDIS_PASSWORD)@%s:6379" (include "openstudio.redisServiceName" .)) (get $redis "url") | quote }}
             - name: MONGO_USER
               valueFrom:
                 secretKeyRef:

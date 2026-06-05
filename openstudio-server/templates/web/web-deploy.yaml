@@ -22,6 +22,7 @@ spec:
     {{ $dbContainerPorts := (get $dbContainer "ports") | default (dict) }}
     {{ $webContainer := (get .Values.web "container") | default (dict) }}
     {{ $webContainerPorts := (get $webContainer "port") | default (dict) }}
+    {{ $redis := default (dict) .Values.redis }}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
@@ -62,7 +63,7 @@ spec:
                   name: {{ include "openstudio.secretName" . }}
                   key: {{ include "openstudio.secretKeyRedisPassword" . }}
             - name: REDIS_URL
-              value: redis://:$(REDIS_PASSWORD)@{{ include "openstudio.redisServiceName" . }}:6379
+              value: {{ default (printf "redis://:$(REDIS_PASSWORD)@%s:6379" (include "openstudio.redisServiceName" .)) (get $redis "url") | quote }}
             - name: MONGO_USER
               valueFrom:
                 secretKeyRef:

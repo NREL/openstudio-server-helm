@@ -110,10 +110,19 @@ spec:
       {{- $globalProvider := default (dict) (get $global "provider") }}
       {{- $legacyProvider := default (dict) .Values.provider }}
       {{- $legacyProviderName := lower (default "" (get $legacyProvider "name")) }}
-      {{- if ne $legacyProviderName "" }}
-      {{- fail "provider.name is deprecated and no longer supported. Set global.provider.name instead." }}
-      {{- end }}
+      {{- $allowLegacyProviderName := default false (get $globalProvider "allowLegacyName") }}
       {{- $providerName := lower (default "" (get $globalProvider "name")) }}
+      {{- if ne $legacyProviderName "" }}
+      {{- if not $allowLegacyProviderName }}
+      {{- fail "provider.name is deprecated and disabled by default. Set global.provider.name, or set global.provider.allowLegacyName=true temporarily during migration." }}
+      {{- end }}
+      {{- if and (ne $providerName "") (ne $providerName $legacyProviderName) }}
+      {{- fail (printf "provider.name=%q conflicts with global.provider.name=%q. Remove provider.name and keep global.provider.name." $legacyProviderName $providerName) }}
+      {{- end }}
+      {{- if eq $providerName "" }}
+      {{- $providerName = $legacyProviderName }}
+      {{- end }}
+      {{- end }}
       {{- $nodeGroups := default (dict) .Values.global.nodeGroups }}
       {{- $labelKeyOverride := default "" (get $nodeGroups "labelKey") }}
       {{- $webGroupOverride := default "" (get $nodeGroups "web") }}

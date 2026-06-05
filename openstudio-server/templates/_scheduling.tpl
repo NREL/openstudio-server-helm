@@ -3,10 +3,19 @@
 {{- $globalProvider := default (dict) (get $global "provider") -}}
 {{- $legacyProvider := default (dict) .Values.provider -}}
 {{- $legacyProviderName := lower (default "" (get $legacyProvider "name")) -}}
-{{- if ne $legacyProviderName "" -}}
-{{- fail "provider.name is deprecated and no longer supported. Set global.provider.name instead." -}}
-{{- end -}}
+{{- $allowLegacyProviderName := default false (get $globalProvider "allowLegacyName") -}}
 {{- $provider := lower (default "" (get $globalProvider "name")) -}}
+{{- if ne $legacyProviderName "" -}}
+{{- if not $allowLegacyProviderName -}}
+{{- fail "provider.name is deprecated and disabled by default. Set global.provider.name, or set global.provider.allowLegacyName=true temporarily during migration." -}}
+{{- end -}}
+{{- if and (ne $provider "") (ne $provider $legacyProviderName) -}}
+{{- fail (printf "provider.name=%q conflicts with global.provider.name=%q. Remove provider.name and keep global.provider.name." $legacyProviderName $provider) -}}
+{{- end -}}
+{{- if eq $provider "" -}}
+{{- $provider = $legacyProviderName -}}
+{{- end -}}
+{{- end -}}
 {{- if eq $provider "" -}}
 {{- fail "global.provider.name is required. Set one of: aws, google, azure, openstack." -}}
 {{- end -}}
