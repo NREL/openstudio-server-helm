@@ -1,10 +1,11 @@
-# Production values for openstudio-server.
-# This is a YAML-formatted file optimized for production workloads.
+# Tracked baseline values for openstudio-server.
+# Copy and override for your target environment.
 # Declare variables to be passed into your templates.
 
 global:
   provider:
-    name: "openstack"
+    # Required. Set one of: aws, google, azure, openstack.
+    name: ""
   # Optional storage class defaults used by provider-aware chart logic.
   # For OpenStack, block is used as the backing class for the NFS provisioner PVC.
   storageClasses:
@@ -42,11 +43,14 @@ priorityClasses:
   lowName: "low-priority"
 
 secrets:
-  # Use an externally managed secret by name (recommended for production).
+  # Primary path: use an externally managed secret by name.
   # If set, chart will not create a secret from db/redis/web values.
   existingSecret: "openstudio-app-secrets"
+  # Optional install-time guard for connected clusters.
+  # When true, rendering fails if existingSecret is not found in the release namespace.
+  validateExistingSecret: false
   # Create a secret from db.username/db.password/redis.password/web.secret_key_value.
-  # Must be false when existingSecret is set. These two settings are mutually exclusive.
+  # Alternate path. Must be false when existingSecret is set.
   create: false
   # Optional override for chart-managed secret name.
   nameOverride: ""
@@ -154,7 +158,7 @@ worker:
 # Worker HPA - Optimized for production workloads
 worker_hpa:
   minReplicas: 5        # Increased from 2 for baseline production capacity
-  maxReplicas: 560       # Increased from 20 for larger simulation batches
+  maxReplicas: 50       # Increased from 20 for larger simulation batches
   targetCPUUtilizationPercentage: 60  # Slightly higher for stability
   stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
 

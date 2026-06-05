@@ -2,7 +2,14 @@
 {{- $global := default (dict) .Values.global -}}
 {{- $globalProvider := default (dict) (get $global "provider") -}}
 {{- $legacyProvider := default (dict) .Values.provider -}}
-{{- default (default "" (get $legacyProvider "name")) (get $globalProvider "name") -}}
+{{- $provider := lower (default (default "" (get $legacyProvider "name")) (get $globalProvider "name")) -}}
+{{- if eq $provider "" -}}
+{{- fail "global.provider.name is required. Set one of: aws, google, azure, openstack." -}}
+{{- end -}}
+{{- if not (has $provider (list "aws" "google" "azure" "openstack")) -}}
+{{- fail (printf "global.provider.name=%q is unsupported. Supported values: aws, google, azure, openstack." $provider) -}}
+{{- end -}}
+{{- $provider -}}
 {{- end -}}
 
 {{- define "openstudio.nodeGroupLabelKey" -}}

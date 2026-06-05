@@ -9,7 +9,7 @@ global:
     org: "nrel"
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
-    tag: "3.8.0-1"
+    tag: "3.10.0"
 
 cluster:
   name: "openstudio-server-prod"
@@ -35,9 +35,12 @@ priorityClasses:
   lowName: "low-priority"
 
 secrets:
-  # Recommended default: pre-create this secret once and reference it.
+  # Primary path: pre-create this secret once and reference it.
   existingSecret: "openstudio-app-secrets"
-  # Set to true only if you intentionally want chart-managed secret creation.
+  # Optional install-time guard for connected clusters.
+  # When true, rendering fails if existingSecret is not found in the release namespace.
+  validateExistingSecret: false
+  # Alternate path. Set to true only if you intentionally want chart-managed secret creation.
   create: false
   nameOverride: ""
   keys:

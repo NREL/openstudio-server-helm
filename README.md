@@ -34,8 +34,10 @@ cp openstudio-server/values_production.templateyaml openstudio-server/values.yam
 ```
 
 Then edit your chosen values file (for example `openstudio-server/values.yaml`) to:
-- Set your cloud provider in `global.provider.name` (`google`, `aws`, `azure`, or `openstack`)
-- Set your external app secret name (`secrets.existingSecret`) and keep `secrets.create=false` unless you intentionally want chart-managed secrets
+- Set your cloud provider in `global.provider.name` (`google`, `aws`, `azure`, or `openstack`). This is required.
+- Configure your app secret source:
+  - Primary path: set `secrets.existingSecret` and keep `secrets.create=false`
+  - Alternate path: set `secrets.create=true` and provide `db.username`, `db.password`, `redis.password`, and `web.secret_key_value`
 - Adjust resource allocations for your workload
 - Configure storage sizes
 
@@ -89,19 +91,40 @@ To install the helm chart with the chart name `openstudio-server`, you can run t
 ### For Google
 
 ```bash
-helm install openstudio-server ./openstudio-server
+kubectl -n openstudio-server create secret generic openstudio-app-secrets \
+  --from-literal=db-username="openstudio" \
+  --from-literal=db-password="replace-with-strong-password" \
+  --from-literal=redis-password="replace-with-strong-password" \
+  --from-literal=web-secret-key="replace-with-long-random-secret"
+helm upgrade --install openstudio-server ./openstudio-server \
+  --namespace openstudio-server --create-namespace \
+  --set global.provider.name=google
 ```
 
 ### For Amazon
 
 ```bash
-helm install openstudio-server ./openstudio-server
+kubectl -n openstudio-server create secret generic openstudio-app-secrets \
+  --from-literal=db-username="openstudio" \
+  --from-literal=db-password="replace-with-strong-password" \
+  --from-literal=redis-password="replace-with-strong-password" \
+  --from-literal=web-secret-key="replace-with-long-random-secret"
+helm upgrade --install openstudio-server ./openstudio-server \
+  --namespace openstudio-server --create-namespace \
+  --set global.provider.name=aws
 ```
 
 ### For Azure
 
 ```bash
-helm install openstudio-server ./openstudio-server
+kubectl -n openstudio-server create secret generic openstudio-app-secrets \
+  --from-literal=db-username="openstudio" \
+  --from-literal=db-password="replace-with-strong-password" \
+  --from-literal=redis-password="replace-with-strong-password" \
+  --from-literal=web-secret-key="replace-with-long-random-secret"
+helm upgrade --install openstudio-server ./openstudio-server \
+  --namespace openstudio-server --create-namespace \
+  --set global.provider.name=azure
 ```
 
 ### For OpenStack
@@ -118,10 +141,32 @@ kubectl -n openstudio-server create secret generic openstudio-app-secrets \
   --from-literal=db-password="replace-with-strong-password" \
   --from-literal=redis-password="replace-with-strong-password" \
   --from-literal=web-secret-key="replace-with-long-random-secret"
-helm upgrade --install openstudio-server ./openstudio-server
+helm upgrade --install openstudio-server ./openstudio-server \
+  --namespace openstudio-server --create-namespace \
+  --set global.provider.name=openstack
 ```
 
-**Note:** Provider is read from `global.provider.name` in your `values.yaml`, so you do not need `--set` provider flags during installation.
+To enforce preflight validation of `secrets.existingSecret` during install/upgrade, set:
+
+```bash
+--set secrets.validateExistingSecret=true
+```
+
+The chart also supports chart-managed secret creation as an alternate mode:
+
+```bash
+helm upgrade --install openstudio-server ./openstudio-server \
+  --namespace openstudio-server --create-namespace \
+  --set global.provider.name=google \
+  --set secrets.existingSecret= \
+  --set secrets.create=true \
+  --set db.username=openstudio \
+  --set db.password=replace-with-strong-password \
+  --set redis.password=replace-with-strong-password \
+  --set web.secret_key_value=replace-with-long-random-secret
+```
+
+**Note:** Instead of repeated `--set` flags, prefer an environment-specific values file and pass it with `-f`.
 Use `./scripts/install-dry-run.sh` to run lint/render checks across default and OpenStack values before deployment.
 
 ## Uninstalling the Chart
@@ -152,14 +197,14 @@ nfs-server-provisioner.persistence.size | Size of the volume for storing the dat
 db.persistence.size | Size of the volume for MongoDB | 200Gi |
 cluster.name | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly | openstudio-server |
 worker_hpa.minReplicas | Worker pods that run the simulations | 2 |
-worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
+worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 50 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
 worker.queues | Comma-separated worker queues consumed by simulation workers. Include `requeued` to drain requeue backlog automatically. | simulations,requeued |
 web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
 global.images.org | Docker image organization/registry namespace for OpenStudio images | nrel |
 global.images.serverRepository | Repository name used by web, web-background, and worker containers | openstudio-server |
 global.images.rserveRepository | Repository name used by rserve container | openstudio-rserve |
-global.images.tag | Shared image tag used for both server and rserve repositories | 3.8.0-1 |
+global.images.tag | Shared image tag used for both server and rserve repositories | 3.10.0 |
 web_background.container.image  | Optional explicit override for web-background image. If omitted, chart uses global.images.* defaults | (derived) |
 web.container.image   | Optional explicit override for web image. If omitted, chart uses global.images.* defaults | (derived) |
 worker.container.image   | Optional explicit override for worker image. If omitted, chart uses global.images.* defaults | (derived) |
