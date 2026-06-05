@@ -1,0 +1,41 @@
+# Local OpenStack production overrides.
+
+global:
+  provider:
+    name: "openstack"
+
+autoscaler:
+  extraArgs: []
+  openstackNodeGroups: []
+
+cluster:
+  name: openstudio-server-prod
+
+nfs-server-provisioner:
+  persistence:
+    size: 1740Gi
+  storageClass:
+    allowVolumeExpansion: true
+    mountOptions:
+      - vers=4
+
+nfs_pvc:
+  storage: 1.5Ti
+
+db:
+  persistence:
+    size: 200Gi
+    storageClass: csi-cinder
+
+redis:
+  persistence:
+    size: 200Gi
+    storageClass: csi-cinder
+
+web_background:
+  replicas: 2
+
+worker_hpa:
+  minReplicas: 5
+  maxReplicas: 50
+  stabilizationWindowSeconds: 1800

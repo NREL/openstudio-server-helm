@@ -322,20 +322,52 @@ Additional OpenStack defaults are automatically applied when omitted in values:
 - `redis.persistence.storageClass`: `nfs`
 - `load_balancer.externalTrafficPolicy`: `Cluster`
 
-For OpenStack block-backed PVCs, the chart now uses `global.storageClasses.block` (default `cinder-csi`) as the backing class for the NFS provisioner PVC.
+> [!IMPORTANT]
+> The OpenStack `nfs` defaults for `db` and `redis` are compatibility defaults, not production-safe defaults.
+> In production, explicitly set both to block storage (`csi-cinder` or your `global.storageClasses.block` class).
+> Keep `nfs` for shared artifacts (`nfs_pvc`) only.
+
+For OpenStack block-backed PVCs, the chart now uses `global.storageClasses.block` (default `csi-cinder`) as the backing class for the NFS provisioner PVC.
 `openstack/storage-classes.yaml` also includes a `csi-cinder` compatibility alias for older clusters/configs.
 
 For production hardening, the tracked `openstudio-server/values_production.templateyaml` explicitly sets:
 
-- `db.persistence.storageClass: cinder-csi`
-- `redis.persistence.storageClass: cinder-csi`
+- `db.persistence.storageClass: csi-cinder`
+- `redis.persistence.storageClass: csi-cinder`
 - `nfs-server-provisioner.persistence.size: 1Ti`
+
+Incident retrospective (June 2026):
+
+- Observed failure mode: analyses failed before simulation start with MongoDB WiredTiger `Operation not permitted` errors.
+- Root cause: DB PVC was configured to NFS.
+- Operational policy now: DB/Redis must stay on block storage; NFS is for shared simulation artifacts only.
+
+Rollout warning triage (OpenStack):
+
+- `UpdateLoadBalancerFailed` / `SyncLoadBalancerFailed` events can occur transiently during node/pool membership updates.
+- Treat these as **warning noise** if all are true:
+  - `kubectl get svc -n openstudio-server ingress-load-balancer` shows an external IP,
+  - `/` and `/status.json` return HTTP 200,
+  - web/worker deployments are fully available.
+- Escalate when warnings persist and service health fails (missing external IP, non-200 health checks, or unavailable web deployment).
+
+Pod termination caveats:
+
+- `FailedKillPod` events during rollout usually indicate node/container-runtime cleanup delays for replaced pods.
+- If replacement pods are healthy and workloads continue, this is typically infra-side and not a chart-level app failure.
+- Track affected node(s) and coordinate runtime remediation (containerd/kubelet health, node pressure, host IO saturation).
+
+Mongo host tuning note:
+
+- Mongo startup may warn `vm.max_map_count is too low`. This is host-level kernel tuning and should be remediated on worker nodes hosting Mongo.
 
 Preflight check before deploy/upgrade:
 
 ```bash
 kubectl get storageclass
-kubectl get sc cinder-csi
+kubectl get sc csi-cinder
+kubectl get pvc -n openstudio-server
+kubectl get pv | grep -E "openstudio-server/(db|redis|nfs-pvc|nfs-pvc-data)"
 ```
 
 If your cluster uses a different Cinder class name, set it explicitly in your values file:

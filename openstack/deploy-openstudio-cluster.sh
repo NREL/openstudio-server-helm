@@ -428,11 +428,10 @@ deploy_openstudio() {
     kubectl create namespace openstudio-server || true
 
     local secret_validator="$SCRIPT_DIR/../scripts/validate-app-secret.sh"
-    if [[ -x "$secret_validator" ]]; then
-        "$secret_validator" --namespace openstudio-server --secret-name "$APP_SECRET_NAME"
-    else
-        warning "Secret validator not found at $secret_validator; skipping preflight validation in this workflow"
+    if [[ ! -x "$secret_validator" ]]; then
+        error "Missing executable secret validator: $secret_validator"
     fi
+    "$secret_validator" --namespace openstudio-server --secret-name "$APP_SECRET_NAME"
     
     # Deploy OpenStudio Server
     log "Installing OpenStudio Server..."

@@ -33,9 +33,9 @@ All tracked values files in this repository are templates. Keep real credentials
 The production template sets OpenStack storage hardening defaults:
 
 - `nfs-server-provisioner.persistence.size: 1Ti`
-- `db.persistence.storageClass: cinder-csi`
-- `redis.persistence.storageClass: cinder-csi`
-- `global.storageClasses.block: cinder-csi` (override this if your Cinder class name differs)
+- `db.persistence.storageClass: csi-cinder`
+- `redis.persistence.storageClass: csi-cinder`
+- `global.storageClasses.block: csi-cinder` (override this if your Cinder class name differs)
 
 ## Legacy Self-Managed Deployment (Optional, Untested)
 
