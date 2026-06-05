@@ -70,8 +70,8 @@ Setting | openstack default | aws/google/azure default
 
 For OpenStack production deployments, `values_production.templateyaml` explicitly sets:
 
-- `db.persistence.storageClass: cinder-csi`
-- `redis.persistence.storageClass: cinder-csi`
+- `db.persistence.storageClass: csi-cinder`
+- `redis.persistence.storageClass: csi-cinder`
 
 This keeps MongoDB/Redis off the shared NFS assets volume used by worker outputs.
 
@@ -245,7 +245,17 @@ worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 50 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
 worker.queues | Comma-separated worker queues consumed by simulation workers. Include `requeued` to drain requeue backlog automatically. | simulations,requeued |
 redis.url | Optional explicit Redis URI used for `REDIS_URL`; recommended when credentials contain URI-reserved characters | "" |
+load_balancer.annotations | Optional extra annotations map applied to the LoadBalancer Service | {} |
+load_balancer.sourceRanges | Optional `loadBalancerSourceRanges` list; some OpenStack Octavia providers ignore this setting | [] |
 web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
+web_background.container.startup.maxRetries | Maximum retries when `start-web-background` exits during startup (for transient DB/Redis races) | 12 |
+web_background.container.startup.retryDelaySeconds | Delay between web-background startup retries | 10 |
+worker.container.startup.maxRetries | Maximum retries when `start-workers` exits during startup (for transient DB/Redis races) | 12 |
+worker.container.startup.retryDelaySeconds | Delay between worker startup retries | 10 |
+worker.container.preStop.enabled | Enables worker graceful drain preStop hook | true |
+worker.container.preStop.signal | Signal sent to resque processes during preStop drain | "3" |
+worker.container.preStop.pollIntervalSeconds | Polling interval while waiting for ruby/openstudio process drain | 30 |
+worker.container.preStop.maxWaitSeconds | Upper bound for worker preStop wait loop before allowing termination | 5100 |
 global.images.org | Docker image organization/registry namespace for OpenStudio images | nrel |
 global.images.serverRepository | Repository name used by web, web-background, and worker containers | openstudio-server |
 global.images.rserveRepository | Repository name used by rserve container | openstudio-rserve |
@@ -318,20 +328,12 @@ Note that 1000m means one virtual CPU core.
 
 You can also add `watch` to the beginning of the command to see the output change over time.
 
-Once the cluster is up and running, use this command to determine the external endpoint for OpenStudio Server:
-
-```bash
-kubectl get svc ingress-load-balancer -n openstudio-server
-```
-
-Use the `EXTERNAL-IP` value in PAT under **Existing Server URL**. For example, on AWS this is often a DNS name, while Google/Azure/OpenStack typically return an IP.
-
-For example, on AWS, `a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com` is the external name. See the examples below for each cloud provider.
+Once the cluster is up and running, you can use `kubectl` to determine the external IP or DN to access OpenStudio server and use this in PAT to connect to. For example, on AWS, a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com is the external name. See the examples below for each cloud provider.
 
 AWS is the long domain (a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com)
 
 ```bash
-kubectl get svc ingress-load-balancer -n openstudio-server
+kubectl get svc ingress-load-balancer
 ```
 
 example output:
@@ -344,7 +346,7 @@ ingress-load-balancer   LoadBalancer   10.100.246.21   a52e7c2e22f3940a8aa9d80b5
 Google is 35.247.75.9
 
 ```bash
-kubectl get svc ingress-load-balancer -n openstudio-server
+kubectl get svc ingress-load-balancer
 ```
 
 example output:
@@ -357,7 +359,7 @@ ingress-load-balancer   LoadBalancer   10.55.246.197   35.247.75.9   80:32613/TC
 Azure is 20.190.10.17
 
 ```bash
-kubectl get svc ingress-load-balancer -n openstudio-server
+kubectl get svc ingress-load-balancer
 ```
 
 example output:
@@ -534,4 +536,4 @@ Run a monthly drill that executes:
 
 The worker pods are configured to auto-scale based on CPU threshold (default 12%). Once the aggregate CPU for all worker pods exceed the defined threshold (in this case 12%), the Kubernetes engine will start adding additional worker pods up to the maximum specified. This is also dependent on how the Kuebernetes cluster was configured as additional VM node instances will also be added. Please refer to the notes on [aws](/aws/README.md) and [google](/google/README.md) when setting up the cluster and note the instance type and maximum nodes specified.
 
-Once the aggregate CPU of the workers drop below 12%, the Kubernetes engine will start removing worker pod instances. There is a [prestop hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/) configured in the worker pod to ensure that if a openstudio job is still active it will not terminate the pod until it is finished.
+Once the aggregate CPU of the workers drop below 12%, the Kubernetes engine will start removing worker pod instances. There is a [prestop hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/) configured in the worker pod to drain resque workers and wait for active ruby/openstudio processes before termination. The wait behavior is bounded and configurable via `worker.container.preStop.*`.
