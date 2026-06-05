@@ -56,6 +56,8 @@ secrets:
 nfs-server-provisioner:
   persistence:
     enabled: true
+    # Backend storage for the in-cluster NFS server (nfs-pvc-data).
+    # Keep nfs_pvc.storage below this value to avoid NFS provisioning failures.
     size: 550Gi
   storageClass:
     allowVolumeExpansion: false
@@ -75,6 +77,8 @@ db:
     size: 200Gi
 
 nfs_pvc:
+  # Frontend shared RWX claim consumed by web/rserve/background pods.
+  # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
   storage: "500Gi"
 
 

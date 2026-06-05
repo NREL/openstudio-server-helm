@@ -226,11 +226,17 @@ For example, to change the data storage for NFS which stores the data points to 
 nfs-server-provisioner:
   persistence:
     size: 1Ti
+
+nfs_pvc:
+  storage: 900Gi
 ```
+
+**Sizing rule:** `nfs_pvc.storage` must stay below `nfs-server-provisioner.persistence.size` (recommended 85-95%) so dynamic NFS claim provisioning has filesystem/provisioner headroom.
 
 Parameter | Description | Default
 --------- | ----------- | -------
 nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 550Gi |
+nfs_pvc.storage | Shared RWX claim request consumed by web/rserve/background pods; keep below backend NFS size | 500Gi |
 db.persistence.size | Size of the volume for MongoDB | 200Gi |
 global.provider.allowLegacyName | Temporary migration flag that permits legacy `provider.name` only when `global.provider.name` is unset | false |
 cluster.name | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly | openstudio-server |
@@ -390,6 +396,7 @@ kubectl -n openstudio-server rollout status deploy/web
 Notes:
 
 - `nfs-server-provisioner.persistence.size` controls backend capacity for all dynamic `nfs` claims.
+- `nfs_pvc.storage` should be configured smaller than `nfs-server-provisioner.persistence.size` (recommended 85-95%); requesting equal size can fail provisioning due to overhead/headroom checks.
 - `nfs_pvc.storage` is a request value; it is not an independent quota when backed by the same NFS server volume.
 - Existing PVC `storageClassName` is immutable. If migrating DB/Redis from NFS to block storage, use a planned migration window with backup/restore.
 
