@@ -1,2 +1,7 @@
 .idea
 .env
+aurora-*-openrc.sh
+deploy-production.sh
+incident-snapshots/
+scripts/diagnose-volumes.sh
+scripts/safe-delete-volumes.sh
