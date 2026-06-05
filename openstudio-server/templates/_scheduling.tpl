@@ -3,7 +3,7 @@
 {{- $globalProvider := default (dict) (get $global "provider") -}}
 {{- $legacyProvider := default (dict) .Values.provider -}}
 {{- $legacyProviderName := lower (default "" (get $legacyProvider "name")) -}}
-{{- $allowLegacyProviderName := default true (get $globalProvider "allowLegacyName") -}}
+{{- $allowLegacyProviderName := default false (get $globalProvider "allowLegacyName") -}}
 {{- $provider := lower (default "" (get $globalProvider "name")) -}}
 {{- if ne $legacyProviderName "" -}}
 {{- if not $allowLegacyProviderName -}}
@@ -17,7 +17,7 @@
 {{- end -}}
 {{- end -}}
 {{- if eq $provider "" -}}
-{{- $provider = "aws" -}}
+{{- fail "global.provider.name is required. Set one of: aws, google, azure, openstack." -}}
 {{- end -}}
 {{- if not (has $provider (list "aws" "google" "azure" "openstack")) -}}
 {{- fail (printf "global.provider.name=%q is unsupported. Supported values: aws, google, azure, openstack." $provider) -}}
@@ -26,8 +26,7 @@
 {{- end -}}
 
 {{- define "openstudio.nodeGroupLabelKey" -}}
-{{- $global := default (dict) .Values.global -}}
-{{- $nodeGroups := default (dict) (get $global "nodeGroups") -}}
+{{- $nodeGroups := default (dict) .Values.global.nodeGroups -}}
 {{- $labelKey := default "" (get $nodeGroups "labelKey") -}}
 {{- if ne $labelKey "" -}}
 {{- $labelKey -}}
@@ -39,8 +38,7 @@
 {{- end -}}
 
 {{- define "openstudio.webNodeGroupValue" -}}
-{{- $global := default (dict) .Values.global -}}
-{{- $nodeGroups := default (dict) (get $global "nodeGroups") -}}
+{{- $nodeGroups := default (dict) .Values.global.nodeGroups -}}
 {{- $web := default "" (get $nodeGroups "web") -}}
 {{- if ne $web "" -}}
 {{- $web -}}
@@ -52,8 +50,7 @@
 {{- end -}}
 
 {{- define "openstudio.workerNodeGroupValue" -}}
-{{- $global := default (dict) .Values.global -}}
-{{- $nodeGroups := default (dict) (get $global "nodeGroups") -}}
+{{- $nodeGroups := default (dict) .Values.global.nodeGroups -}}
 {{- $worker := default "" (get $nodeGroups "worker") -}}
 {{- if ne $worker "" -}}
 {{- $worker -}}
@@ -73,8 +70,7 @@
 {{- end -}}
 
 {{- define "openstudio.nodeGroupAffinityMode" -}}
-{{- $global := default (dict) .Values.global -}}
-{{- $nodeGroups := default (dict) (get $global "nodeGroups") -}}
+{{- $nodeGroups := default (dict) .Values.global.nodeGroups -}}
 {{- $mode := lower (default "" (get $nodeGroups "affinityMode")) -}}
 {{- if ne $mode "" -}}
 {{- if not (has $mode (list "required" "preferred" "disabled")) -}}
@@ -125,7 +121,7 @@ affinity:
 {{- define "openstudio.openstackBlockStorageClass" -}}
 {{- $global := default (dict) .Values.global -}}
 {{- $storageClasses := default (dict) (get $global "storageClasses") -}}
-{{- default "cinder-csi" (get $storageClasses "block") -}}
+{{- default "csi-cinder" (get $storageClasses "block") -}}
 {{- end -}}
 
 {{- define "openstudio.defaultNfsProvisionerBackingStorageClass" -}}
@@ -239,8 +235,7 @@ affinity:
 {{- end -}}
 
 {{- define "openstudio.serverImage" -}}
-{{- $global := default (dict) .Values.global -}}
-{{- $images := (get $global "images") | default (dict) -}}
+{{- $images := (get .Values.global "images") | default (dict) -}}
 {{- $org := default "nrel" (get $images "org") -}}
 {{- $repo := default "openstudio-server" (get $images "serverRepository") -}}
 {{- $tag := default "latest" (get $images "tag") -}}
@@ -248,8 +243,7 @@ affinity:
 {{- end -}}
 
 {{- define "openstudio.rserveImage" -}}
-{{- $global := default (dict) .Values.global -}}
-{{- $images := (get $global "images") | default (dict) -}}
+{{- $images := (get .Values.global "images") | default (dict) -}}
 {{- $org := default "nrel" (get $images "org") -}}
 {{- $repo := default "openstudio-rserve" (get $images "rserveRepository") -}}
 {{- $tag := default "latest" (get $images "tag") -}}

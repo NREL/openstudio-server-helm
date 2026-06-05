@@ -2,6 +2,8 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: {{ include "openstudio.workerHpaName" . }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

@@ -1,4 +1,11 @@
 {{- $nfsPvc := default (dict) (get .Values "nfs_pvc") -}}
+{{- $existingPVC := lookup "v1" "PersistentVolumeClaim" .Release.Namespace (include "openstudio.nfsPvcName" .) -}}
+{{- $existingSpec := default (dict) (get $existingPVC "spec") -}}
+{{- /* Support both storageClass (preferred) and legacy storage_class key */ -}}
+{{- $storageClassName := default (default "nfs" (get $nfsPvc "storage_class")) (get $nfsPvc "storageClass") -}}
+{{- if $existingPVC -}}
+{{- $storageClassName = default $storageClassName (get $existingSpec "storageClassName") -}}
+{{- end -}}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
@@ -8,7 +15,7 @@ spec:
 {{- range $mode := default (list "ReadWriteMany") (get $nfsPvc "accessModes") }}
     - {{ $mode }}
 {{- end }}
-  storageClassName: {{ default "nfs" (get $nfsPvc "storage_class") | quote }}
+  storageClassName: {{ $storageClassName | quote }}
   resources:
     requests:
-      storage:  {{ default "2Gi" (get $nfsPvc "storage") }}
+      storage: {{ default "2Gi" (get $nfsPvc "storage") | quote }}

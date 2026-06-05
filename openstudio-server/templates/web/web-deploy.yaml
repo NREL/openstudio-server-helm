@@ -3,7 +3,6 @@ kind: Deployment
 metadata:
   name: {{ include "openstudio.webName" . }}
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app: {{ default "web" .Values.web.label }}
@@ -75,6 +74,9 @@ spec:
                   name: {{ include "openstudio.secretName" . }}
                   key: {{ include "openstudio.secretKeyDbPassword" . }}
             - name: MAX_REQUESTS
+              # Sized to worker_hpa.maxReplicas × 1.05 so the web connection pool can
+              # handle all possible concurrent worker requests. Changing worker_hpa.maxReplicas
+              # in an overlay will also change this value — tune both together.
               value: {{ (ceil (mulf .Values.worker_hpa.maxReplicas 1.05)) | quote }}
             - name: MAX_POOL
               value: {{ (ceil (divf (mulf (trimSuffix "Gi" .Values.web.container.resources.requests.memory) 1024 0.75) .Values.web.passenger_memory_per_process)) | quote }}

@@ -3,7 +3,6 @@ kind: Deployment
 metadata:
   name: {{ include "openstudio.workerName" . }}
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app: {{ default "worker" .Values.worker.label }}
@@ -20,6 +19,9 @@ spec:
         release: {{ .Release.Name }}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     {{ $redis := default (dict) .Values.redis }}
+    {{ $workerContainer := default (dict) .Values.worker.container }}
+    {{ $workerStartup := default (dict) (get $workerContainer "startup") }}
+    {{ $workerPreStop := default (dict) (get $workerContainer "preStop") }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "worker") | nindent 6 }}
       {{- if (default true (get $priorityClasses "enabled")) }}
@@ -29,10 +31,37 @@ spec:
         - name: {{ default "worker" .Values.worker.container.name }}
           image: {{ default (include "openstudio.serverImage" .) .Values.worker.container.image }}
           imagePullPolicy: Always
+{{- if (default true (get $workerPreStop "enabled")) }}
           lifecycle:
             preStop:
               exec:
-                command: ['/bin/sh','-c', 'pkill -3 -f resque;  while [ $(eval "pgrep -c ruby") -gt 1 ] || [ $(eval "pgrep -c openstudio") -gt 0 ]  ; do sleep 300;  done; pkill -P 1;']
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    set +e
+                    signal="${WORKER_PRESTOP_SIGNAL:-3}"
+                    max_wait="${WORKER_PRESTOP_MAX_WAIT_SECONDS:-5100}"
+                    interval="${WORKER_PRESTOP_POLL_INTERVAL_SECONDS:-30}"
+                    start_ts="$(date +%s)"
+                    pkill "-${signal}" -f resque >/dev/null 2>&1 || true
+                    while true; do
+                      ruby_count="$(pgrep -fc ruby || true)"
+                      os_count="$(pgrep -fc openstudio || true)"
+                      if [ "${ruby_count:-0}" -le 1 ] && [ "${os_count:-0}" -eq 0 ]; then
+                        break
+                      fi
+                      now="$(date +%s)"
+                      elapsed="$((now - start_ts))"
+                      if [ "$elapsed" -ge "$max_wait" ]; then
+                        echo "worker preStop reached max wait (${max_wait}s); allowing termination"
+                        break
+                      fi
+                      sleep "$interval"
+                    done
+                    pkill -P 1 >/dev/null 2>&1 || true
+                    exit 0
+{{- end }}
           resources:
             requests:
               cpu:  {{  .Values.worker.container.resources.requests.cpu  }}
@@ -59,6 +88,18 @@ spec:
                   key: {{ include "openstudio.secretKeyRedisPassword" . }}
             - name: REDIS_URL
               value: {{ default (printf "redis://:$(REDIS_PASSWORD)@%s:6379" (include "openstudio.redisServiceName" .)) (get $redis "url") | quote }}
+            - name: STARTUP_MAX_RETRIES
+              value: {{ default 12 (get $workerStartup "maxRetries") | quote }}
+            - name: STARTUP_RETRY_DELAY_SECONDS
+              value: {{ default 10 (get $workerStartup "retryDelaySeconds") | quote }}
+{{- if (default true (get $workerPreStop "enabled")) }}
+            - name: WORKER_PRESTOP_MAX_WAIT_SECONDS
+              value: {{ default 5100 (get $workerPreStop "maxWaitSeconds") | quote }}
+            - name: WORKER_PRESTOP_POLL_INTERVAL_SECONDS
+              value: {{ default 30 (get $workerPreStop "pollIntervalSeconds") | quote }}
+            - name: WORKER_PRESTOP_SIGNAL
+              value: {{ default "3" (get $workerPreStop "signal") | quote }}
+{{- end }}
             - name: MONGO_USER
               valueFrom:
                 secretKeyRef:
@@ -69,7 +110,24 @@ spec:
                 secretKeyRef:
                   name: {{ include "openstudio.secretName" . }}
                   key: {{ include "openstudio.secretKeyDbPassword" . }}
-          command: ["/usr/local/bin/start-workers"]
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              retries="${STARTUP_MAX_RETRIES:-12}"
+              delay="${STARTUP_RETRY_DELAY_SECONDS:-10}"
+              attempt=0
+              while true; do
+                /usr/local/bin/start-workers && exit 0
+                attempt="$((attempt + 1))"
+                if [ "$attempt" -ge "$retries" ]; then
+                  echo "start-workers failed after ${attempt} attempts; exiting"
+                  exit 1
+                fi
+                echo "start-workers failed; retry ${attempt}/${retries} in ${delay}s"
+                sleep "$delay"
+              done
       terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs.
       volumes:
         - name: osdata-worker

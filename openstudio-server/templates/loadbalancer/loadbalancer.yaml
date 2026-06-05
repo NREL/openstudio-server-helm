@@ -2,6 +2,8 @@ apiVersion: v1
 kind: Service
 {{ $loadBalancer := (get .Values "load_balancer") | default (dict) }}
 {{ $ports := (get $loadBalancer "ports") | default (dict) }}
+{{ $annotations := (get $loadBalancer "annotations") | default (dict) }}
+{{ $sourceRanges := (get $loadBalancer "sourceRanges") | default (list) }}
 {{ $providerName := include "openstudio.providerName" . }}
 metadata:
   name: {{ default "ingress-load-balancer" (get $loadBalancer "name") }}
@@ -15,9 +17,16 @@ metadata:
 {{- else if and (eq $providerName "openstack") (get $loadBalancer "internal") }}
     service.beta.kubernetes.io/openstack-internal-load-balancer: "true"
 {{- end }}
+{{- range $k, $v := $annotations }}
+    {{ $k }}: {{ $v | quote }}
+{{- end }}
 spec:
   type: {{ default "LoadBalancer" (get $loadBalancer "type") }}
   externalTrafficPolicy: {{ default (include "openstudio.defaultLoadBalancerExternalTrafficPolicy" .) (get $loadBalancer "externalTrafficPolicy") | quote }}
+{{- if gt (len $sourceRanges) 0 }}
+  loadBalancerSourceRanges:
+{{ toYaml $sourceRanges | nindent 4 }}
+{{- end }}
   selector:
     app: {{ default "web" (get $loadBalancer "label") }}
     release: {{ .Release.Name }}

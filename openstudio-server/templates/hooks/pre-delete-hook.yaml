@@ -1,5 +1,4 @@
-{{- $hooks := default (dict) .Values.hooks -}}
-{{- $preDeleteHook := default (dict) (get $hooks "preDeleteCleanup") -}}
+{{- $preDeleteHook := default (dict) .Values.hooks.preDeleteCleanup -}}
 {{- if default true (get $preDeleteHook "enabled") }}
 {{- $cleanupName := printf "%s-nfs-client-cleanup" .Release.Name | trunc 63 | trimSuffix "-" -}}
 {{- $cleanupServiceAccount := printf "%s-sa" $cleanupName | trunc 63 | trimSuffix "-" -}}

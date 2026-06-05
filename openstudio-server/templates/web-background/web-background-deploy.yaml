@@ -20,6 +20,8 @@ spec:
         release: {{ .Release.Name }}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     {{ $redis := default (dict) .Values.redis }}
+    {{ $webBackgroundContainer := default (dict) .Values.web_background.container }}
+    {{ $webBackgroundStartup := default (dict) (get $webBackgroundContainer "startup") }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
       {{- if (default true (get $priorityClasses "enabled")) }}
@@ -53,6 +55,10 @@ spec:
                   key: {{ include "openstudio.secretKeyRedisPassword" . }}
             - name: REDIS_URL
               value: {{ default (printf "redis://:$(REDIS_PASSWORD)@%s:6379" (include "openstudio.redisServiceName" .)) (get $redis "url") | quote }}
+            - name: STARTUP_MAX_RETRIES
+              value: {{ default 12 (get $webBackgroundStartup "maxRetries") | quote }}
+            - name: STARTUP_RETRY_DELAY_SECONDS
+              value: {{ default 10 (get $webBackgroundStartup "retryDelaySeconds") | quote }}
             - name: MONGO_USER
               valueFrom:
                 secretKeyRef:
@@ -63,7 +69,24 @@ spec:
                 secretKeyRef:
                   name: {{ include "openstudio.secretName" . }}
                   key: {{ include "openstudio.secretKeyDbPassword" . }}
-          command: ["/usr/local/bin/start-web-background"]
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              retries="${STARTUP_MAX_RETRIES:-12}"
+              delay="${STARTUP_RETRY_DELAY_SECONDS:-10}"
+              attempt=0
+              while true; do
+                /usr/local/bin/start-web-background && exit 0
+                attempt="$((attempt + 1))"
+                if [ "$attempt" -ge "$retries" ]; then
+                  echo "start-web-background failed after ${attempt} attempts; exiting"
+                  exit 1
+                fi
+                echo "start-web-background failed; retry ${attempt}/${retries} in ${delay}s"
+                sleep "$delay"
+              done
           livenessProbe:
             exec:
               command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]

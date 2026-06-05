@@ -110,7 +110,7 @@ spec:
       {{- $globalProvider := default (dict) (get $global "provider") }}
       {{- $legacyProvider := default (dict) .Values.provider }}
       {{- $legacyProviderName := lower (default "" (get $legacyProvider "name")) }}
-      {{- $allowLegacyProviderName := default true (get $globalProvider "allowLegacyName") }}
+      {{- $allowLegacyProviderName := default false (get $globalProvider "allowLegacyName") }}
       {{- $providerName := lower (default "" (get $globalProvider "name")) }}
       {{- if ne $legacyProviderName "" }}
       {{- if not $allowLegacyProviderName }}
@@ -123,7 +123,7 @@ spec:
       {{- $providerName = $legacyProviderName }}
       {{- end }}
       {{- end }}
-      {{- $nodeGroups := default (dict) (get $global "nodeGroups") }}
+      {{- $nodeGroups := default (dict) .Values.global.nodeGroups }}
       {{- $labelKeyOverride := default "" (get $nodeGroups "labelKey") }}
       {{- $webGroupOverride := default "" (get $nodeGroups "web") }}
       affinity:

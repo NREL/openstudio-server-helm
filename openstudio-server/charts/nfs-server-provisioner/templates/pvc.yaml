@@ -2,7 +2,7 @@
 {{- $globalProvider := default (dict) (get $global "provider") -}}
 {{- $legacyProvider := default (dict) .Values.provider -}}
 {{- $legacyProviderName := lower (default "" (get $legacyProvider "name")) -}}
-{{- $allowLegacyProviderName := default true (get $globalProvider "allowLegacyName") -}}
+{{- $allowLegacyProviderName := default false (get $globalProvider "allowLegacyName") -}}
 {{- $providerName := lower (default "" (get $globalProvider "name")) -}}
 {{- if ne $legacyProviderName "" -}}
 {{- if not $allowLegacyProviderName -}}
@@ -12,16 +12,14 @@
 {{- fail (printf "provider.name=%q conflicts with global.provider.name=%q. Remove provider.name and keep global.provider.name." $legacyProviderName $providerName) -}}
 {{- end -}}
 {{- if eq $providerName "" -}}
-{{- if ne $legacyProviderName "" -}}
 {{- $providerName = $legacyProviderName -}}
-{{- else -}}
-{{- $providerName = "aws" -}}
-{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- $storageClasses := default (dict) (get $global "storageClasses") -}}
 {{- $openstackBlockStorageClass := default "cinder-csi" (get $storageClasses "block") -}}
 {{- $defaultStorageClass := ternary $openstackBlockStorageClass "ssd" (eq $providerName "openstack") }}
+{{- $existingPVC := lookup "v1" "PersistentVolumeClaim" .Release.Namespace .Values.persistence.name -}}
+{{- $existingSpec := default (dict) (get $existingPVC "spec") -}}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
@@ -29,7 +27,11 @@ metadata:
 spec:
   storageClassName: {{ default $defaultStorageClass .Values.persistence.storageClass | quote }}
   accessModes:
-    {{ .Values.persistence.accessModes }}
+{{- if $existingPVC }}
+{{ toYaml (default (list "ReadWriteOnce") (get $existingSpec "accessModes")) | nindent 4 }}
+{{- else }}
+{{ toYaml .Values.persistence.accessModes | nindent 4 }}
+{{- end }}
   resources:
     requests:
-      storage:  {{ .Values.persistence.size }}
+      storage: {{ .Values.persistence.size | quote }}

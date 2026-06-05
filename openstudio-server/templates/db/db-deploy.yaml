@@ -9,10 +9,9 @@ spec:
       app: {{ default "db" .Values.db.label }}
       release: {{ .Release.Name }}
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 1
+    # Recreate is required for RWO PVCs — RollingUpdate can cause Multi-Attach errors
+    # when the new pod attempts to mount before the old pod fully releases the volume.
+    type: Recreate
   template:
     metadata:
       labels:

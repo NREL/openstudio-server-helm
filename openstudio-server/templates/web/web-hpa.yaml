@@ -1,4 +1,4 @@
-apiVersion: autoscaling/v1
+apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: {{ include "openstudio.webHpaName" . }}
@@ -7,6 +7,19 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: {{ include "openstudio.webName" . }}
-  minReplicas: {{ .Values.web_hpa.minReplicas  }}
-  maxReplicas: {{ .Values.web_hpa.maxReplicas  }}
-  targetCPUUtilizationPercentage: {{ .Values.web_hpa.targetCPUUtilizationPercentage  }}
+  minReplicas: {{ .Values.web_hpa.minReplicas }}
+  maxReplicas: {{ .Values.web_hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.web_hpa.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ default 600 .Values.web_hpa.stabilizationWindowSeconds }}
+      policies:
+      - type: Percent
+        value: 25
+        periodSeconds: 60

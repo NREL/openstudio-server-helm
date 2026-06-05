@@ -5,6 +5,7 @@
 global:
   provider:
     # Required. Set one of: aws, google, azure, openstack.
+    # Leave empty here and supply via --set global.provider.name=<value> or your env overlay.
     name: ""
     # Migration compatibility toggle. When true, legacy provider.name can be used
     # only if global.provider.name is unset. Keep false for strict mode.
@@ -12,7 +13,7 @@ global:
   # Optional storage class defaults used by provider-aware chart logic.
   # For OpenStack, block is used as the backing class for the NFS provisioner PVC.
   storageClasses:
-    block: "cinder-csi"
+    block: "csi-cinder"
   # Optional node-group scheduling controls.
   # labelKey defaults by provider: openstack => capi.stackhpc.com/node-group, others => nodegroup.
   # web/worker defaults by provider: openstack => web/worker, others => web-group/worker-group.
@@ -99,7 +100,7 @@ nfs-server-provisioner:
     enabled: true
     # Backend storage for the in-cluster NFS server (nfs-pvc-data).
     # Keep nfs_pvc.storage below this value to avoid NFS provisioning failures.
-    size: 50Gi  # Increased from 5Gi for production
+    size: 1.5Ti  # Increased from 5Gi for production
   storageClass:
     allowVolumeExpansion: true  # Enable expansion for future growth
     mountOptions:
@@ -117,14 +118,22 @@ db:
         cpu: 2          # Increased from 1 for better performance
         memory: "8Gi"   # Increased from 4Gi for production workloads
   persistence:
-    size: 20Gi        # Increased from 2Gi for production data
+    size: 300Gi        # Increased from 2Gi for production data
 
-# NFS PVC - Increased storage for production
+load_balancer:
+  # Keep provider defaults unless explicitly required.
+  # OpenStack default externalTrafficPolicy is Cluster.
+  # sourceRanges may be ignored by some OpenStack Octavia providers.
+  externalTrafficPolicy: ""
+  annotations: {}
+  sourceRanges: []
+
+  # NFS PVC - Increased storage for production
 nfs_pvc:
-  storage_class: "nfs"
+  storageClass: "nfs"
   # Frontend shared RWX claim consumed by web/rserve/background pods.
   # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
-  storage: "10Gi"     # Increased from 2Gi for production shared storage
+  storage: "300Gi"     # Increased from 2Gi for production shared storage
 
 # Redis - Enhanced for production
 redis:
@@ -140,7 +149,7 @@ redis:
         cpu: 0.5        # Increased from 0.25 for better queue performance
         memory: "2Gi"   # Increased from 1Gi for larger queues
   persistence:
-    size: 5Gi         # Increased from 1Gi for production queues
+    size: 300Gi         # Increased from 1Gi for production queues
 
 # RServe - Enhanced for production
 rserve:
@@ -162,6 +171,9 @@ web_background:
       requests:
         cpu: 0.5        # Increased from 0.25 for better background processing
         memory: "1Gi"   # Increased from 512Mi
+    startup:
+      maxRetries: 12
+      retryDelaySeconds: 10
 
 # Web - Enhanced for production with proper passenger configuration
 web:
@@ -176,14 +188,25 @@ web:
         memory: "8Gi"   # Increased from 2Gi for production load
 
 # Web HPA - Configured for production scaling
-web_hpa:
-  minReplicas: 1
-  maxReplicas: 1
-  targetCPUUtilizationPercentage: 70  # Slightly higher threshold for stability
-  # Note: Distributed file locking still needed for >1 replica
+# web_hpa:
+#   minReplicas: 1
+#   maxReplicas: 1
+#   targetCPUUtilizationPercentage: 70  # Slightly higher threshold for stability
+#   # Note: Distributed file locking still needed for >1 replica
 
 web_svc:
   {}
+
+# Web HPA - Disabled-by-default baseline values for chart rendering.
+web_hpa:
+  name: "web"
+  minReplicas: 1
+  # Intentionally capped at 1. Increase only after implementing distributed file locking
+  # on /mnt/openstudio — multiple web replicas without locking can cause race conditions.
+  maxReplicas: 1
+  targetCPUUtilizationPercentage: 50
+  # stabilizationWindowSeconds controls how long to wait before scaling down.
+  stabilizationWindowSeconds: 600
 
 # Worker - Enhanced for production
 worker:
@@ -191,14 +214,25 @@ worker:
   container:
     resources:
       requests:
-        cpu: 1          # Increased from 700m for better performance
-        memory: "1Gi"   # Increased from 900Mi for larger simulations
+        cpu: 900m          # Increased from 700m for better performance
+        memory: "900Mi"   
     terminationGracePeriodSeconds: 5200
+    startup:
+      maxRetries: 12
+      retryDelaySeconds: 10
+    preStop:
+      enabled: true
+      signal: "3"
+      pollIntervalSeconds: 30
+      maxWaitSeconds: 5100
 
 # Worker HPA - Optimized for production workloads
 worker_hpa:
-  minReplicas: 5        # Increased from 2 for baseline production capacity
-  maxReplicas: 50       # Increased from 20 for larger simulation batches
+  minReplicas: 1        # Increased from 2 for baseline production capacity
+  # Set to ~90% of cluster worker capacity (node_count × CPUs_per_node × 0.9 / worker_CPU_request).
+  # IMPORTANT: This value also drives MAX_REQUESTS in the web container (maxReplicas × 1.05).
+  # Override in your env overlay to match actual node capacity.
+  maxReplicas: 1443
   targetCPUUtilizationPercentage: 60  # Slightly higher for stability
   stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
 
