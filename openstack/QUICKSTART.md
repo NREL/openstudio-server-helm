@@ -52,6 +52,7 @@ kubectl -n openstudio-server create secret generic openstudio-app-secrets \
 
 This flow provisions and bootstraps Kubernetes directly on OpenStack, but it is a legacy path and may require substantial environment-specific troubleshooting.
 By default it applies `./values-openstack.yaml`, enforces `global.provider.name=openstack`, and requires `APP_SECRET_NAME` (default `openstudio-app-secrets`) to already exist.
+It now also validates that `APP_SECRET_NAME` includes non-empty `db-username`, `db-password`, `redis-password`, and `web-secret-key` values before running Helm.
 
 ## Expected Output
 

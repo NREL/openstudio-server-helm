@@ -89,4 +89,58 @@ if ! helm template openstudio-server "${CHART_DIR}" \
   exit 1
 fi
 
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "${TMP_DIR}"' EXIT
+
+cat > "${TMP_DIR}/kubectl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "get" && "$2" == "secret" ]]; then
+  secret_name="$3"
+  if [[ "${MOCK_SECRET_STATE:-present}" == "missing" || "${secret_name}" != "openstudio-app-secrets" ]]; then
+    exit 1
+  fi
+
+  if [[ "${7:-}" == "jsonpath={.data['db-username']}" ]]; then
+    if [[ "${MOCK_SECRET_STATE:-present}" == "missing-db-username" ]]; then
+      printf ''
+    else
+      printf 'b3BlbnN0dWRpbw=='
+    fi
+    exit 0
+  fi
+  if [[ "${7:-}" == "jsonpath={.data['db-password']}" ]]; then
+    printf 'Y2hhcnQtcGFzcw=='
+    exit 0
+  fi
+  if [[ "${7:-}" == "jsonpath={.data['redis-password']}" ]]; then
+    printf 'Y2hhcnQtcGFzcw=='
+    exit 0
+  fi
+  if [[ "${7:-}" == "jsonpath={.data['web-secret-key']}" ]]; then
+    printf 'Y2hhcnQtc2VjcmV0'
+    exit 0
+  fi
+
+  exit 0
+fi
+exit 1
+EOF
+chmod +x "${TMP_DIR}/kubectl"
+
+if PATH="${TMP_DIR}:${PATH}" MOCK_SECRET_STATE=missing "${ROOT_DIR}/scripts/validate-app-secret.sh" --namespace openstudio-server --secret-name openstudio-app-secrets >/dev/null 2>&1; then
+  echo "Expected secret validator to fail when secret is missing"
+  exit 1
+fi
+
+if PATH="${TMP_DIR}:${PATH}" MOCK_SECRET_STATE=missing-db-username "${ROOT_DIR}/scripts/validate-app-secret.sh" --namespace openstudio-server --secret-name openstudio-app-secrets >/dev/null 2>&1; then
+  echo "Expected secret validator to fail when required keys are missing"
+  exit 1
+fi
+
+if ! PATH="${TMP_DIR}:${PATH}" MOCK_SECRET_STATE=present "${ROOT_DIR}/scripts/validate-app-secret.sh" --namespace openstudio-server --secret-name openstudio-app-secrets >/dev/null; then
+  echo "Expected secret validator to pass when required keys are present"
+  exit 1
+fi
+
 echo "Helm lint/render matrix completed."

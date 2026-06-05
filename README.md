@@ -41,6 +41,8 @@ Then edit your chosen values file (for example `openstudio-server/values.yaml`) 
 - Adjust resource allocations for your workload
 - Configure storage sizes
 
+`provider.name` is no longer supported. Any values file that still sets `provider.name` must be migrated to `global.provider.name`.
+
 Provider-aware scheduling defaults are automatic and based on `global.provider.name`:
 
 Provider | Label Key | Web Node Group | Worker Node Group
@@ -170,6 +172,22 @@ helm upgrade --install openstudio-server ./openstudio-server \
 **Note:** Instead of repeated `--set` flags, prefer an environment-specific values file and pass it with `-f`.
 Use `./scripts/install-dry-run.sh` to run lint/render checks across default and OpenStack values before deployment.
 For a quick install helper script, run `PROVIDER=openstack ./scripts/install.sh` (supported providers: `aws`, `google`, `azure`, `openstack`).
+
+`scripts/install.sh` now fails fast on secret validation by default:
+
+- Default mode: `SECRET_MODE=existing` and `EXISTING_SECRET_NAME=openstudio-app-secrets`
+- Required behavior: the existing secret must already exist in `NAMESPACE` (default `openstudio-server`) and contain non-empty keys:
+  - `db-username`
+  - `db-password`
+  - `redis-password`
+  - `web-secret-key`
+- Alternate mode: set `SECRET_MODE=create` and provide `DB_USERNAME`, `DB_PASSWORD`, `REDIS_PASSWORD`, and `WEB_SECRET_KEY`
+
+To run secret preflight directly:
+
+```bash
+./scripts/validate-app-secret.sh --namespace openstudio-server --secret-name openstudio-app-secrets
+```
 
 ## Uninstalling the Chart
 

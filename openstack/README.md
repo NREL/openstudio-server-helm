@@ -217,6 +217,7 @@ Preflight checks for Option A (existing secret):
 ```bash
 kubectl get secret -n openstudio-server openstudio-app-secrets
 kubectl get secret -n openstudio-server openstudio-app-secrets -o jsonpath='{.data}' | jq 'keys'
+./scripts/validate-app-secret.sh --namespace openstudio-server --secret-name openstudio-app-secrets
 ```
 
 Expected keys:
@@ -235,6 +236,7 @@ Security hardening notes:
 - For normal upgrades in this environment, keep shared defaults in tracked `./openstudio-server/values.yaml` and put local overrides in `./openstudio-server/values.local.yaml`.
 - If your cluster policy blocks Helm hook jobs, disable cleanup hook with `--set hooks.preDeleteCleanup.enabled=false`.
 - If `secrets.existingSecret` is set, keep `secrets.create=false`; the chart now fails fast when both are enabled.
+- `provider.name` is not supported; use `global.provider.name`.
 
 ### Upgrade migration for `--reuse-values` users
 
