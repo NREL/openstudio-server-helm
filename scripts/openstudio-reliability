@@ -1,0 +1,443 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NAMESPACE="openstudio-server"
+RELEASE="openstudio-server"
+CHART_DIR="./openstudio-server"
+MODE="check"
+APPLY=false
+SNAPSHOT_DIR=""
+STRICT=true
+ALLOW_CHART_APPLY=false
+ALLOW_NON_CONFLICT_RECONCILE=false
+STALE_THRESHOLD_MINUTES=70
+RECOVERY_LOCK_TTL_SECONDS=1800
+RECOVERY_LOCK_KEY=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/openstudio-reliability [options]
+
+Modes (default: check):
+  --mode check            Read-only reliability preflight checks.
+  --mode snapshot         Export queue/job snapshots for incident forensics.
+  --mode reconcile-helm   Reconcile Helm failed state (requires --apply).
+  --mode recover-stuck    Recover stuck analysis state (requires --apply).
+
+Options:
+  -n, --namespace <ns>    Kubernetes namespace (default: openstudio-server)
+  -r, --release <name>    Helm release name (default: openstudio-server)
+  -c, --chart <path>      Chart path for reconcile mode (default: ./openstudio-server)
+      --snapshot-dir <d>  Output directory for snapshot mode.
+      --apply             Required for mutating mode reconcile-helm.
+      --no-strict         Continue check mode even when one probe fails.
+      --allow-chart-apply Allow reconcile mode to use local chart path for upgrade.
+      --allow-non-conflict-reconcile
+                          Allow reconcile even if helm status is not a conflict failure.
+      --stale-minutes <m> Stale cutoff for started jobs/datapoints in recover mode (default: 70).
+      --lock-ttl-seconds <s>
+                          Redis lock TTL for recover mode (default: 1800).
+  -h, --help              Show this help.
+
+Examples:
+  scripts/openstudio-reliability --mode check
+  scripts/openstudio-reliability --mode snapshot --snapshot-dir /tmp/os-incident
+  scripts/openstudio-reliability --mode reconcile-helm --apply --allow-chart-apply
+  scripts/openstudio-reliability --mode recover-stuck --apply
+EOF
+}
+
+log() { echo "[INFO] $*"; }
+warn() { echo "[WARN] $*" >&2; }
+die() { echo "[ERROR] $*" >&2; exit 1; }
+
+require_bin() {
+  command -v "$1" >/dev/null 2>&1 || die "Missing required binary: $1"
+}
+
+kube_probe() {
+  local desc=$1
+  shift
+  if "$@"; then
+    return 0
+  fi
+  if [[ "$STRICT" == "true" ]]; then
+    die "${desc} failed"
+  fi
+  warn "${desc} failed"
+  return 0
+}
+
+get_single_pod_by_label() {
+  local selector=$1
+  mapfile -t pods < <(kubectl -n "$NAMESPACE" get pods -l "$selector" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+  if [[ ${#pods[@]} -eq 0 ]]; then
+    die "No pods found for selector: $selector"
+  fi
+  if [[ ${#pods[@]} -gt 1 ]]; then
+    die "Selector matched multiple pods (${#pods[@]}): $selector"
+  fi
+  echo "${pods[0]}"
+}
+
+get_single_pod_by_name_substring() {
+  local pattern=$1
+  mapfile -t pods < <(kubectl -n "$NAMESPACE" get pods -o name | grep "$pattern" | sed 's#pod/##' || true)
+  if [[ ${#pods[@]} -eq 0 ]]; then
+    die "No pods found matching name substring: $pattern"
+  fi
+  if [[ ${#pods[@]} -gt 1 ]]; then
+    die "Name substring matched multiple pods (${#pods[@]}): $pattern"
+  fi
+  echo "${pods[0]}"
+}
+
+require_release_exists() {
+  helm status "$RELEASE" -n "$NAMESPACE" >/dev/null
+}
+
+get_redis_pod() {
+  get_single_pod_by_label "app=redis,release=${RELEASE}"
+}
+
+get_web_pod() {
+  get_single_pod_by_label "app=web,release=${RELEASE}"
+}
+
+reconcile_is_conflict_failure() {
+  local status_text
+  status_text="$(helm status "$RELEASE" -n "$NAMESPACE")"
+  grep -q "STATUS: failed" <<<"$status_text" || return 1
+  grep -Eq "conflict occurred while applying object|Apply failed with .* conflict" <<<"$status_text"
+}
+
+read_worker_state() {
+  kube_probe "worker HPA read" kubectl -n "$NAMESPACE" get hpa worker -o wide
+  kube_probe "worker deployment read" kubectl -n "$NAMESPACE" get deploy worker -o wide
+}
+
+read_helm_state() {
+  kube_probe "helm status read" bash -lc "helm status \"$RELEASE\" -n \"$NAMESPACE\" | sed -n '1,20p'"
+}
+
+read_nfs_usage() {
+  local nfs_pod
+  nfs_pod="$(get_single_pod_by_name_substring 'nfs-server-provisioner')"
+
+  log "NFS usage from pod ${nfs_pod}"
+  kube_probe "nfs /export usage read" kubectl -n "$NAMESPACE" exec "$nfs_pod" -- df -P -h /export
+}
+
+read_redis_queues() {
+  local redis_pod
+  redis_pod="$(get_redis_pod)"
+
+  log "Redis queue depths from pod ${redis_pod}"
+  kube_probe "redis queue depths read" kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+    PW="${REDIS_PASSWORD:-}"
+    AUTH=""
+    if [ -n "$PW" ]; then AUTH="-a $PW --no-auth-warning"; fi
+    for q in analyses analysis_wrappers simulations background requeued; do
+      printf "%s=" "$q"
+      redis-cli $AUTH LLEN "resque:queue:$q"
+    done
+    printf "failed="
+    redis-cli $AUTH LLEN resque:failed
+  '
+}
+
+read_app_job_counts() {
+  local web_pod
+  web_pod="$(get_web_pod)"
+
+  log "Job status counts from pod ${web_pod}"
+  kube_probe "rails job counts read" kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc '
+    cd /opt/openstudio/server
+    bundle exec rails runner "puts %(queued=#{Job.where(status: \"queued\").count} running=#{Job.where(status: \"running\").count} completed=#{Job.where(status: \"completed\").count} failed=#{Job.where(status: \"failed\").count})"
+  '
+}
+
+read_divergence_signals() {
+  local web_pod
+  web_pod="$(get_web_pod)"
+
+  log "Divergence signals (stale > ${STALE_THRESHOLD_MINUTES}m) from pod ${web_pod}"
+  kube_probe "rails divergence read" kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc "
+    cd /opt/openstudio/server
+    STALE_MINUTES='${STALE_THRESHOLD_MINUTES}' bundle exec rails runner '
+      stale = ENV.fetch(%q(STALE_MINUTES), %q(70)).to_i
+      cutoff = Time.now - stale.minutes
+      stale_jobs = Job.where(status: %q(started), :updated_at.lt => cutoff).count
+      started_analysis_ids = Analysis.all.select { |a| a.status == %q(started) }.map(&:id)
+      stale_dp_active = DataPoint.where(:analysis_id.in => started_analysis_ids, status: %q(started), :updated_at.lt => cutoff).count
+      stale_dp_orphan = DataPoint.where(status: %q(started), :updated_at.lt => cutoff, :analysis_id.nin => started_analysis_ids).count
+      stale_started_analyses = Job.where(status: %q(started), :updated_at.lt => cutoff).pluck(:analysis_id).uniq.count
+      started_analyses = started_analysis_ids.count
+      puts %(stale_started_jobs=#{stale_jobs} stale_started_datapoints_active=#{stale_dp_active} stale_started_datapoints_orphan=#{stale_dp_orphan} stale_started_analyses=#{stale_started_analyses} started_analyses=#{started_analyses})
+    '
+  "
+}
+
+merge_queue_csv() {
+  local current="$1"
+  local required="$2"
+  local merged=""
+  local item
+  IFS=',' read -ra cur_items <<<"${current}"
+  IFS=',' read -ra req_items <<<"${required}"
+  for item in "${cur_items[@]}" "${req_items[@]}"; do
+    item="$(echo "$item" | xargs)"
+    [[ -z "$item" ]] && continue
+    if [[ ",${merged}," != *",${item},"* ]]; then
+      if [[ -z "$merged" ]]; then
+        merged="$item"
+      else
+        merged="${merged},${item}"
+      fi
+    fi
+  done
+  echo "$merged"
+}
+
+ensure_worker_requeue_subscription() {
+  local env_lines current_queues merged_queues
+  env_lines="$(kubectl -n "$NAMESPACE" get deploy worker -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}')"
+  current_queues="$(grep -E '^QUEUES=' <<<"$env_lines" | sed 's/^QUEUES=//' || true)"
+  if [[ -z "$current_queues" ]]; then
+    current_queues="$(grep -E '^QUEUE=' <<<"$env_lines" | sed 's/^QUEUE=//' || true)"
+  fi
+  merged_queues="$(merge_queue_csv "${current_queues:-simulations}" "simulations,requeued")"
+
+  if [[ "$merged_queues" == "$current_queues" && "$env_lines" == *"QUEUE=${merged_queues}"* ]]; then
+    log "Worker queue env already includes requeued (${merged_queues})"
+    return 0
+  fi
+
+  log "Patching worker queues to ${merged_queues}"
+  kubectl -n "$NAMESPACE" set env deployment/worker "QUEUES=${merged_queues}" "QUEUE=${merged_queues}" >/dev/null
+  kubectl -n "$NAMESPACE" rollout status deployment/worker --timeout=300s >/dev/null
+}
+
+acquire_recovery_lock() {
+  local redis_pod lock_value lock_result
+  redis_pod="$(get_redis_pod)"
+  RECOVERY_LOCK_KEY="openstudio:recovery:stuck:${NAMESPACE}:${RELEASE}"
+  lock_value="$(date +%s)-$$"
+  lock_result="$(
+    kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc "
+      PW=\"\${REDIS_PASSWORD:-}\"
+      AUTH=\"\"
+      [ -n \"\$PW\" ] && AUTH=\"-a \$PW --no-auth-warning\"
+      redis-cli \$AUTH SET '${RECOVERY_LOCK_KEY}' '${lock_value}' NX EX '${RECOVERY_LOCK_TTL_SECONDS}'
+    " | tr -d '\r'
+  )"
+  [[ "$lock_result" == "OK" ]] || die "Could not acquire recovery lock (${RECOVERY_LOCK_KEY}); another recovery may be running"
+  log "Acquired recovery lock (${RECOVERY_LOCK_KEY})"
+}
+
+release_recovery_lock() {
+  local redis_pod
+  [[ -n "${RECOVERY_LOCK_KEY}" ]] || return 0
+  redis_pod="$(get_redis_pod)"
+  kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc "
+    PW=\"\${REDIS_PASSWORD:-}\"
+    AUTH=\"\"
+    [ -n \"\$PW\" ] && AUTH=\"-a \$PW --no-auth-warning\"
+    redis-cli \$AUTH DEL '${RECOVERY_LOCK_KEY}' >/dev/null
+  " >/dev/null 2>&1 || true
+  log "Released recovery lock (${RECOVERY_LOCK_KEY})"
+}
+
+recover_stuck_state() {
+  local web_pod
+  [[ "$APPLY" == "true" ]] || die "Refusing to mutate without --apply"
+  require_release_exists
+  [[ "$STALE_THRESHOLD_MINUTES" =~ ^[0-9]+$ ]] || die "--stale-minutes must be an integer"
+  (( STALE_THRESHOLD_MINUTES >= 10 )) || die "--stale-minutes must be >= 10"
+
+  acquire_recovery_lock
+  trap 'release_recovery_lock' EXIT
+
+  log "Running stuck-state recovery with stale threshold ${STALE_THRESHOLD_MINUTES}m"
+  ensure_worker_requeue_subscription
+  run_snapshot_mode
+
+  web_pod="$(get_web_pod)"
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc "
+    cd /opt/openstudio/server
+    STALE_MINUTES='${STALE_THRESHOLD_MINUTES}' bundle exec rails runner '
+      stale = ENV.fetch(%q(STALE_MINUTES), %q(70)).to_i
+      cutoff = Time.now - stale.minutes
+      stale_jobs = Job.where(status: %q(started), analysis_type: %q(batch_run), :updated_at.lt => cutoff)
+      stale_analysis_ids = stale_jobs.pluck(:analysis_id).uniq
+      requeued = 0
+      finalized = 0
+      stale_analysis_ids.each do |aid|
+        DataPoint.where(analysis_id: aid, status: %q(started), :updated_at.lt => cutoff).each do |dp|
+          Resque.enqueue(ResqueJobs::RunSimulateDataPoint, dp.id)
+          requeued += 1
+        end
+      end
+      stale_jobs.each do |job|
+        remaining = DataPoint.where(analysis_id: job.analysis_id, :status.in => [%q(na), %q(queued), %q(started)]).count
+        next unless remaining == 0
+        next unless job.status == %q(started)
+        job.status = %q(completed)
+        job.end_time ||= Time.now
+        job.save!
+        Resque.enqueue(ResqueJobs::FinalizeAnalysis, job.analysis_id)
+        finalized += 1
+      end
+      puts %(recovery_summary stale_analyses=#{stale_analysis_ids.count} datapoints_requeued=#{requeued} jobs_finalized=#{finalized})
+    '
+  "
+
+  log "Post-recovery checks"
+  read_redis_queues
+  read_divergence_signals
+  read_app_job_counts
+}
+
+run_check_mode() {
+  log "Running read-only reliability checks for ${NAMESPACE}/${RELEASE}"
+  read_helm_state
+  echo "---"
+  read_nfs_usage
+  echo "---"
+  read_redis_queues
+  echo "---"
+  read_app_job_counts
+  echo "---"
+  read_divergence_signals
+  echo "---"
+  read_worker_state
+}
+
+run_snapshot_mode() {
+  local out_dir redis_pod web_pod ts
+  ts="$(date +%Y%m%d-%H%M%S)"
+  out_dir="${SNAPSHOT_DIR:-./incident-snapshots/${RELEASE}-${ts}}"
+  mkdir -p "$out_dir"
+
+  redis_pod="$(get_redis_pod)"
+  web_pod="$(get_web_pod)"
+
+  log "Writing snapshots into ${out_dir}"
+  kubectl config current-context > "${out_dir}/kube_context.txt"
+  helm status "$RELEASE" -n "$NAMESPACE" > "${out_dir}/helm_status.txt"
+  helm history "$RELEASE" -n "$NAMESPACE" > "${out_dir}/helm_history.txt"
+  kubectl -n "$NAMESPACE" get hpa worker -o wide > "${out_dir}/worker_hpa.txt"
+  kubectl -n "$NAMESPACE" get deploy worker -o wide > "${out_dir}/worker_deploy.txt"
+
+  kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+    PW="${REDIS_PASSWORD:-}"
+    AUTH=""
+    if [ -n "$PW" ]; then AUTH="-a $PW --no-auth-warning"; fi
+    for q in analyses analysis_wrappers simulations background requeued; do
+      printf "%s=" "$q"
+      redis-cli $AUTH LLEN "resque:queue:$q"
+    done
+    printf "failed="
+    redis-cli $AUTH LLEN resque:failed
+  ' > "${out_dir}/queue_depths.txt"
+
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc '
+    cd /opt/openstudio/server
+    bundle exec rails runner "Job.where(status: \"queued\").limit(200).pluck(:_id, :analysis_id, :analysis_type, :status).each { |r| puts r.join(\"\t\") }"
+  ' > "${out_dir}/queued_jobs.tsv"
+
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc '
+    cd /opt/openstudio/server
+    bundle exec rails runner "puts %(queued=#{Job.where(status: \"queued\").count} running=#{Job.where(status: \"running\").count} completed=#{Job.where(status: \"completed\").count} failed=#{Job.where(status: \"failed\").count})"
+  ' > "${out_dir}/job_counts.txt"
+
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc "
+    cd /opt/openstudio/server
+    STALE_MINUTES='${STALE_THRESHOLD_MINUTES}' bundle exec rails runner '
+      stale = ENV.fetch(%q(STALE_MINUTES), %q(70)).to_i
+      cutoff = Time.now - stale.minutes
+      Job.where(status: %q(started), :updated_at.lt => cutoff).limit(500).pluck(:_id, :analysis_id, :analysis_type, :updated_at).each { |r| puts r.join(\"\t\") }
+    '
+  " > "${out_dir}/stale_started_jobs.tsv"
+
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc "
+    cd /opt/openstudio/server
+    STALE_MINUTES='${STALE_THRESHOLD_MINUTES}' bundle exec rails runner '
+      stale = ENV.fetch(%q(STALE_MINUTES), %q(70)).to_i
+      cutoff = Time.now - stale.minutes
+      started_analysis_ids = Analysis.all.select { |a| a.status == %q(started) }.map(&:id)
+      DataPoint.where(:analysis_id.in => started_analysis_ids, status: %q(started), :updated_at.lt => cutoff).limit(2000).pluck(:_id, :analysis_id, :updated_at).each { |r| puts r.join(\"\t\") }
+    '
+  " > "${out_dir}/stale_started_datapoints.tsv"
+
+  log "Snapshot complete: ${out_dir}"
+}
+
+run_reconcile_mode() {
+  [[ "$APPLY" == "true" ]] || die "Refusing to mutate without --apply"
+  [[ "$ALLOW_CHART_APPLY" == "true" ]] || die "Refusing local chart upgrade without --allow-chart-apply"
+  require_release_exists
+
+  log "Running preflight dry-run for ${RELEASE}/${NAMESPACE}"
+  helm upgrade "$RELEASE" "$CHART_DIR" \
+    -n "$NAMESPACE" \
+    --reuse-values \
+    --server-side=false \
+    --dry-run=server >/dev/null
+
+  if [[ "$ALLOW_NON_CONFLICT_RECONCILE" != "true" ]] && ! reconcile_is_conflict_failure; then
+    die "Release is not in a known managed-field conflict failure; use --allow-non-conflict-reconcile to override"
+  fi
+
+  log "Reconciling Helm release ${RELEASE} in ${NAMESPACE} with client-side apply"
+  helm upgrade "$RELEASE" "$CHART_DIR" \
+    -n "$NAMESPACE" \
+    --reuse-values \
+    --server-side=false \
+    --description "Reconcile release after managed-field conflicts"
+  log "Reconcile complete. Current status:"
+  helm status "$RELEASE" -n "$NAMESPACE" | sed -n '1,20p'
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n|--namespace)
+      NAMESPACE="$2"; shift 2 ;;
+    -r|--release)
+      RELEASE="$2"; shift 2 ;;
+    -c|--chart)
+      CHART_DIR="$2"; shift 2 ;;
+    --mode)
+      MODE="$2"; shift 2 ;;
+    --snapshot-dir)
+      SNAPSHOT_DIR="$2"; shift 2 ;;
+    --apply)
+      APPLY=true; shift ;;
+    --no-strict)
+      STRICT=false; shift ;;
+    --allow-chart-apply)
+      ALLOW_CHART_APPLY=true; shift ;;
+    --allow-non-conflict-reconcile)
+      ALLOW_NON_CONFLICT_RECONCILE=true; shift ;;
+    --stale-minutes)
+      STALE_THRESHOLD_MINUTES="$2"; shift 2 ;;
+    --lock-ttl-seconds)
+      RECOVERY_LOCK_TTL_SECONDS="$2"; shift 2 ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *)
+      die "Unknown argument: $1" ;;
+  esac
+done
+
+require_bin kubectl
+require_bin helm
+
+case "$MODE" in
+  check) run_check_mode ;;
+  snapshot) run_snapshot_mode ;;
+  reconcile-helm) run_reconcile_mode ;;
+  recover-stuck) recover_stuck_state ;;
+  *) die "Unsupported mode: $MODE" ;;
+esac
