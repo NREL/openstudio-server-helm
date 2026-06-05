@@ -21,6 +21,12 @@ cp ../openstudio-server/values_production.templateyaml ../openstudio-server/valu
 helm install openstudio-server ../openstudio-server
 ```
 
+The production template sets OpenStack storage hardening defaults:
+
+- `nfs-server-provisioner.persistence.size: 1Ti`
+- `db.persistence.storageClass: csi-cinder`
+- `redis.persistence.storageClass: csi-cinder`
+
 ## Legacy Self-Managed Deployment (Optional, Untested)
 
 If you explicitly choose to run self-managed cluster automation from this directory:

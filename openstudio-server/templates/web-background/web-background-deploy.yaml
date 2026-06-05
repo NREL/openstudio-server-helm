@@ -37,13 +37,27 @@ spec:
             - name: QUEUES
               value: background,analyses
             - name: SECRET_KEY_BASE
-              value: {{ .Values.web.secret_key_value }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyWebSecret" . }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyRedisPassword" . }}
             - name: REDIS_URL
-              value: {{ include "openstudio.redisUrl" . | quote }}
+              value: redis://:$(REDIS_PASSWORD)@queue:6379
             - name: MONGO_USER
-              value: {{ .Values.db.username }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyDbUsername" . }}
             - name: MONGO_PASSWORD
-              value: {{ .Values.db.password }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyDbPassword" . }}
           command: ["/usr/local/bin/start-web-background"]
           livenessProbe:
             exec:

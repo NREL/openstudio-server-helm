@@ -54,6 +54,13 @@ Setting | openstack default | aws/google/azure default
 `redis.persistence.storageClass` | `nfs` | `ssd`
 `load_balancer.externalTrafficPolicy` | `Cluster` | `Local`
 
+For OpenStack production deployments, `values_production.templateyaml` explicitly sets:
+
+- `db.persistence.storageClass: csi-cinder`
+- `redis.persistence.storageClass: csi-cinder`
+
+This keeps MongoDB/Redis off the shared NFS assets volume used by worker outputs.
+
 NFS mount options are intentionally conservative by default in template files:
 
 - Default: `mountOptions: ["vers=4"]`
@@ -125,12 +132,12 @@ The command removes all the Kubernetes components associated with the chart and 
 
 The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values in your `values.yaml` file (see Configuration Setup section above).
 
-For example, to change the data storage for NFS which stores the data points to 300GB, modify the `nfs-server-provisioner.persistence.size` parameter in your `values.yaml`:
+For example, to change the data storage for NFS which stores the data points to 1Ti, modify the `nfs-server-provisioner.persistence.size` parameter in your `values.yaml`:
 
 ```yaml
 nfs-server-provisioner:
   persistence:
-    size: 300Gi
+    size: 1Ti
 ```
 
 Parameter | Description | Default
@@ -262,6 +269,127 @@ You will then use this EXTERNAL-IP to use with PAT to connect to an existing clo
 This helm chart provisions persistent storage for the Database (MongoDB) and the NFS server (storage for data results). These will persist throughout the life of the helm chart while it's running. It will **NOT** persist if you delete the helm chart. The volumes will be deleted along with it.
 
 While it's possible to change the storage to use `Retain` vs `Delete`, the helm chart will need to be reconfigured to allow to attach to existing volumes. This will be worked on as an enhancement for a future release.
+
+### NFS Saturation Recovery (No-Pruning Retention)
+
+If OpenStudio begins returning HTTP 500 and MongoDB logs show `No space left on device`, recover in this order:
+
+```bash
+# 1) Confirm NFS backend fullness and impacted pods
+kubectl -n openstudio-server get pods
+kubectl -n openstudio-server logs deploy/db --tail=100
+kubectl -n openstudio-server exec deploy/openstudio-server-nfs-server-provisioner -- df -h /export
+
+# 2) Verify storage classes and expansion support
+kubectl -n openstudio-server get pvc nfs-pvc-data -o jsonpath='{.spec.storageClassName}{"\n"}'
+kubectl get storageclass <storage-class-from-command-above> -o yaml | grep -i allowVolumeExpansion
+
+# 3) Expand backend volume claim used by nfs-server-provisioner (example to 1Ti)
+kubectl -n openstudio-server patch pvc nfs-pvc-data \
+  -p '{"spec":{"resources":{"requests":{"storage":"1Ti"}}}}'
+
+# 4) Wait for resize to complete, then restart impacted services
+kubectl -n openstudio-server get pvc nfs-pvc-data -w
+kubectl -n openstudio-server exec deploy/openstudio-server-nfs-server-provisioner -- df -h /export
+kubectl -n openstudio-server rollout restart deploy/db deploy/web deploy/web-background
+kubectl -n openstudio-server rollout status deploy/db
+kubectl -n openstudio-server rollout status deploy/web
+```
+
+Notes:
+
+- `nfs-server-provisioner.persistence.size` controls backend capacity for all dynamic `nfs` claims.
+- `nfs_pvc.storage` is a request value; it is not an independent quota when backed by the same NFS server volume.
+- Existing PVC `storageClassName` is immutable. If migrating DB/Redis from NFS to block storage, use a planned migration window with backup/restore.
+
+### Reliability Preflight, Snapshot, and Helm Reconcile Automation
+
+Use `scripts/openstudio-reliability` to standardize triage and recovery steps:
+
+```bash
+# Read-only reliability checks (recommended first step)
+./scripts/openstudio-reliability --mode check
+
+# Capture queue/job snapshots before any mutation
+./scripts/openstudio-reliability --mode snapshot \
+  --snapshot-dir ./incident-snapshots/openstudio-server-$(date +%Y%m%d-%H%M%S)
+
+# Reconcile Helm only for managed-field conflict failures
+./scripts/openstudio-reliability --mode reconcile-helm --apply --allow-chart-apply
+```
+
+Design notes:
+
+- Script defaults to read-only mode.
+- Mutating operations require explicit `--apply`.
+- Snapshot mode captures queue depths and app job status for incident auditability.
+
+### Helm Failed-State Reconcile Playbook (SSA Conflicts)
+
+If `helm status` is `failed` while workloads are healthy, and the description includes managed-field conflict errors (for example `.spec.replicas` or HPA fields), use this sequence.
+
+Do **not** run reconcile if:
+
+- workloads are unstable (crashing, unavailable, or actively recovering),
+- failure reason is unknown or unrelated to managed-field conflicts,
+- local chart changes are unreviewed for production.
+
+```bash
+# 1) Confirm actual runtime health first
+kubectl -n openstudio-server get pods
+kubectl -n openstudio-server get deploy worker
+kubectl -n openstudio-server get hpa worker -o wide
+
+# 2) Confirm release failure reason
+helm status openstudio-server -n openstudio-server
+helm history openstudio-server -n openstudio-server
+
+# 3) Reconcile using guarded helper (includes dry-run preflight)
+./scripts/openstudio-reliability --mode reconcile-helm --apply --allow-chart-apply
+
+# 4) Validate release and runtime gates
+helm status openstudio-server -n openstudio-server
+kubectl -n openstudio-server get pods
+kubectl -n openstudio-server get hpa worker -o wide
+kubectl -n openstudio-server exec deploy/redis -- sh -lc 'PW="${REDIS_PASSWORD:-}"; AUTH=""; [ -n "$PW" ] && AUTH="-a $PW --no-auth-warning"; redis-cli $AUTH LLEN resque:queue:simulations'
+
+# 5) Roll back if release or runtime regresses
+helm rollback openstudio-server <last-good-revision> -n openstudio-server
+```
+
+### Postmortem Template and Corrective-Action Checklist
+
+For each production incident, capture:
+
+1. Trigger, impact window, and user-visible symptoms.
+2. Root cause chain (technical + operational contributing factors).
+3. Detection latency and which alert should have fired earlier.
+4. Immediate mitigations applied and why they were chosen.
+5. Permanent fixes across defaults, automation, and docs.
+6. Drill plan and verification date for each corrective action.
+7. Owner per action item with objective completion criteria.
+
+### Alerting Baseline (Recommended)
+
+Minimum production alerts to add in your platform monitoring:
+
+Metric | Warning | Critical | Rationale
+------ | ------- | -------- | ---------
+NFS `/export` free space | `<20%` | `<10%` | Early detection before DB/asset write failures.
+NFS fill projection (time-to-full) | `<7 days` | `<2 days` | Catch rapid growth even when free space still appears high.
+Redis `resque:queue:simulations` backlog age | `>15m` | `>30m` | Detect worker throughput mismatch.
+Queue/job divergence (`Job(status='queued')` with near-empty Redis queues) | `>5 queued for 10m` | `>20 queued for 10m` | Detect scheduler enqueue drift.
+Worker HPA saturation (`current/target` CPU) | `>90% for 10m` | `>95% for 15m` | Detect sustained compute bottleneck.
+Helm release state | `failed` | `failed for >15m` | Ensure operator metadata is reconciled quickly.
+
+### Reliability Drill Cadence
+
+Run a monthly drill that executes:
+
+1. `./scripts/openstudio-reliability --mode check`
+2. `./scripts/openstudio-reliability --mode snapshot --snapshot-dir <drill-artifacts>`
+3. Helm reconcile dry procedure review (no mutation), then controlled reconcile in non-prod.
+4. Post-drill retrospective with action-item updates.
 
 ## Auto Scaling
 

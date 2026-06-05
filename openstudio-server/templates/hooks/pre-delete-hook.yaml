@@ -1,29 +1,37 @@
+{{- $preDeleteHook := default (dict) .Values.hooks.preDeleteCleanup -}}
+{{- if default true (get $preDeleteHook "enabled") }}
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: nfs-client-cleanup
-  namespace: default
+  namespace: {{ .Release.Namespace }}
   annotations:
     "helm.sh/hook": pre-delete
     "helm.sh/hook-weight": "3"
     "helm.sh/hook-delete-policy": hook-succeeded
 spec:
+  backoffLimit: 1
   template:
     metadata:
       name: nfs-client-cleanup
     spec:
       containers:
         - name: kubectl
-          image: "k8s.gcr.io/hyperkube:v1.12.1"
+          image: "bitnami/kubectl:1.31"
           securityContext:
-            privileged: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
           imagePullPolicy: "IfNotPresent"
           command:
           - /bin/sh
           - -c
           - >
-              kubectl delete deployment web;
-              kubectl delete deployment web-background;
-              kubectl delete deployment rserve;
-              sleep 60;
+              kubectl -n {{ .Release.Namespace }} delete deployment web --ignore-not-found=true --wait=true --timeout=180s;
+              kubectl -n {{ .Release.Namespace }} delete deployment web-background --ignore-not-found=true --wait=true --timeout=180s;
+              kubectl -n {{ .Release.Namespace }} delete deployment rserve --ignore-not-found=true --wait=true --timeout=180s;
       restartPolicy: Never
+{{- end }}

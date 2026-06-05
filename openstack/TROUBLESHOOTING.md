@@ -229,6 +229,49 @@ kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Doc
 kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/v0.20.2/Documentation/kube-flannel.yml
 ```
 
+### 6. Helm Release Stuck in Failed State (Managed-Field Conflicts)
+
+**Symptoms:**
+- `helm status` reports `STATUS: failed`
+- Description contains conflict errors against fields such as:
+  - `Deployment/worker .spec.replicas`
+  - `HorizontalPodAutoscaler/worker .spec.maxReplicas`
+- Runtime workloads still appear healthy and continue processing jobs
+
+**Diagnosis:**
+```bash
+helm status openstudio-server -n openstudio-server
+helm history openstudio-server -n openstudio-server
+kubectl -n openstudio-server get deploy worker -o wide
+kubectl -n openstudio-server get hpa worker -o wide
+```
+
+**Guarded Reconcile Path (use only for conflict failures):**
+```bash
+# Prefer automated helper
+./scripts/openstudio-reliability --mode reconcile-helm --apply --allow-chart-apply
+
+# Equivalent direct command
+helm upgrade openstudio-server ./openstudio-server \
+  -n openstudio-server \
+  --reuse-values \
+  --server-side=false \
+  --description "Reconcile release after managed-field conflicts"
+```
+
+Do **not** run reconcile if the release failed for non-conflict reasons, or while workloads are unstable.  
+If reconcile causes regressions, roll back immediately:
+
+```bash
+helm rollback openstudio-server <last-good-revision> -n openstudio-server
+```
+
+**Prevention:**
+- Standardize on one operational reconcile path and avoid ad-hoc mixed apply methods.
+- Use `./scripts/openstudio-reliability --mode check` before and after upgrades.
+- Keep a queue/job snapshot before mutation:
+  - `./scripts/openstudio-reliability --mode snapshot --snapshot-dir <path>`
+
 ## 📊 Diagnostic Commands Reference
 
 ### Cluster Health Check

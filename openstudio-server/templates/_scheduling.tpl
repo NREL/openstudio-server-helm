@@ -74,8 +74,38 @@ affinity:
 {{- end -}}
 {{- end -}}
 
-{{- define "openstudio.redisUrl" -}}
-{{- printf "redis://:%s@queue:6379" .Values.redis.password -}}
+{{- define "openstudio.secretName" -}}
+{{- $secrets := default (dict) .Values.secrets -}}
+{{- $existingSecret := default "" (get $secrets "existingSecret") -}}
+{{- if ne $existingSecret "" -}}
+{{- $existingSecret -}}
+{{- else -}}
+{{- $create := default true (get $secrets "create") -}}
+{{- if not $create -}}
+{{- fail "Either secrets.existingSecret must be set or secrets.create must be true" -}}
+{{- end -}}
+{{- default (printf "%s-app-secrets" .Release.Name) (get $secrets "nameOverride") -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "openstudio.secretKeyDbUsername" -}}
+{{- $keys := default (dict) (get (default (dict) .Values.secrets) "keys") -}}
+{{- default "db-username" (get $keys "dbUsername") -}}
+{{- end -}}
+
+{{- define "openstudio.secretKeyDbPassword" -}}
+{{- $keys := default (dict) (get (default (dict) .Values.secrets) "keys") -}}
+{{- default "db-password" (get $keys "dbPassword") -}}
+{{- end -}}
+
+{{- define "openstudio.secretKeyRedisPassword" -}}
+{{- $keys := default (dict) (get (default (dict) .Values.secrets) "keys") -}}
+{{- default "redis-password" (get $keys "redisPassword") -}}
+{{- end -}}
+
+{{- define "openstudio.secretKeyWebSecret" -}}
+{{- $keys := default (dict) (get (default (dict) .Values.secrets) "keys") -}}
+{{- default "web-secret-key" (get $keys "webSecret") -}}
 {{- end -}}
 
 {{- define "openstudio.serverImage" -}}

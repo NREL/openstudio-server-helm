@@ -15,7 +15,8 @@ This directory contains legacy automation for building a Kubernetes cluster dire
 ```bash
 cp ../openstudio-server/values_production.templateyaml ../openstudio-server/values.yaml
 # Edit values.yaml (passwords/secrets/resources/provider=openstack)
-helm install openstudio-server ../openstudio-server
+# values.yaml is intentionally local/untracked; templates are the tracked source of truth.
+helm upgrade --install openstudio-server ../openstudio-server -f ../openstudio-server/values.yaml
 ```
 
 ## Legacy Quick Start (Use at Your Own Risk)
@@ -148,12 +149,78 @@ export KUBECONFIG=$(pwd)/kubeconfig
 # Apply storage classes
 kubectl apply -f storage-classes.yaml
 
+# Create local values file from tracked template (values.yaml is git-ignored)
+cp ./openstudio-server/values_production.templateyaml ./openstudio-server/values.yaml
+
+# Recommended default for this environment:
+#   secrets.existingSecret: openstudio-app-secrets
+#   secrets.create: false
+# (set these in your local values.yaml)
+
+# Option A (recommended): create one Kubernetes Secret and reference it
+kubectl -n openstudio-server create secret generic openstudio-app-secrets \
+  --from-literal=db-username="openstudio" \
+  --from-literal=db-password="replace-with-strong-password" \
+  --from-literal=redis-password="replace-with-strong-password" \
+  --from-literal=web-secret-key="replace-with-long-random-secret"
+
+# Option B: let chart create Secret from values at deploy time
+export OS_DB_USERNAME="openstudio"
+export OS_DB_PASSWORD="replace-with-strong-password"
+export OS_REDIS_PASSWORD="replace-with-strong-password"
+export OS_SECRET_KEY_BASE="replace-with-long-random-secret"
+
 # Deploy OpenStudio Server
-helm upgrade --install openstudio-server ../openstudio-server \
+helm upgrade --install openstudio-server ./openstudio-server \
   --namespace openstudio-server \
   --create-namespace \
+  -f ./openstudio-server/values.yaml \
   --timeout=20m \
   --wait
+```
+
+Preflight checks for Option A (existing secret):
+
+```bash
+kubectl get secret -n openstudio-server openstudio-app-secrets
+kubectl get secret -n openstudio-server openstudio-app-secrets -o jsonpath='{.data}' | jq 'keys'
+```
+
+Expected keys:
+
+- `db-username`
+- `db-password`
+- `redis-password`
+- `web-secret-key`
+
+Security hardening notes:
+
+- The chart no longer ships plaintext default credentials.
+- App pods use `secretKeyRef` for DB/Redis/app secrets.
+- If using chart-managed secrets (`secrets.create=true`), deploys fail fast unless `db.username`, `db.password`, `redis.password`, and `web.secret_key_value` are set.
+- If using an externally managed secret (`secrets.existingSecret`), credentials only need to be entered once when creating that secret.
+- For normal upgrades in this environment, use your local `./openstudio-server/values.yaml` and avoid repeating secret flags.
+- If your cluster policy blocks Helm hook jobs, disable cleanup hook with `--set hooks.preDeleteCleanup.enabled=false`.
+
+By default, this chart enables Cluster Autoscaler on AWS and disables it for other providers (including OpenStack). If you want autoscaling on OpenStack, set:
+
+- `autoscaler.enabled: true`
+- `autoscaler.openstackNodeGroups` entries with `name`, `min`, and `max`
+
+When `autoscaler.enabled=true` on OpenStack, the chart performs a safety check and fails install/upgrade if a pre-existing `kube-system/cluster-autoscaler` deployment exists and is not owned by this Helm release. This prevents dual autoscaler configuration drift with platform-managed clusters (for example Azimuth).
+
+Example:
+
+```yaml
+autoscaler:
+  enabled: true
+  openstackNodeGroups:
+    - name: web-group
+      min: 1
+      max: 5
+    - name: worker-group
+      min: 1
+      max: 50
 ```
 
 The chart now reads provider from `global.provider.name` in your values file and applies provider-aware node affinity defaults automatically. For OpenStack, the default node label assumptions are:
@@ -169,6 +236,21 @@ Additional OpenStack defaults are automatically applied when omitted in values:
 - `db.persistence.storageClass`: `nfs`
 - `redis.persistence.storageClass`: `nfs`
 - `load_balancer.externalTrafficPolicy`: `Cluster`
+
+For production hardening, the tracked `openstudio-server/values_production.templateyaml` explicitly sets:
+
+- `db.persistence.storageClass: csi-cinder`
+- `redis.persistence.storageClass: csi-cinder`
+- `nfs-server-provisioner.persistence.size: 1Ti`
+
+Preflight check before deploy/upgrade:
+
+```bash
+kubectl get storageclass
+kubectl get sc csi-cinder
+```
+
+If your cluster uses a different Cinder class name, update the values file accordingly.
 
 ## 🏭 Architecture
 

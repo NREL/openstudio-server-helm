@@ -27,7 +27,15 @@ spec:
           volumeMounts:
             - mountPath: /data
               name: redis
-          args: ["redis-server", "--appendonly yes", "--requirepass", "{{ .Values.redis.password  }}"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyRedisPassword" . }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"
       volumes:
         - name: redis
           persistentVolumeClaim:

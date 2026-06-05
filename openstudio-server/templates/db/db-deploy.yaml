@@ -36,9 +36,15 @@ spec:
               memory:  {{  .Values.db.container.resources.requests.memory  }}
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
-              value: {{ .Values.db.username }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyDbUsername" . }}
             - name: MONGO_INITDB_ROOT_PASSWORD
-              value: {{ .Values.db.password }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyDbPassword" . }}
       volumes:
         - name: db
           persistentVolumeClaim:

@@ -14,11 +14,35 @@ global:
 cluster:
   name: "openstudio-server-prod"
 
+autoscaler:
+  # Defaults to enabled on AWS and disabled on other providers unless explicitly set.
+  # enabled: true
+  # For OpenStack, enable autoscaler and provide one or more node groups.
+  # openstackNodeGroups:
+  #   - name: web-group
+  #     min: 1
+  #     max: 5
+  #   - name: worker-group
+  #     min: 1
+  #     max: 50
+  openstackNodeGroups: []
+  extraArgs: []
+
+secrets:
+  existingSecret: ""
+  create: true
+  nameOverride: ""
+  keys:
+    dbUsername: "db-username"
+    dbPassword: "db-password"
+    redisPassword: "redis-password"
+    webSecret: "web-secret-key"
+
 # NFS Server Provisioner - Increased storage for production workloads
 nfs-server-provisioner:
   persistence:
     enabled: true
-    size: 50Gi  # Increased from 5Gi for production
+    size: 1Ti  # Sized for no-pruning retention and high worker throughput
   storageClass:
     allowVolumeExpansion: true  # Enable expansion for future growth
     mountOptions:
@@ -26,8 +50,9 @@ nfs-server-provisioner:
 
 # Database - Enhanced for production
 db:
-  username: "openstudio"
-  password: "openstudio"  # Should be changed and stored in secrets
+  # Required when secrets.create=true.
+  username: ""
+  password: ""
   container:
     image: "mongo:6.0.7"
     resources:
@@ -35,15 +60,17 @@ db:
         cpu: 2          # Increased from 1 for better performance
         memory: "8Gi"   # Increased from 4Gi for production workloads
   persistence:
+    storageClass: "csi-cinder"  # Keep DB state off shared NFS assets volume
     size: 20Gi        # Increased from 2Gi for production data
 
 # NFS PVC - Increased storage for production
 nfs_pvc:
-  storage: "10Gi"     # Increased from 2Gi for production shared storage
+  storage: "1Ti"      # Request for shared RWX claim; backend NFS volume size is the real limit
 
 # Redis - Enhanced for production
 redis:
-  password: "openstudio"  # Should be changed and stored in secrets
+  # Required when secrets.create=true.
+  password: ""
   container:
     image: "redis:6.0.9"
     resources:
@@ -51,6 +78,7 @@ redis:
         cpu: 0.5        # Increased from 0.25 for better queue performance
         memory: "2Gi"   # Increased from 1Gi for larger queues
   persistence:
+    storageClass: "csi-cinder"  # Keep queue state off shared NFS assets volume
     size: 5Gi         # Increased from 1Gi for production queues
 
 # RServe - Enhanced for production
@@ -76,6 +104,8 @@ web_background:
 
 # Web - Enhanced for production with proper passenger configuration
 web:
+  # Required when secrets.create=true.
+  secret_key_value: ""
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
   passenger_memory_per_process: 250          # Keep existing optimized value
   container:
@@ -110,3 +140,6 @@ worker_hpa:
   targetCPUUtilizationPercentage: 60  # Slightly higher for stability
   stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
 
+hooks:
+  preDeleteCleanup:
+    enabled: true

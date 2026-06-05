@@ -15,6 +15,30 @@ global:
 cluster:
   name: "openstudio-server"
 
+autoscaler:
+  # Defaults to enabled on AWS and disabled on other providers unless explicitly set.
+  # enabled: true
+  # For OpenStack, enable autoscaler and provide one or more node groups.
+  # openstackNodeGroups:
+  #   - name: web-group
+  #     min: 1
+  #     max: 5
+  #   - name: worker-group
+  #     min: 1
+  #     max: 50
+  openstackNodeGroups: []
+  extraArgs: []
+
+secrets:
+  existingSecret: ""
+  create: true
+  nameOverride: ""
+  keys:
+    dbUsername: "db-username"
+    dbPassword: "db-password"
+    redisPassword: "redis-password"
+    webSecret: "web-secret-key"
+
 nfs-server-provisioner:
   persistence:
     enabled: true
@@ -24,8 +48,9 @@ nfs-server-provisioner:
     mountOptions:
       - vers=4
 db:
-  username: "openstudio"
-  password: "openstudio"
+  # Required when secrets.create=true.
+  username: ""
+  password: ""
   container:
     image: "mongo:6.0.7"
     resources:
@@ -40,7 +65,8 @@ nfs_pvc:
 
 
 redis:
-  password: "openstudio"
+  # Required when secrets.create=true.
+  password: ""
   container:
     image: "redis:6.0.9"
     resources:
@@ -70,7 +96,8 @@ web_background:
         memory: "512Mi"
 
 web:
-  secret_key_value: "c4ab6d293e4bf52ee92e8dda6e16dc9b5448d0c5f7908ee40c66736d515f3c29142d905b283d73e5e9cef6b13cd8e38be6fd3b5e25d00f35b259923a86c7c473"
+  # Required when secrets.create=true.
+  secret_key_value: ""
   # passenger_max_request_queue_size: "1600"
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
   # passenger_max_pool_size: "21"
@@ -106,6 +133,10 @@ worker_hpa:
   maxReplicas: 20
   targetCPUUtilizationPercentage: 50
   stabilizationWindowSeconds: 3600
+
+hooks:
+  preDeleteCleanup:
+    enabled: true
 
 
 

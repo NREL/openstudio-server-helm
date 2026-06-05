@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NAMESPACE="openstudio-server"
+RELEASE="openstudio-server"
+CHART_DIR="./openstudio-server"
+MODE="check"
+APPLY=false
+SNAPSHOT_DIR=""
+STRICT=true
+ALLOW_CHART_APPLY=false
+ALLOW_NON_CONFLICT_RECONCILE=false
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/openstudio-reliability [options]
+
+Modes (default: check):
+  --mode check            Read-only reliability preflight checks.
+  --mode snapshot         Export queue/job snapshots for incident forensics.
+  --mode reconcile-helm   Reconcile Helm failed state (requires --apply).
+
+Options:
+  -n, --namespace <ns>    Kubernetes namespace (default: openstudio-server)
+  -r, --release <name>    Helm release name (default: openstudio-server)
+  -c, --chart <path>      Chart path for reconcile mode (default: ./openstudio-server)
+      --snapshot-dir <d>  Output directory for snapshot mode.
+      --apply             Required for mutating mode reconcile-helm.
+      --no-strict         Continue check mode even when one probe fails.
+      --allow-chart-apply Allow reconcile mode to use local chart path for upgrade.
+      --allow-non-conflict-reconcile
+                          Allow reconcile even if helm status is not a conflict failure.
+  -h, --help              Show this help.
+
+Examples:
+  scripts/openstudio-reliability --mode check
+  scripts/openstudio-reliability --mode snapshot --snapshot-dir /tmp/os-incident
+  scripts/openstudio-reliability --mode reconcile-helm --apply --allow-chart-apply
+EOF
+}
+
+log() { echo "[INFO] $*"; }
+warn() { echo "[WARN] $*" >&2; }
+die() { echo "[ERROR] $*" >&2; exit 1; }
+
+require_bin() {
+  command -v "$1" >/dev/null 2>&1 || die "Missing required binary: $1"
+}
+
+kube_probe() {
+  local desc=$1
+  shift
+  if "$@"; then
+    return 0
+  fi
+  if [[ "$STRICT" == "true" ]]; then
+    die "${desc} failed"
+  fi
+  warn "${desc} failed"
+  return 0
+}
+
+get_single_pod_by_label() {
+  local selector=$1
+  mapfile -t pods < <(kubectl -n "$NAMESPACE" get pods -l "$selector" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+  if [[ ${#pods[@]} -eq 0 ]]; then
+    die "No pods found for selector: $selector"
+  fi
+  if [[ ${#pods[@]} -gt 1 ]]; then
+    die "Selector matched multiple pods (${#pods[@]}): $selector"
+  fi
+  echo "${pods[0]}"
+}
+
+get_single_pod_by_name_substring() {
+  local pattern=$1
+  mapfile -t pods < <(kubectl -n "$NAMESPACE" get pods -o name | grep "$pattern" | sed 's#pod/##' || true)
+  if [[ ${#pods[@]} -eq 0 ]]; then
+    die "No pods found matching name substring: $pattern"
+  fi
+  if [[ ${#pods[@]} -gt 1 ]]; then
+    die "Name substring matched multiple pods (${#pods[@]}): $pattern"
+  fi
+  echo "${pods[0]}"
+}
+
+require_release_exists() {
+  helm status "$RELEASE" -n "$NAMESPACE" >/dev/null
+}
+
+reconcile_is_conflict_failure() {
+  local status_text
+  status_text="$(helm status "$RELEASE" -n "$NAMESPACE")"
+  grep -q "STATUS: failed" <<<"$status_text" || return 1
+  grep -Eq "conflict occurred while applying object|Apply failed with .* conflict" <<<"$status_text"
+}
+
+read_worker_state() {
+  kube_probe "worker HPA read" kubectl -n "$NAMESPACE" get hpa worker -o wide
+  kube_probe "worker deployment read" kubectl -n "$NAMESPACE" get deploy worker -o wide
+}
+
+read_helm_state() {
+  kube_probe "helm status read" bash -lc "helm status \"$RELEASE\" -n \"$NAMESPACE\" | sed -n '1,20p'"
+}
+
+read_nfs_usage() {
+  local nfs_pod
+  nfs_pod="$(get_single_pod_by_name_substring 'nfs-server-provisioner')"
+
+  log "NFS usage from pod ${nfs_pod}"
+  kube_probe "nfs /export usage read" kubectl -n "$NAMESPACE" exec "$nfs_pod" -- df -P -h /export
+}
+
+read_redis_queues() {
+  local redis_pod
+  redis_pod="$(get_single_pod_by_label "app=redis,release=${RELEASE}")"
+
+  log "Redis queue depths from pod ${redis_pod}"
+  kube_probe "redis queue depths read" kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+    PW="${REDIS_PASSWORD:-}"
+    AUTH=""
+    if [ -n "$PW" ]; then AUTH="-a $PW --no-auth-warning"; fi
+    for q in analyses analysis_wrappers simulations background; do
+      printf "%s=" "$q"
+      redis-cli $AUTH LLEN "resque:queue:$q"
+    done
+    printf "failed="
+    redis-cli $AUTH LLEN resque:failed
+  '
+}
+
+read_app_job_counts() {
+  local web_pod
+  web_pod="$(get_single_pod_by_label "app=web,release=${RELEASE}")"
+
+  log "Job status counts from pod ${web_pod}"
+  kube_probe "rails job counts read" kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc '
+    cd /opt/openstudio/server
+    bundle exec rails runner "puts %(queued=#{Job.where(status: \"queued\").count} running=#{Job.where(status: \"running\").count} completed=#{Job.where(status: \"completed\").count} failed=#{Job.where(status: \"failed\").count})"
+  '
+}
+
+run_check_mode() {
+  log "Running read-only reliability checks for ${NAMESPACE}/${RELEASE}"
+  read_helm_state
+  echo "---"
+  read_nfs_usage
+  echo "---"
+  read_redis_queues
+  echo "---"
+  read_app_job_counts
+  echo "---"
+  read_worker_state
+}
+
+run_snapshot_mode() {
+  local out_dir redis_pod web_pod ts
+  ts="$(date +%Y%m%d-%H%M%S)"
+  out_dir="${SNAPSHOT_DIR:-./incident-snapshots/${RELEASE}-${ts}}"
+  mkdir -p "$out_dir"
+
+  redis_pod="$(get_single_pod_by_label "app=redis,release=${RELEASE}")"
+  web_pod="$(get_single_pod_by_label "app=web,release=${RELEASE}")"
+
+  log "Writing snapshots into ${out_dir}"
+  kubectl config current-context > "${out_dir}/kube_context.txt"
+  helm status "$RELEASE" -n "$NAMESPACE" > "${out_dir}/helm_status.txt"
+  helm history "$RELEASE" -n "$NAMESPACE" > "${out_dir}/helm_history.txt"
+  kubectl -n "$NAMESPACE" get hpa worker -o wide > "${out_dir}/worker_hpa.txt"
+  kubectl -n "$NAMESPACE" get deploy worker -o wide > "${out_dir}/worker_deploy.txt"
+
+  kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+    PW="${REDIS_PASSWORD:-}"
+    AUTH=""
+    if [ -n "$PW" ]; then AUTH="-a $PW --no-auth-warning"; fi
+    for q in analyses analysis_wrappers simulations background; do
+      printf "%s=" "$q"
+      redis-cli $AUTH LLEN "resque:queue:$q"
+    done
+    printf "failed="
+    redis-cli $AUTH LLEN resque:failed
+  ' > "${out_dir}/queue_depths.txt"
+
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc '
+    cd /opt/openstudio/server
+    bundle exec rails runner "Job.where(status: \"queued\").limit(200).pluck(:_id, :analysis_id, :analysis_type, :status).each { |r| puts r.join(\"\t\") }"
+  ' > "${out_dir}/queued_jobs.tsv"
+
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc '
+    cd /opt/openstudio/server
+    bundle exec rails runner "puts %(queued=#{Job.where(status: \"queued\").count} running=#{Job.where(status: \"running\").count} completed=#{Job.where(status: \"completed\").count} failed=#{Job.where(status: \"failed\").count})"
+  ' > "${out_dir}/job_counts.txt"
+
+  log "Snapshot complete: ${out_dir}"
+}
+
+run_reconcile_mode() {
+  [[ "$APPLY" == "true" ]] || die "Refusing to mutate without --apply"
+  [[ "$ALLOW_CHART_APPLY" == "true" ]] || die "Refusing local chart upgrade without --allow-chart-apply"
+  require_release_exists
+
+  log "Running preflight dry-run for ${RELEASE}/${NAMESPACE}"
+  helm upgrade "$RELEASE" "$CHART_DIR" \
+    -n "$NAMESPACE" \
+    --reuse-values \
+    --server-side=false \
+    --dry-run=server >/dev/null
+
+  if [[ "$ALLOW_NON_CONFLICT_RECONCILE" != "true" ]] && ! reconcile_is_conflict_failure; then
+    die "Release is not in a known managed-field conflict failure; use --allow-non-conflict-reconcile to override"
+  fi
+
+  log "Reconciling Helm release ${RELEASE} in ${NAMESPACE} with client-side apply"
+  helm upgrade "$RELEASE" "$CHART_DIR" \
+    -n "$NAMESPACE" \
+    --reuse-values \
+    --server-side=false \
+    --description "Reconcile release after managed-field conflicts"
+  log "Reconcile complete. Current status:"
+  helm status "$RELEASE" -n "$NAMESPACE" | sed -n '1,20p'
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n|--namespace)
+      NAMESPACE="$2"; shift 2 ;;
+    -r|--release)
+      RELEASE="$2"; shift 2 ;;
+    -c|--chart)
+      CHART_DIR="$2"; shift 2 ;;
+    --mode)
+      MODE="$2"; shift 2 ;;
+    --snapshot-dir)
+      SNAPSHOT_DIR="$2"; shift 2 ;;
+    --apply)
+      APPLY=true; shift ;;
+    --no-strict)
+      STRICT=false; shift ;;
+    --allow-chart-apply)
+      ALLOW_CHART_APPLY=true; shift ;;
+    --allow-non-conflict-reconcile)
+      ALLOW_NON_CONFLICT_RECONCILE=true; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *)
+      die "Unknown argument: $1" ;;
+  esac
+done
+
+require_bin kubectl
+require_bin helm
+
+case "$MODE" in
+  check) run_check_mode ;;
+  snapshot) run_snapshot_mode ;;
+  reconcile-helm) run_reconcile_mode ;;
+  *) die "Unsupported mode: $MODE" ;;
+esac
