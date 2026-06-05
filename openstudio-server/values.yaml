@@ -27,7 +27,7 @@ global:
     tag: "3.10.0"
 
 cluster:
-  name: "openstudio-server-prod"
+  name: "openstudio-server"
 
 autoscaler:
   # Defaults to enabled on AWS and disabled on other providers unless explicitly set.
@@ -54,6 +54,11 @@ autoscaler:
     cloudConfigSecretName: ""
     cloudConfigSecretKey: "cloud.conf"
     cloudConfigMountPath: "/etc/kubernetes/cloud.conf"
+    # Optional custom CA bundle for private OpenStack API endpoints.
+    # When set, chart mounts this secret key and sets SSL_CERT_FILE for autoscaler.
+    caBundleSecretName: ""
+    caBundleSecretKey: "ca.crt"
+    caBundleMountPath: "/etc/ssl/certs/openstack-ca.crt"
     # Safety guard for OpenStack installs. When true, chart checks for a pre-existing
     # kube-system/cluster-autoscaler deployment and fails if it's not owned by this release.
     # Set false only when release-time RBAC cannot read kube-system deployments.
@@ -71,9 +76,9 @@ secrets:
   # Primary path: use an externally managed secret by name.
   # If set, chart will not create a secret from db/redis/web values.
   existingSecret: "openstudio-app-secrets"
-  # Optional install-time guard for connected clusters.
-  # When true, rendering fails if existingSecret is not found in the release namespace.
-  validateExistingSecret: false
+  # Strict by default for connected clusters.
+  # Set false for offline/render-only workflows (for example CI helm template jobs).
+  validateExistingSecret: true
   # Create a secret from db.username/db.password/redis.password/web.secret_key_value.
   # Alternate path. Must be false when existingSecret is set.
   create: false

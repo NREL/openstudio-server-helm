@@ -5,16 +5,17 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHART_DIR="${ROOT_DIR}/openstudio-server"
 
-helm lint "${CHART_DIR}" --set global.provider.name=aws >/dev/null
-helm template openstudio-server "${CHART_DIR}" --set global.provider.name=aws >/dev/null
-helm template openstudio-server "${CHART_DIR}" --set global.provider.name=google >/dev/null
-helm template openstudio-server "${CHART_DIR}" --set global.provider.name=azure >/dev/null
-helm template openstudio-server "${CHART_DIR}" --set global.provider.name=openstack >/dev/null
+helm lint "${CHART_DIR}" --set global.provider.name=aws --set secrets.validateExistingSecret=false >/dev/null
+helm template openstudio-server "${CHART_DIR}" --set global.provider.name=aws --set secrets.validateExistingSecret=false >/dev/null
+helm template openstudio-server "${CHART_DIR}" --set global.provider.name=google --set secrets.validateExistingSecret=false >/dev/null
+helm template openstudio-server "${CHART_DIR}" --set global.provider.name=azure --set secrets.validateExistingSecret=false >/dev/null
+helm template openstudio-server "${CHART_DIR}" --set global.provider.name=openstack --set secrets.validateExistingSecret=false >/dev/null
 helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack.yaml" --set secrets.validateExistingSecret=false >/dev/null
 helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack-nfs.yaml" --set secrets.validateExistingSecret=false >/dev/null
 helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack-nfs-small.yaml" --set secrets.validateExistingSecret=false >/dev/null
 helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=openstack \
+  --set secrets.validateExistingSecret=false \
   --set autoscaler.enabled=true \
   --set autoscaler.openstack.checkExistingDeploymentOwnership=false \
   --set autoscaler.openstack.cloudConfigSecretName=cloud-config \
@@ -22,7 +23,18 @@ helm template openstudio-server "${CHART_DIR}" \
   --set autoscaler.openstackNodeGroups[0].min=1 \
   --set autoscaler.openstackNodeGroups[0].max=5 >/dev/null
 helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name=openstack \
+  --set secrets.validateExistingSecret=false \
+  --set autoscaler.enabled=true \
+  --set autoscaler.openstack.checkExistingDeploymentOwnership=false \
+  --set autoscaler.openstack.cloudConfigSecretName=cloud-config \
+  --set autoscaler.openstack.caBundleSecretName=openstack-api-ca \
+  --set autoscaler.openstackNodeGroups[0].name=worker \
+  --set autoscaler.openstackNodeGroups[0].min=1 \
+  --set autoscaler.openstackNodeGroups[0].max=5 >/dev/null
+helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=aws \
+  --set secrets.validateExistingSecret=false \
   --set secrets.existingSecret= \
   --set secrets.create=true \
   --set db.username=chart-user \
@@ -37,6 +49,7 @@ fi
 
 if helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=aws \
+  --set secrets.validateExistingSecret=false \
   --set secrets.create=true >/dev/null 2>&1; then
   echo "Expected failure when secrets.create=true and required credential values are missing"
   exit 1
@@ -44,6 +57,7 @@ fi
 
 if helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=aws \
+  --set secrets.validateExistingSecret=false \
   --set secrets.existingSecret=openstudio-app-secrets \
   --set secrets.create=true >/dev/null 2>&1; then
   echo "Expected failure when secrets.existingSecret and secrets.create=true are both set"
@@ -58,6 +72,7 @@ fi
 
 if helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=openstack \
+  --set secrets.validateExistingSecret=false \
   --set autoscaler.enabled=true \
   --set autoscaler.openstackNodeGroups[0].name=worker \
   --set autoscaler.openstackNodeGroups[0].min=1 \
@@ -68,6 +83,7 @@ fi
 
 helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=aws \
+  --set secrets.validateExistingSecret=false \
   --set db.name=custom-db \
   --set redis.name=custom-redis \
   --set nfs_pvc.name=custom-nfs-pvc \
@@ -77,6 +93,7 @@ helm template openstudio-server "${CHART_DIR}" \
 
 if helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=aws \
+  --set secrets.validateExistingSecret=false \
   --set provider.name=aws >/dev/null 2>&1; then
   echo "Expected failure when deprecated provider.name is set"
   exit 1

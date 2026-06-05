@@ -13,6 +13,9 @@
 {{- $cloudConfigSecretName := default "" (get $openstackAutoscaler "cloudConfigSecretName") -}}
 {{- $cloudConfigSecretKey := default "cloud.conf" (get $openstackAutoscaler "cloudConfigSecretKey") -}}
 {{- $cloudConfigMountPath := default "/etc/kubernetes/cloud.conf" (get $openstackAutoscaler "cloudConfigMountPath") -}}
+{{- $caBundleSecretName := default "" (get $openstackAutoscaler "caBundleSecretName") -}}
+{{- $caBundleSecretKey := default "ca.crt" (get $openstackAutoscaler "caBundleSecretKey") -}}
+{{- $caBundleMountPath := default "/etc/ssl/certs/openstack-ca.crt" (get $openstackAutoscaler "caBundleMountPath") -}}
 {{- $checkExistingOwnership := default true (get $openstackAutoscaler "checkExistingDeploymentOwnership") -}}
 {{- $extraArgs := default (list) (get $autoscaler "extraArgs") -}}
 {{- $hasCloudConfigArg := false -}}
@@ -215,18 +218,38 @@ spec:
             - {{ $arg }}
             {{- end }}
             - --scale-down-unneeded-time=5m
+          {{- if and (eq $providerName "openstack") (ne $caBundleSecretName "") }}
+          env:
+            - name: SSL_CERT_FILE
+              value: {{ $caBundleMountPath | quote }}
+          {{- end }}
           imagePullPolicy: {{ $autoscalerImagePullPolicy | quote }}
-          {{- if ne $cloudConfigSecretName "" }}
+          {{- if and (eq $providerName "openstack") (or (ne $cloudConfigSecretName "") (ne $caBundleSecretName "")) }}
           volumeMounts:
+            {{- if ne $cloudConfigSecretName "" }}
             - name: openstack-cloud-config
               mountPath: {{ $cloudConfigMountPath | quote }}
               subPath: {{ $cloudConfigSecretKey | quote }}
               readOnly: true
+            {{- end }}
+            {{- if ne $caBundleSecretName "" }}
+            - name: openstack-ca-bundle
+              mountPath: {{ $caBundleMountPath | quote }}
+              subPath: {{ $caBundleSecretKey | quote }}
+              readOnly: true
+            {{- end }}
           {{- end }}
-      {{- if ne $cloudConfigSecretName "" }}
+      {{- if and (eq $providerName "openstack") (or (ne $cloudConfigSecretName "") (ne $caBundleSecretName "")) }}
       volumes:
+        {{- if ne $cloudConfigSecretName "" }}
         - name: openstack-cloud-config
           secret:
             secretName: {{ $cloudConfigSecretName | quote }}
+        {{- end }}
+        {{- if ne $caBundleSecretName "" }}
+        - name: openstack-ca-bundle
+          secret:
+            secretName: {{ $caBundleSecretName | quote }}
+        {{- end }}
       {{- end }}
 {{- end }}

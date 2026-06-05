@@ -149,10 +149,16 @@ helm upgrade --install openstudio-server ./openstudio-server \
   --set global.provider.name=openstack
 ```
 
-To enforce preflight validation of `secrets.existingSecret` during install/upgrade, set:
+`secrets.existingSecret` validation is enabled by default during install/upgrade:
 
 ```bash
 --set secrets.validateExistingSecret=true
+```
+
+For offline/render-only workflows (for example CI `helm template` jobs without cluster access), explicitly disable lookup-based validation:
+
+```bash
+--set secrets.validateExistingSecret=false
 ```
 
 The chart also supports chart-managed secret creation as an alternate mode:

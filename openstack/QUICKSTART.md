@@ -26,6 +26,8 @@ kubectl -n openstudio-server create secret generic openstudio-app-secrets \
 helm upgrade --install openstudio-server ../openstudio-server -f ../openstudio-server/values.yaml
 ```
 
+`secrets.validateExistingSecret` is strict by default when using `secrets.existingSecret`. For offline render-only checks, use `--set secrets.validateExistingSecret=false`.
+
 All tracked values files in this repository are templates. Keep real credentials in a local untracked values file and Kubernetes Secret.
 
 The production template sets OpenStack storage hardening defaults:

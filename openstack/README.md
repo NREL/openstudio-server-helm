@@ -233,6 +233,7 @@ Security hardening notes:
 - App pods use `secretKeyRef` for DB/Redis/app secrets.
 - If using chart-managed secrets (`secrets.create=true`), deploys fail fast unless `db.username`, `db.password`, `redis.password`, and `web.secret_key_value` are set.
 - If using an externally managed secret (`secrets.existingSecret`), credentials only need to be entered once when creating that secret.
+- `secrets.validateExistingSecret` is strict by default. For offline render-only checks, set `--set secrets.validateExistingSecret=false`.
 - For normal upgrades in this environment, keep shared defaults in tracked `./openstudio-server/values.yaml` and put local overrides in `./openstudio-server/values.local.yaml`.
 - If your cluster policy blocks Helm hook jobs, disable cleanup hook with `--set hooks.preDeleteCleanup.enabled=false`.
 - If `secrets.existingSecret` is set, keep `secrets.create=false`; the chart now fails fast when both are enabled.
@@ -267,6 +268,7 @@ By default, this chart enables Cluster Autoscaler on AWS and disables it for oth
 - `autoscaler.enabled: true`
 - `autoscaler.openstackNodeGroups` entries with `name`, `min`, and `max`
 - either `autoscaler.openstack.cloudConfigSecretName` **or** a `--cloud-config=...` arg in `autoscaler.extraArgs`
+- optional private-CA wiring via `autoscaler.openstack.caBundleSecretName` (with optional `caBundleSecretKey` and `caBundleMountPath`)
 
 `autoscaler.image.tag` defaults to `v<cluster-major>.<cluster-minor>.0` and is validated against cluster version to reduce Kubernetes/cluster-autoscaler version skew.
 
@@ -289,6 +291,10 @@ autoscaler:
   enabled: true
   openstack:
     cloudConfigSecretName: cloud-config
+    # Optional for private OpenStack API CAs:
+    caBundleSecretName: openstack-api-ca
+    # caBundleSecretKey: ca.crt
+    # caBundleMountPath: /etc/ssl/certs/openstack-ca.crt
   openstackNodeGroups:
     - name: web-group
       min: 1
@@ -297,6 +303,8 @@ autoscaler:
       min: 1
       max: 50
 ```
+
+When `caBundleSecretName` is set, the chart mounts the CA file and sets `SSL_CERT_FILE` in the autoscaler container. If you already bake private CA trust into node/runtime images, this is not required.
 
 The chart now reads provider from `global.provider.name` in your values file and applies provider-aware node affinity defaults automatically. For OpenStack, the default node label assumptions are:
 
