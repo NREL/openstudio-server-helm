@@ -22,8 +22,12 @@ spec:
     {{ $dbContainerPorts := (get $dbContainer "ports") | default (dict) }}
     {{ $webContainer := (get .Values.web "container") | default (dict) }}
     {{ $webContainerPorts := (get $webContainer "port") | default (dict) }}
+    {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
+      {{- if (default true (get $priorityClasses "enabled")) }}
+      priorityClassName: {{ default "high-priority" (get $priorityClasses "highName") }}
+      {{- end }}
       initContainers:
           - name: init-wait-for-db
             image: alpine

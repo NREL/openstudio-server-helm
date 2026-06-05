@@ -56,7 +56,7 @@ variable "cluster_name" {
 variable "master_flavor" {
   description = "The OpenStack flavor for the master node (should have sufficient resources for control plane)."
   type        = string
-  default     = "CS.Wee"  # 8 vCPUs, 32GB RAM
+  default     = "CS.Wee" # 8 vCPUs, 32GB RAM
 }
 
 variable "web_count" {
@@ -68,7 +68,7 @@ variable "web_count" {
 variable "web_flavor" {
   description = "The OpenStack flavor for web nodes (equivalent to EKS m7i.8xlarge for web workloads)."
   type        = string
-  default     = "CS.2XMedium"  # 32 vCPUs, 128GB RAM
+  default     = "CS.2XMedium" # 32 vCPUs, 128GB RAM
 }
 
 variable "worker_count" {
@@ -80,7 +80,7 @@ variable "worker_count" {
 variable "worker_flavor" {
   description = "The OpenStack flavor for worker nodes (should be compute-optimized for simulations)."
   type        = string
-  default     = "CM.XLarge"  # 64 vCPUs, 128GB RAM, compute-optimized
+  default     = "CM.XLarge" # 64 vCPUs, 128GB RAM, compute-optimized
 }
 
 variable "image_name" {
@@ -96,9 +96,8 @@ variable "volume_size" {
 }
 
 variable "key_pair" {
-  description = "The name of the SSH key pair to use."
+  description = "The name of the SSH key pair to use. Set via tfvars or TF_VAR_key_pair."
   type        = string
-  default     = "achapin"
 }
 
 variable "os_username" {
@@ -110,11 +109,30 @@ variable "os_username" {
 variable "os_password" {
   description = "The password for console access."
   type        = string
-  default     = "openstudio123"
+  sensitive   = true
+  default     = null
 }
 
 variable "public_key" {
-  description = "The SSH public key content."
+  description = "The SSH public key content. Set via tfvars or TF_VAR_public_key."
   type        = string
-  default     = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDd4XpXe2VPZNCZNxL7TlnGNSAv2ZYIRqELq6tXimw1qPEa6HZl9A8gjfE1BN+3lgufAcSKxMVoTMghXGKksYaqKLSkm/ggEKlEH3QUV2xTOyPDjsGeuHxQsQupm9mK5sJHP1WJdLPAmpB1ZOi37CmjsAARot8ll7nPosIqCxRNiH3NlOTYiKOnKHjNnKgCkWwBua7pa1vxxVMYlBry9vRncyO4cSWnXEPR9MTiInYnaxBF0VeJz94MyfDxAwIE/tecImy9QfbNJbGzm1ouYcZz/ETfDuYidICZpFchx3UyHrvpgNxlL03tx6AgmG6hAjFfv2EwWhXzBukPaKlse/cN"
+  sensitive   = true
+}
+
+variable "admin_access_cidr" {
+  description = "Ingress CIDR for admin access (SSH/ICMP). Default is permissive; narrow this in tfvars for production."
+  type        = string
+  default     = "0.0.0.0/0"
+}
+
+variable "k8s_api_access_cidr" {
+  description = "Ingress CIDR for Kubernetes API port 6443. Default is permissive; narrow this in tfvars for production."
+  type        = string
+  default     = "0.0.0.0/0"
+}
+
+variable "nodeport_access_cidr" {
+  description = "Ingress CIDR for NodePort services. Default is permissive; narrow this in tfvars for production."
+  type        = string
+  default     = "0.0.0.0/0"
 }

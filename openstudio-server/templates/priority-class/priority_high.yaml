@@ -1,0 +1,13 @@
+{{- $priorityClasses := default (dict) .Values.priorityClasses -}}
+{{- if (default true (get $priorityClasses "create")) -}}
+{{- $highName := default "high-priority" (get $priorityClasses "highName") -}}
+{{- if not (lookup "scheduling.k8s.io/v1" "PriorityClass" "" $highName) }}
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ $highName }}
+value: 1000000
+globalDefault: false
+description: "Used for core rails web service pods only."
+{{- end }}
+{{- end }}

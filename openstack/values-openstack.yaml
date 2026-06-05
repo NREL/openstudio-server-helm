@@ -12,6 +12,12 @@ global:
 cluster:
   name: "openstudio-server"
 
+priorityClasses:
+  enabled: true
+  create: true
+  highName: "high-priority"
+  lowName: "low-priority"
+
 secrets:
   # Recommended: pre-create this secret in the release namespace.
   existingSecret: "openstudio-app-secrets"

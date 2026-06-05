@@ -17,7 +17,7 @@ Note that this repository has both information for small and large workloads in 
 
 ## Configuration Setup
 
-Before installing the chart, you need to create your own `values.yaml` file from one of the provided templates:
+Before installing the chart, either use the tracked baseline `openstudio-server/values.yaml` or create your own values file from one of the provided templates:
 
 - `values_small.templateyaml` - For small workloads and testing
 - `values_large.templateyaml` - For large-scale production workloads
@@ -33,7 +33,7 @@ cp openstudio-server/values_large.templateyaml openstudio-server/values.yaml
 cp openstudio-server/values_production.templateyaml openstudio-server/values.yaml
 ```
 
-Then edit `openstudio-server/values.yaml` to:
+Then edit your chosen values file (for example `openstudio-server/values.yaml`) to:
 - Set your cloud provider in `global.provider.name` (`google`, `aws`, `azure`, or `openstack`)
 - Set your external app secret name (`secrets.existingSecret`) and keep `secrets.create=false` unless you intentionally want chart-managed secrets
 - Adjust resource allocations for your workload
@@ -80,7 +80,7 @@ global:
     worker: ""
 ```
 
-**Note:** The `values.yaml` file is gitignored and should never be committed to version control as it contains environment-specific configuration and secrets.
+**Note:** `openstudio-server/values.yaml` is a tracked baseline for reproducible defaults. Put environment-specific or sensitive overrides in a separate local file (for example `openstudio-server/values.local.yaml`) and pass it with `-f`.
 
 ## Installing the Chart
 

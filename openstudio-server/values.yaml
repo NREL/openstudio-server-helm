@@ -5,11 +5,15 @@
 global:
   provider:
     name: "openstack"
+  # Optional storage class defaults used by provider-aware chart logic.
+  # For OpenStack, block is used as the backing class for the NFS provisioner PVC.
+  storageClasses:
+    block: "csi-cinder"
   images:
     org: "nrel"
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
-    tag: "3.8.0-1"
+    tag: "3.10.0"
 
 cluster:
   name: "openstudio-server-prod"
@@ -17,7 +21,10 @@ cluster:
 autoscaler:
   # Defaults to enabled on AWS and disabled on other providers unless explicitly set.
   # enabled: true
-  # For OpenStack, enable autoscaler and provide one or more node groups.
+  # Safety guard: when enabled on OpenStack, install/upgrade fails if a pre-existing
+  # kube-system/cluster-autoscaler deployment is detected and not owned by this Helm release.
+  # For OpenStack, enable autoscaler and provide one or more node groups in min:max:name format.
+  # Example:
   # openstackNodeGroups:
   #   - name: web-group
   #     min: 1
@@ -35,10 +42,13 @@ priorityClasses:
   lowName: "low-priority"
 
 secrets:
-  # Recommended default: pre-create this secret once and reference it.
+  # Use an externally managed secret by name (recommended for production).
+  # If set, chart will not create a secret from db/redis/web values.
   existingSecret: "openstudio-app-secrets"
-  # Set to true only if you intentionally want chart-managed secret creation.
+  # Create a secret from db.username/db.password/redis.password/web.secret_key_value.
+  # Must be false when existingSecret is set. These two settings are mutually exclusive.
   create: false
+  # Optional override for chart-managed secret name.
   nameOverride: ""
   keys:
     dbUsername: "db-username"
@@ -50,7 +60,7 @@ secrets:
 nfs-server-provisioner:
   persistence:
     enabled: true
-    size: 1Ti  # Sized for no-pruning retention and high worker throughput
+    size: 50Gi  # Increased from 5Gi for production
   storageClass:
     allowVolumeExpansion: true  # Enable expansion for future growth
     mountOptions:
@@ -68,12 +78,12 @@ db:
         cpu: 2          # Increased from 1 for better performance
         memory: "8Gi"   # Increased from 4Gi for production workloads
   persistence:
-    storageClass: "csi-cinder"  # Keep DB state off shared NFS assets volume
     size: 20Gi        # Increased from 2Gi for production data
 
 # NFS PVC - Increased storage for production
 nfs_pvc:
-  storage: "1Ti"      # Request for shared RWX claim; backend NFS volume size is the real limit
+  storage_class: "nfs"
+  storage: "10Gi"     # Increased from 2Gi for production shared storage
 
 # Redis - Enhanced for production
 redis:
@@ -86,7 +96,6 @@ redis:
         cpu: 0.5        # Increased from 0.25 for better queue performance
         memory: "2Gi"   # Increased from 1Gi for larger queues
   persistence:
-    storageClass: "csi-cinder"  # Keep queue state off shared NFS assets volume
     size: 5Gi         # Increased from 1Gi for production queues
 
 # RServe - Enhanced for production
@@ -139,13 +148,13 @@ worker:
     resources:
       requests:
         cpu: 1          # Increased from 700m for better performance
-        memory: "2Gi"   # Increased from 900Mi for larger simulations
+        memory: "1Gi"   # Increased from 900Mi for larger simulations
     terminationGracePeriodSeconds: 5200
 
 # Worker HPA - Optimized for production workloads
 worker_hpa:
   minReplicas: 5        # Increased from 2 for baseline production capacity
-  maxReplicas: 50       # Increased from 20 for larger simulation batches
+  maxReplicas: 560       # Increased from 20 for larger simulation batches
   targetCPUUtilizationPercentage: 60  # Slightly higher for stability
   stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
 

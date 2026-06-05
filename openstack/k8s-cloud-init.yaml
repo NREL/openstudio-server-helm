@@ -270,7 +270,6 @@ write_files:
       
       # Execute all setup functions
       setup_containerd_config
-      setup_bridge_cni
       setup_kubeadm_config
       setup_etcd_certificates
       setup_kubespray_workarounds

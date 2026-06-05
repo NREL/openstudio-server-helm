@@ -48,14 +48,14 @@ output "ssh_connection_info" {
 
 output "kubespray_inventory_template" {
   description = "Template for Kubespray inventory file"
-  value = <<-EOT
+  value       = <<-EOT
 [all]
 master ansible_host=${openstack_networking_floatingip_v2.master_fip.address} ip=${openstack_networking_port_v2.master_port.all_fixed_ips[0]}
 %{for i, ip in openstack_networking_floatingip_v2.worker_fip[*].address}
-worker-${i+1} ansible_host=${ip} ip=${openstack_networking_port_v2.worker_port[i].all_fixed_ips[0]}
+worker-${i + 1} ansible_host=${ip} ip=${openstack_networking_port_v2.worker_port[i].all_fixed_ips[0]}
 %{endfor}
 %{for i, ip in openstack_networking_floatingip_v2.web_fip[*].address}
-web-${i+1} ansible_host=${ip} ip=${openstack_networking_port_v2.web_port[i].all_fixed_ips[0]}
+web-${i + 1} ansible_host=${ip} ip=${openstack_networking_port_v2.web_port[i].all_fixed_ips[0]}
 %{endfor}
 
 [kube-master]
@@ -66,10 +66,10 @@ master
 
 [kube-node]
 %{for i, ip in openstack_networking_floatingip_v2.worker_fip[*].address}
-worker-${i+1}
+worker-${i + 1}
 %{endfor}
 %{for i, ip in openstack_networking_floatingip_v2.web_fip[*].address}
-web-${i+1}
+web-${i + 1}
 %{endfor}
 
 [calico-rr]

@@ -3,14 +3,14 @@
 # This creates basic Ubuntu instances with SSH access for Kubespray to configure
 
 provider "openstack" {
-  user_name           = var.openstack_user_name
-  password            = var.openstack_password
-  auth_url            = var.openstack_auth_url
-  tenant_name         = var.openstack_tenant_name
-  user_domain_name    = var.openstack_user_domain_name
-  project_domain_id   = var.openstack_project_domain_id
-  tenant_id           = var.openstack_project_id
-  region              = var.openstack_region
+  user_name         = var.openstack_user_name
+  password          = var.openstack_password
+  auth_url          = var.openstack_auth_url
+  tenant_name       = var.openstack_tenant_name
+  user_domain_name  = var.openstack_user_domain_name
+  project_domain_id = var.openstack_project_domain_id
+  tenant_id         = var.openstack_project_id
+  region            = var.openstack_region
 }
 
 # Create a network
@@ -61,7 +61,7 @@ resource "openstack_networking_secgroup_rule_v2" "ssh_access" {
   protocol          = "tcp"
   port_range_min    = 22
   port_range_max    = 22
-  remote_ip_prefix  = "0.0.0.0/0"
+  remote_ip_prefix  = var.admin_access_cidr
   security_group_id = openstack_networking_secgroup_v2.k8s_secgroup.id
 }
 
@@ -70,7 +70,7 @@ resource "openstack_networking_secgroup_rule_v2" "icmp_access" {
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "icmp"
-  remote_ip_prefix  = "0.0.0.0/0"
+  remote_ip_prefix  = var.admin_access_cidr
   security_group_id = openstack_networking_secgroup_v2.k8s_secgroup.id
 }
 
@@ -81,7 +81,7 @@ resource "openstack_networking_secgroup_rule_v2" "k8s_api_access" {
   protocol          = "tcp"
   port_range_min    = 6443
   port_range_max    = 6443
-  remote_ip_prefix  = "0.0.0.0/0"
+  remote_ip_prefix  = var.k8s_api_access_cidr
   security_group_id = openstack_networking_secgroup_v2.k8s_secgroup.id
 }
 
@@ -114,7 +114,7 @@ resource "openstack_networking_secgroup_rule_v2" "nodeport_http" {
   protocol          = "tcp"
   port_range_min    = 30749
   port_range_max    = 30749
-  remote_ip_prefix  = "0.0.0.0/0"
+  remote_ip_prefix  = var.nodeport_access_cidr
   security_group_id = openstack_networking_secgroup_v2.k8s_secgroup.id
 }
 
@@ -125,7 +125,7 @@ resource "openstack_networking_secgroup_rule_v2" "nodeport_https" {
   protocol          = "tcp"
   port_range_min    = 31385
   port_range_max    = 31385
-  remote_ip_prefix  = "0.0.0.0/0"
+  remote_ip_prefix  = var.nodeport_access_cidr
   security_group_id = openstack_networking_secgroup_v2.k8s_secgroup.id
 }
 
@@ -136,7 +136,7 @@ resource "openstack_networking_secgroup_rule_v2" "nodeport_range" {
   protocol          = "tcp"
   port_range_min    = 30000
   port_range_max    = 32767
-  remote_ip_prefix  = "0.0.0.0/0"
+  remote_ip_prefix  = var.nodeport_access_cidr
   security_group_id = openstack_networking_secgroup_v2.k8s_secgroup.id
 }
 
@@ -148,7 +148,7 @@ data "openstack_images_image_v2" "ubuntu_image" {
 
 # Enhanced cloud-init with corporate firewall detection and workarounds
 locals {
-  user_data = base64encode(templatefile("${path.module}/corporate-firewall-cloud-init.yaml", {
+  user_data = base64encode(templatefile("${path.module}/k8s-cloud-init.yaml", {
     public_key = var.public_key
   }))
 }
@@ -170,30 +170,30 @@ resource "openstack_networking_floatingip_v2" "web_fip" {
 
 # Create volumes for instances (required for CS.Tiny flavor with zero disk)
 resource "openstack_blockstorage_volume_v3" "master_volume" {
-  name = "${var.cluster_name}-master-volume"
-  size = var.volume_size
+  name     = "${var.cluster_name}-master-volume"
+  size     = var.volume_size
   image_id = data.openstack_images_image_v2.ubuntu_image.id
 }
 
 resource "openstack_blockstorage_volume_v3" "worker_volume" {
-  count = var.worker_count
-  name  = "${var.cluster_name}-worker-${count.index + 1}-volume"
-  size  = var.volume_size
+  count    = var.worker_count
+  name     = "${var.cluster_name}-worker-${count.index + 1}-volume"
+  size     = var.volume_size
   image_id = data.openstack_images_image_v2.ubuntu_image.id
 }
 
 resource "openstack_blockstorage_volume_v3" "web_volume" {
-  count = var.web_count
-  name  = "${var.cluster_name}-web-${count.index + 1}-volume"
-  size  = var.volume_size
+  count    = var.web_count
+  name     = "${var.cluster_name}-web-${count.index + 1}-volume"
+  size     = var.volume_size
   image_id = data.openstack_images_image_v2.ubuntu_image.id
 }
 
 # Create network ports for proper floating IP association
 resource "openstack_networking_port_v2" "master_port" {
-  name           = "${var.cluster_name}-master-port"
-  network_id     = openstack_networking_network_v2.k8s_network.id
-  admin_state_up = "true"
+  name               = "${var.cluster_name}-master-port"
+  network_id         = openstack_networking_network_v2.k8s_network.id
+  admin_state_up     = "true"
   security_group_ids = [openstack_networking_secgroup_v2.k8s_secgroup.id]
 
   fixed_ip {
@@ -202,10 +202,10 @@ resource "openstack_networking_port_v2" "master_port" {
 }
 
 resource "openstack_networking_port_v2" "worker_port" {
-  count          = var.worker_count
-  name           = "${var.cluster_name}-worker-${count.index + 1}-port"
-  network_id     = openstack_networking_network_v2.k8s_network.id
-  admin_state_up = "true"
+  count              = var.worker_count
+  name               = "${var.cluster_name}-worker-${count.index + 1}-port"
+  network_id         = openstack_networking_network_v2.k8s_network.id
+  admin_state_up     = "true"
   security_group_ids = [openstack_networking_secgroup_v2.k8s_secgroup.id]
 
   fixed_ip {
@@ -214,10 +214,10 @@ resource "openstack_networking_port_v2" "worker_port" {
 }
 
 resource "openstack_networking_port_v2" "web_port" {
-  count          = var.web_count
-  name           = "${var.cluster_name}-web-${count.index + 1}-port"
-  network_id     = openstack_networking_network_v2.k8s_network.id
-  admin_state_up = "true"
+  count              = var.web_count
+  name               = "${var.cluster_name}-web-${count.index + 1}-port"
+  network_id         = openstack_networking_network_v2.k8s_network.id
+  admin_state_up     = "true"
   security_group_ids = [openstack_networking_secgroup_v2.k8s_secgroup.id]
 
   fixed_ip {

@@ -2,10 +2,13 @@ kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: {{ include "openstudio.dbName" . }}
+{{- $dbPersistence := default (dict) (get .Values.db "persistence") }}
 spec:
-  storageClassName: {{ default (include "openstudio.defaultAppPersistenceStorageClass" .) .Values.db.persistence.storageClass | quote }}
+  storageClassName: {{ default (include "openstudio.defaultAppPersistenceStorageClass" .) (get $dbPersistence "storageClass") | quote }}
   accessModes:
-    - ReadWriteOnce
+{{- range $mode := default (list "ReadWriteOnce") (get $dbPersistence "accessModes") }}
+    - {{ $mode | quote }}
+{{- end }}
   resources:
     requests:
       storage:  {{ .Values.db.persistence.size }}

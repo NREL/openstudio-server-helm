@@ -13,15 +13,18 @@ This directory contains legacy automation for building a Kubernetes cluster dire
 3. Deploy OpenStudio Server using this repository's Helm chart and values templates.
 
 ```bash
-cp ../openstudio-server/values_production.templateyaml ../openstudio-server/values.yaml
-# Edit values.yaml (resources/provider=openstack/storage classes/secret name)
-# values.yaml is intentionally local/untracked; templates are the tracked source of truth.
+# Option A: start from the tracked baseline values.yaml
+# Option B: copy production template to a local override file
+cp ../openstudio-server/values_production.templateyaml ../openstudio-server/values.local.yaml
+# Edit your values file (resources/provider=openstack/storage classes/secret name)
 kubectl -n openstudio-server create secret generic openstudio-app-secrets \
   --from-literal=db-username="openstudio" \
   --from-literal=db-password="replace-with-strong-password" \
   --from-literal=redis-password="replace-with-strong-password" \
   --from-literal=web-secret-key="replace-with-long-random-secret"
-helm upgrade --install openstudio-server ../openstudio-server -f ../openstudio-server/values.yaml
+helm upgrade --install openstudio-server ../openstudio-server \
+  -f ../openstudio-server/values.yaml \
+  -f ../openstudio-server/values.local.yaml
 ```
 
 ## Legacy Quick Start (Use at Your Own Risk)
@@ -61,6 +64,13 @@ export TF_VAR_openstack_user_domain_name="your-domain"
 export TF_VAR_openstack_project_domain_id="your-project-domain-id"
 export TF_VAR_openstack_project_id="your-project-id"
 export TF_VAR_openstack_region="RegionOne"
+export TF_VAR_key_pair="your-openstack-keypair-name"
+export TF_VAR_public_key="$(cat ~/.ssh/id_rsa.pub)"
+
+# Optional hardening: narrow these CIDRs instead of permissive defaults.
+export TF_VAR_admin_access_cidr="203.0.113.10/32"
+export TF_VAR_k8s_api_access_cidr="203.0.113.10/32"
+export TF_VAR_nodeport_access_cidr="0.0.0.0/0"
 ```
 
 ## 🏗️ Cluster Configurations
@@ -154,13 +164,13 @@ export KUBECONFIG=$(pwd)/kubeconfig
 # Apply storage classes
 kubectl apply -f storage-classes.yaml
 
-# Create local values file from tracked template (values.yaml is git-ignored)
-cp ./openstudio-server/values_production.templateyaml ./openstudio-server/values.yaml
+# Optional: create a local override values file from tracked template
+cp ./openstudio-server/values_production.templateyaml ./openstudio-server/values.local.yaml
 
 # Recommended default for this environment:
 #   secrets.existingSecret: openstudio-app-secrets
 #   secrets.create: false
-# (set these in your local values.yaml)
+# (set these in your local values file, e.g. values.local.yaml)
 
 # Option A (recommended): create one Kubernetes Secret and reference it
 kubectl -n openstudio-server create secret generic openstudio-app-secrets \
@@ -180,6 +190,7 @@ helm upgrade --install openstudio-server ./openstudio-server \
   --namespace openstudio-server \
   --create-namespace \
   -f ./openstudio-server/values.yaml \
+  -f ./openstudio-server/values.local.yaml \
   --timeout=20m \
   --wait
 ```
@@ -204,7 +215,7 @@ Security hardening notes:
 - App pods use `secretKeyRef` for DB/Redis/app secrets.
 - If using chart-managed secrets (`secrets.create=true`), deploys fail fast unless `db.username`, `db.password`, `redis.password`, and `web.secret_key_value` are set.
 - If using an externally managed secret (`secrets.existingSecret`), credentials only need to be entered once when creating that secret.
-- For normal upgrades in this environment, use your local `./openstudio-server/values.yaml` and avoid repeating secret flags.
+- For normal upgrades in this environment, keep shared defaults in tracked `./openstudio-server/values.yaml` and put local overrides in `./openstudio-server/values.local.yaml`.
 - If your cluster policy blocks Helm hook jobs, disable cleanup hook with `--set hooks.preDeleteCleanup.enabled=false`.
 - If `secrets.existingSecret` is set, keep `secrets.create=false`; the chart now fails fast when both are enabled.
 

@@ -29,6 +29,12 @@ autoscaler:
   openstackNodeGroups: []
   extraArgs: []
 
+priorityClasses:
+  enabled: true
+  create: true
+  highName: "high-priority"
+  lowName: "low-priority"
+
 secrets:
   # Recommended default: pre-create this secret once and reference it.
   existingSecret: "openstudio-app-secrets"
@@ -140,4 +146,3 @@ worker_hpa:
 hooks:
   preDeleteCleanup:
     enabled: true
-
