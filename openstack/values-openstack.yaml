@@ -5,6 +5,8 @@
 global:
   provider:
     name: "openstack"
+  storageClasses:
+    block: "csi-cinder"
 
 cluster:
   name: "openstudio-server"
@@ -12,7 +14,7 @@ cluster:
 nfs-server-provisioner:
   persistence:
     enabled: true
-    storageClass: "cinder-csi"
+    storageClass: "csi-cinder"
     size: 110Gi
   storageClass:
     allowVolumeExpansion: false
@@ -36,7 +38,7 @@ db:
       db_port: 27017
   persistence:
     enabled: true
-    storageClass: "cinder-csi"
+    storageClass: "csi-cinder"
     size: 100Gi
     accessModes:
       - "ReadWriteOnce"
@@ -78,7 +80,7 @@ redis:
     port: 6379
   persistence:
     enabled: true
-    storageClass: "cinder-csi"
+    storageClass: "csi-cinder"
     size: 100Gi
     accessModes:
       - "ReadWriteOnce"

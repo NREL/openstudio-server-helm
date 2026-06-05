@@ -5,6 +5,8 @@
 global:
   provider:
     name: "openstack"
+  storageClasses:
+    block: "csi-cinder"
 
 storageclass:
   createSsd: false

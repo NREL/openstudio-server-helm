@@ -237,6 +237,8 @@ Additional OpenStack defaults are automatically applied when omitted in values:
 - `redis.persistence.storageClass`: `nfs`
 - `load_balancer.externalTrafficPolicy`: `Cluster`
 
+For OpenStack block-backed PVCs, the chart now uses `global.storageClasses.block` (default `csi-cinder`) as the backing class for the NFS provisioner PVC.
+
 For production hardening, the tracked `openstudio-server/values_production.templateyaml` explicitly sets:
 
 - `db.persistence.storageClass: csi-cinder`
@@ -250,7 +252,13 @@ kubectl get storageclass
 kubectl get sc csi-cinder
 ```
 
-If your cluster uses a different Cinder class name, update the values file accordingly.
+If your cluster uses a different Cinder class name, set it explicitly in your values file:
+
+```yaml
+global:
+  storageClasses:
+    block: <your-cinder-storageclass-name>
+```
 
 ## 🏭 Architecture
 

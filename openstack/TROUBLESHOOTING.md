@@ -93,6 +93,27 @@ kubectl get secret cloud-config -n kube-system -o yaml
 kubectl exec -n kube-system <csi-pod-name> -- curl -k <openstack-auth-url>
 ```
 
+#### For StorageClass Name Mismatch:
+
+If events show errors like:
+
+- `storageclass.storage.k8s.io "cinder-csi" not found`
+
+your chart values are likely using the wrong Cinder StorageClass name for this cluster.
+
+```bash
+kubectl get storageclass
+kubectl get pvc -A
+```
+
+Set the OpenStack block class explicitly in values and redeploy:
+
+```yaml
+global:
+  storageClasses:
+    block: csi-cinder
+```
+
 ### 3. Container Image Pull Failures
 
 **Symptoms:**

@@ -69,6 +69,20 @@ affinity:
 {{- end -}}
 {{- end -}}
 
+{{- define "openstudio.openstackBlockStorageClass" -}}
+{{- $global := default (dict) .Values.global -}}
+{{- $storageClasses := default (dict) (get $global "storageClasses") -}}
+{{- default "csi-cinder" (get $storageClasses "block") -}}
+{{- end -}}
+
+{{- define "openstudio.defaultNfsProvisionerBackingStorageClass" -}}
+{{- if eq (include "openstudio.providerName" .) "openstack" -}}
+{{- include "openstudio.openstackBlockStorageClass" . -}}
+{{- else -}}
+{{- "ssd" -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "openstudio.defaultLoadBalancerExternalTrafficPolicy" -}}
 {{- if eq (include "openstudio.providerName" .) "openstack" -}}
 {{- "Cluster" -}}
