@@ -6,10 +6,13 @@
 # This script:
 # 1. Gets the floating IP from Terraform output
 # 2. Updates kubectl configuration to use the floating IP
-# 3. Sets up TLS skip for certificate issues
+# 3. Configures TLS verification for floating IP access
 # 4. Tests the connection
 
 set -e
+
+KUBE_TLS_SERVER_NAME="${KUBE_TLS_SERVER_NAME:-kubernetes}"
+OPENSTACK_ALLOW_INSECURE_KUBECTL="${OPENSTACK_ALLOW_INSECURE_KUBECTL:-false}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -33,6 +36,18 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+configure_kubectl_tls() {
+    if [[ "${OPENSTACK_ALLOW_INSECURE_KUBECTL}" == "true" ]]; then
+        kubectl config set-cluster kubernetes --insecure-skip-tls-verify=true >/dev/null
+        print_warning "TLS verification disabled (OPENSTACK_ALLOW_INSECURE_KUBECTL=true)"
+        return
+    fi
+
+    kubectl config set-cluster kubernetes --insecure-skip-tls-verify=false >/dev/null
+    kubectl config set-cluster kubernetes --tls-server-name="${KUBE_TLS_SERVER_NAME}" >/dev/null
+    print_success "TLS verification enabled (tls-server-name=${KUBE_TLS_SERVER_NAME})"
 }
 
 # Check if tofu is available
@@ -114,9 +129,7 @@ print_status "Updating kubectl configuration..."
 kubectl config set-cluster kubernetes --server="https://${FLOATING_IP}:6443"
 print_success "Updated cluster endpoint to https://${FLOATING_IP}:6443"
 
-# Skip TLS verification (since certificate is issued for private IP)
-kubectl config set-cluster kubernetes --insecure-skip-tls-verify=true
-print_success "Configured to skip TLS verification"
+configure_kubectl_tls
 
 # Set the context to use (assuming it exists)
 if kubectl config get-contexts kubernetes-admin@kubernetes &>/dev/null; then
@@ -150,5 +163,8 @@ fi
 echo
 print_success "kubectl setup complete!"
 print_status "You can now use kubectl to manage your OpenStack Kubernetes cluster"
-print_warning "Note: TLS verification is disabled due to certificate/floating IP mismatch"
-print_status "For more secure access, consider using 'kubectl proxy' through an SSH tunnel"
+if [[ "${OPENSTACK_ALLOW_INSECURE_KUBECTL}" == "true" ]]; then
+    print_warning "Note: TLS verification is disabled due to OPENSTACK_ALLOW_INSECURE_KUBECTL=true"
+else
+    print_status "TLS verification is enabled. Override server name with KUBE_TLS_SERVER_NAME if needed."
+fi

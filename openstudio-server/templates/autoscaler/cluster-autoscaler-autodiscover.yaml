@@ -13,6 +13,7 @@
 {{- $cloudConfigSecretName := default "" (get $openstackAutoscaler "cloudConfigSecretName") -}}
 {{- $cloudConfigSecretKey := default "cloud.conf" (get $openstackAutoscaler "cloudConfigSecretKey") -}}
 {{- $cloudConfigMountPath := default "/etc/kubernetes/cloud.conf" (get $openstackAutoscaler "cloudConfigMountPath") -}}
+{{- $checkExistingOwnership := default true (get $openstackAutoscaler "checkExistingDeploymentOwnership") -}}
 {{- $extraArgs := default (list) (get $autoscaler "extraArgs") -}}
 {{- $hasCloudConfigArg := false -}}
 {{- range $arg := $extraArgs -}}
@@ -29,14 +30,16 @@
 {{- if and $autoscalerEnabled (eq $providerName "openstack") (eq $cloudConfigSecretName "") (not $hasCloudConfigArg) -}}
 {{- fail "OpenStack autoscaler requires cloud config. Set autoscaler.openstack.cloudConfigSecretName or provide --cloud-config=<path> in autoscaler.extraArgs." -}}
 {{- end -}}
+{{- if and $autoscalerEnabled (eq $providerName "openstack") $checkExistingOwnership -}}
 {{- $existingAutoscaler := lookup "apps/v1" "Deployment" "kube-system" "cluster-autoscaler" -}}
-{{- if and $autoscalerEnabled (eq $providerName "openstack") $existingAutoscaler -}}
+{{- if $existingAutoscaler -}}
 {{- $existingMetadata := default (dict) (get $existingAutoscaler "metadata") -}}
 {{- $existingAnnotations := default (dict) (get $existingMetadata "annotations") -}}
 {{- $existingReleaseName := default "" (get $existingAnnotations "meta.helm.sh/release-name") -}}
 {{- $existingReleaseNamespace := default "" (get $existingAnnotations "meta.helm.sh/release-namespace") -}}
 {{- if not (and (eq $existingReleaseName .Release.Name) (eq $existingReleaseNamespace .Release.Namespace)) -}}
 {{- fail "autoscaler.enabled=true on OpenStack conflicts with an existing kube-system/cluster-autoscaler deployment not owned by this release. Use Azimuth/platform autoscaling only, or remove the existing deployment before enabling chart autoscaler." -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- if $autoscalerEnabled }}

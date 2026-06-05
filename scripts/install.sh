@@ -21,6 +21,19 @@ SECRET_MODE="${SECRET_MODE:-existing}"
 EXISTING_SECRET_NAME="${EXISTING_SECRET_NAME:-openstudio-app-secrets}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SECRET_VALIDATOR="${SCRIPT_DIR}/validate-app-secret.sh"
+TMP_SECRET_VALUES_FILE=""
+
+cleanup() {
+  if [[ -n "${TMP_SECRET_VALUES_FILE}" && -f "${TMP_SECRET_VALUES_FILE}" ]]; then
+    rm -f "${TMP_SECRET_VALUES_FILE}"
+  fi
+}
+
+yaml_single_quote() {
+  printf "%s" "$1" | sed "s/'/''/g"
+}
+
+trap cleanup EXIT
 
 case "${PROVIDER}" in
   aws|google|azure|openstack) ;;
@@ -45,6 +58,15 @@ case "${SECRET_MODE}" in
       exit 1
     fi
 
+    if ! command -v kubectl >/dev/null 2>&1; then
+      echo "kubectl is required to validate existing secrets." >&2
+      exit 1
+    fi
+
+    if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
+      kubectl create namespace "${NAMESPACE}" >/dev/null
+    fi
+
     "${SECRET_VALIDATOR}" --namespace "${NAMESPACE}" --secret-name "${EXISTING_SECRET_NAME}"
 
     HELM_ARGS+=(
@@ -61,13 +83,25 @@ case "${SECRET_MODE}" in
       fi
     done
 
+    TMP_SECRET_VALUES_FILE="$(mktemp)"
+    chmod 600 "${TMP_SECRET_VALUES_FILE}"
+    cat > "${TMP_SECRET_VALUES_FILE}" <<EOF
+secrets:
+  existingSecret: ""
+  create: true
+db:
+  username: '$(yaml_single_quote "${DB_USERNAME}")'
+  password: '$(yaml_single_quote "${DB_PASSWORD}")'
+redis:
+  password: '$(yaml_single_quote "${REDIS_PASSWORD}")'
+web:
+  secret_key_value: '$(yaml_single_quote "${WEB_SECRET_KEY}")'
+EOF
+
     HELM_ARGS+=(
       --set "secrets.existingSecret="
       --set "secrets.create=true"
-      --set "db.username=${DB_USERNAME}"
-      --set "db.password=${DB_PASSWORD}"
-      --set "redis.password=${REDIS_PASSWORD}"
-      --set "web.secret_key_value=${WEB_SECRET_KEY}"
+      --values "${TMP_SECRET_VALUES_FILE}"
     )
     ;;
   *)

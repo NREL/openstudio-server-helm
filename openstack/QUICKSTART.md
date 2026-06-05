@@ -141,6 +141,13 @@ If the automated deployment encounters connectivity issues:
    ./setup-kubectl.sh
    ```
 
+   TLS defaults are CA-first. The setup scripts now keep TLS verification enabled and set `tls-server-name` (default `kubernetes`).
+   Override behavior with:
+   ```bash
+   KUBE_TLS_SERVER_NAME=<server-name-in-apiserver-cert> ./setup-kubectl.sh
+   OPENSTACK_ALLOW_INSECURE_KUBECTL=true ./setup-kubectl.sh   # opt-in only
+   ```
+
 ## Common Issues
 
 ### SSH Connection Timeouts

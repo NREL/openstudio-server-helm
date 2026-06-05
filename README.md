@@ -176,12 +176,13 @@ For a quick install helper script, run `PROVIDER=openstack ./scripts/install.sh`
 `scripts/install.sh` now fails fast on secret validation by default:
 
 - Default mode: `SECRET_MODE=existing` and `EXISTING_SECRET_NAME=openstudio-app-secrets`
-- Required behavior: the existing secret must already exist in `NAMESPACE` (default `openstudio-server`) and contain non-empty keys:
+- Required behavior: if `NAMESPACE` does not exist, the script creates it before validating the secret. The existing secret must then exist in that namespace and contain non-empty keys:
   - `db-username`
   - `db-password`
   - `redis-password`
   - `web-secret-key`
 - Alternate mode: set `SECRET_MODE=create` and provide `DB_USERNAME`, `DB_PASSWORD`, `REDIS_PASSWORD`, and `WEB_SECRET_KEY`
+  - In create mode, `scripts/install.sh` writes credentials to a temporary values file and passes it with `--values` (instead of secret-bearing `--set` flags), then removes the file on exit.
 
 To run secret preflight directly:
 

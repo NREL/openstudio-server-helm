@@ -18,6 +18,8 @@ DEPLOYMENT_NAME="openstudio-server"
 LOG_FILE="deployment-$(date +%Y%m%d-%H%M%S).log"
 MAX_RETRIES=5
 RETRY_DELAY=30
+KUBE_TLS_SERVER_NAME="${KUBE_TLS_SERVER_NAME:-kubernetes}"
+OPENSTACK_ALLOW_INSECURE_KUBECTL="${OPENSTACK_ALLOW_INSECURE_KUBECTL:-false}"
 
 # Logging function
 log() {
@@ -39,6 +41,18 @@ success() {
 
 info() {
     log "${BLUE}[INFO]${NC} $1"
+}
+
+configure_kubectl_tls() {
+    if [[ "${OPENSTACK_ALLOW_INSECURE_KUBECTL}" == "true" ]]; then
+        kubectl config set-cluster kubernetes --insecure-skip-tls-verify=true &> /dev/null || true
+        warning "TLS verification disabled (OPENSTACK_ALLOW_INSECURE_KUBECTL=true)"
+        return
+    fi
+
+    kubectl config set-cluster kubernetes --insecure-skip-tls-verify=false &> /dev/null || true
+    kubectl config set-cluster kubernetes --tls-server-name="${KUBE_TLS_SERVER_NAME}" &> /dev/null || true
+    info "TLS verification enabled (tls-server-name=${KUBE_TLS_SERVER_NAME})"
 }
 
 # Function to check prerequisites
@@ -196,7 +210,7 @@ setup_kubectl() {
         
         # Set context
         kubectl config use-context kubernetes-admin@kubernetes &> /dev/null || true
-        kubectl config set-cluster kubernetes --insecure-skip-tls-verify=true &> /dev/null || true
+        configure_kubectl_tls
         
         success "kubectl configuration completed"
         return 0

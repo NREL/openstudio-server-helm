@@ -272,6 +272,16 @@ By default, this chart enables Cluster Autoscaler on AWS and disables it for oth
 
 When `autoscaler.enabled=true` on OpenStack, the chart performs a safety check and fails install/upgrade if a pre-existing `kube-system/cluster-autoscaler` deployment exists and is not owned by this Helm release. This prevents dual autoscaler configuration drift with platform-managed clusters (for example Azimuth).
 
+If your release-time RBAC cannot read `kube-system` deployments, set:
+
+```yaml
+autoscaler:
+  openstack:
+    checkExistingDeploymentOwnership: false
+```
+
+Use this override only when required by RBAC constraints.
+
 Example:
 
 ```yaml
@@ -332,6 +342,19 @@ Render/lint matrix before deploy:
 
 ```bash
 ./scripts/install-dry-run.sh
+```
+
+Kubeconfig helper scripts now default to TLS verification with `tls-server-name=kubernetes`.
+If your API server certificate uses a different server name, set:
+
+```bash
+KUBE_TLS_SERVER_NAME=<server-name-in-cert> ./setup-kubectl.sh
+```
+
+Only if required, you can opt into insecure mode:
+
+```bash
+OPENSTACK_ALLOW_INSECURE_KUBECTL=true ./setup-kubectl.sh
 ```
 
 ## 🏭 Architecture

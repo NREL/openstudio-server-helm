@@ -12,6 +12,9 @@
 
 set -e
 
+KUBE_TLS_SERVER_NAME="${KUBE_TLS_SERVER_NAME:-kubernetes}"
+OPENSTACK_ALLOW_INSECURE_KUBECTL="${OPENSTACK_ALLOW_INSECURE_KUBECTL:-false}"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -39,6 +42,18 @@ print_error() {
 
 print_progress() {
     echo -e "${PURPLE}[PROGRESS]${NC} $1"
+}
+
+configure_kubectl_tls() {
+    if [[ "${OPENSTACK_ALLOW_INSECURE_KUBECTL}" == "true" ]]; then
+        kubectl config set-cluster kubernetes --insecure-skip-tls-verify=true >/dev/null
+        print_warning "TLS verification disabled (OPENSTACK_ALLOW_INSECURE_KUBECTL=true)"
+        return
+    fi
+
+    kubectl config set-cluster kubernetes --insecure-skip-tls-verify=false >/dev/null
+    kubectl config set-cluster kubernetes --tls-server-name="${KUBE_TLS_SERVER_NAME}" >/dev/null
+    print_status "TLS verification enabled (tls-server-name=${KUBE_TLS_SERVER_NAME})"
 }
 
 # Ensure default StorageClass is set to the desired class (defaults to nfs-client)
@@ -240,8 +255,7 @@ setup_local_kubectl() {
     # Move the updated config into place
     mv "$HOME/.kube/config.new" "$HOME/.kube/config"
     
-    # Set insecure-skip-tls-verify for the floating IP certificate issue
-    kubectl config set-cluster kubernetes --insecure-skip-tls-verify=true
+    configure_kubectl_tls
     
     print_success "Local kubectl configured successfully"
 }

@@ -54,6 +54,10 @@ autoscaler:
     cloudConfigSecretName: ""
     cloudConfigSecretKey: "cloud.conf"
     cloudConfigMountPath: "/etc/kubernetes/cloud.conf"
+    # Safety guard for OpenStack installs. When true, chart checks for a pre-existing
+    # kube-system/cluster-autoscaler deployment and fails if it's not owned by this release.
+    # Set false only when release-time RBAC cannot read kube-system deployments.
+    checkExistingDeploymentOwnership: true
   openstackNodeGroups: []
   extraArgs: []
 
