@@ -106,6 +106,7 @@ if helm template openstudio-server "${CHART_DIR}" \
 fi
 
 helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name= \
   --set global.provider.allowLegacyName=true \
   --set secrets.validateExistingSecret=false \
   --set provider.name=aws >/dev/null
@@ -122,8 +123,8 @@ fi
 if ! helm template openstudio-server "${CHART_DIR}" \
   -f "${ROOT_DIR}/openstack/values-openstack.yaml" \
   --set secrets.validateExistingSecret=false \
-  | grep -q 'storageClassName: "cinder-csi"'; then
-  echo "Expected OpenStack values to render cinder-csi as NFS provisioner backing storageClass"
+  | grep -q 'storageClassName: "csi-cinder"'; then
+  echo "Expected OpenStack values to render csi-cinder as NFS provisioner backing storageClass"
   exit 1
 fi
 
