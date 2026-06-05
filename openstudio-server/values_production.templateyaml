@@ -126,6 +126,7 @@ web_svc:
 
 # Worker - Enhanced for production
 worker:
+  queues: "simulations,requeued"
   container:
     resources:
       requests:

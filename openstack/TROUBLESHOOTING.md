@@ -293,6 +293,36 @@ helm rollback openstudio-server <last-good-revision> -n openstudio-server
 - Keep a queue/job snapshot before mutation:
   - `./scripts/openstudio-reliability --mode snapshot --snapshot-dir <path>`
 
+### 7. Analyses Stuck in `started` (Queue/State Divergence)
+
+**Symptoms:**
+- PAT/UI analyses remain in `started` for a long period.
+- Redis queue depths are near zero, or `requeued` accumulates.
+- Pods and Helm release appear healthy.
+
+**Diagnosis:**
+```bash
+./scripts/openstudio-reliability --mode check --stale-minutes 70
+./scripts/openstudio-reliability --mode snapshot \
+  --stale-minutes 70 \
+  --snapshot-dir ./incident-snapshots/openstudio-server-$(date +%Y%m%d-%H%M%S)
+```
+
+**Guarded Recovery (apply-gated):**
+```bash
+./scripts/openstudio-reliability --mode recover-stuck --stale-minutes 70 --apply
+```
+
+What recovery does:
+- Ensures worker queue subscriptions include `simulations,requeued`.
+- Requeues stale started datapoints for stale started analyses.
+- Finalizes stale started `batch_run` jobs only if all datapoints are terminal.
+- Prints post-recovery queue and divergence checks.
+
+**Prevention:**
+- Keep worker queues configured with `simulations,requeued`.
+- Add alerts for stale started jobs/datapoints and non-zero `requeued` backlog.
+
 ## 📊 Diagnostic Commands Reference
 
 ### Cluster Health Check

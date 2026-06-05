@@ -37,7 +37,9 @@ spec:
               mountPath: "/mnt/openstudio"
           env:
             - name:  QUEUES
-              value: simulations
+              value: {{ .Values.worker.queues | quote }}
+            - name:  QUEUE
+              value: {{ .Values.worker.queues | quote }}
             - name:  COUNT
               value: "1"
             - name: SECRET_KEY_BASE

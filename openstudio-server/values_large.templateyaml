@@ -121,6 +121,7 @@ web_svc:
   {}
 
 worker:
+  queues: "simulations,requeued"
   container:
     resources:
       requests:
@@ -137,6 +138,5 @@ worker_hpa:
 hooks:
   preDeleteCleanup:
     enabled: true
-
 
 

@@ -148,6 +148,7 @@ cluster.name | Kubernetes AWS or Google cluster name. If you change the default 
 worker_hpa.minReplicas | Worker pods that run the simulations | 2 |
 worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
+worker.queues | Comma-separated worker queues consumed by simulation workers. Include `requeued` to drain requeue backlog automatically. | simulations,requeued |
 web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
 global.images.org | Docker image organization/registry namespace for OpenStudio images | nrel |
 global.images.serverRepository | Repository name used by web, web-background, and worker containers | openstudio-server |
@@ -316,6 +317,9 @@ Use `scripts/openstudio-reliability` to standardize triage and recovery steps:
 
 # Reconcile Helm only for managed-field conflict failures
 ./scripts/openstudio-reliability --mode reconcile-helm --apply --allow-chart-apply
+
+# Recover stuck analyses (stale started jobs/datapoints; apply-gated)
+./scripts/openstudio-reliability --mode recover-stuck --stale-minutes 70 --apply
 ```
 
 Design notes:
@@ -357,6 +361,30 @@ kubectl -n openstudio-server exec deploy/redis -- sh -lc 'PW="${REDIS_PASSWORD:-
 helm rollback openstudio-server <last-good-revision> -n openstudio-server
 ```
 
+### Stuck Analysis Recovery Playbook (Queue/State Divergence)
+
+If analyses remain in `started` while queues are empty or `requeued` backlog exists, use this sequence.
+
+```bash
+# 1) Confirm divergence and capture evidence
+./scripts/openstudio-reliability --mode check --stale-minutes 70
+./scripts/openstudio-reliability --mode snapshot \
+  --stale-minutes 70 \
+  --snapshot-dir ./incident-snapshots/openstudio-server-$(date +%Y%m%d-%H%M%S)
+
+# 2) Apply guarded recovery
+./scripts/openstudio-reliability --mode recover-stuck --stale-minutes 70 --apply
+
+# 3) Re-check health and convergence
+./scripts/openstudio-reliability --mode check --stale-minutes 70
+```
+
+Guardrails:
+
+- Recovery is apply-gated and uses a Redis lock to prevent concurrent remediation runs.
+- Recovery only mutates stale entries older than the configured threshold.
+- Batch-run jobs are finalized only when all datapoints are terminal.
+
 ### Postmortem Template and Corrective-Action Checklist
 
 For each production incident, capture:
@@ -368,6 +396,12 @@ For each production incident, capture:
 5. Permanent fixes across defaults, automation, and docs.
 6. Drill plan and verification date for each corrective action.
 7. Owner per action item with objective completion criteria.
+
+Recent stuck-state retrospective findings (used for this runbook hardening):
+
+- Worker defaults consumed `simulations` but not `requeued`, allowing requeued work to stall indefinitely.
+- Infrastructure health (`helm status`, pod readiness) can remain green while app-level analysis state diverges.
+- Reliable recovery requires both queue remediation and state convergence checks (not just Helm reconcile).
 
 ### Alerting Baseline (Recommended)
 
