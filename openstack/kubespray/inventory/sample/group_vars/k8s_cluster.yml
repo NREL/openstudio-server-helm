@@ -1,0 +1,90 @@
+# Kubespray k8s-cluster.yml configuration for OpenStudio Server
+# OpenStack cloud provider and storage configuration
+
+# OpenStack cloud provider configuration
+openstack_cloud_provider: true
+openstack_cloud_config:
+  global:
+    auth_url: "{{ openstack_auth_url }}"
+    username: "{{ openstack_username }}"
+    password: "{{ openstack_password }}"
+    tenant_name: "{{ openstack_tenant_name }}"
+    domain_name: "{{ openstack_user_domain_name | default('Default') }}"
+    region: "{{ openstack_region | default('RegionOne') }}"
+  block_storage:
+    bs_version: v3
+    trust_device_path: false
+    ignore_volume_az: true
+  load_balancer:
+    use_octavia: true
+    subnet_id: "{{ openstack_subnet_id }}"
+    floating_network_id: "{{ openstack_external_network_id }}"
+    create_monitor: true
+    monitor_delay: 5
+    monitor_timeout: 3
+    monitor_max_retries: 3
+
+# External cloud provider for newer Kubernetes versions
+external_cloud_provider: openstack
+external_openstack_cloud_provider: true
+
+# Cinder CSI driver configuration
+csi_openstack_cinder_enabled: true
+cinder_csi_controller_replicas: 1
+cinder_csi_plugin_image_tag: "latest"
+
+# Storage classes for OpenStudio Server requirements
+openstack_cinder_storage_classes:
+  - name: ssd
+    is_default: true
+    volume_type: __DEFAULT__
+    availability_zone: nova
+    reclaim_policy: Retain
+    allow_volume_expansion: true
+    parameters:
+      type: __DEFAULT__
+  - name: nfs
+    provisioner: nfs.csi.k8s.io
+    reclaim_policy: Retain
+    allow_volume_expansion: true
+    volume_binding_mode: Immediate
+
+# Node taints for workload separation
+node_taints:
+  - key: "nodegroup"
+    value: "web-group"
+    effect: "NoSchedule"
+    nodes_selector: "nodegroup=web-group"
+  - key: "nodegroup" 
+    value: "worker-group"
+    effect: "NoSchedule"
+    nodes_selector: "nodegroup=worker-group"
+
+# Enable required Kubernetes features
+kube_feature_gates:
+  - CSIMigration=true
+  - CSIMigrationOpenStack=true
+  - ExpandCSIVolumes=true
+  - ExpandInUsePersistentVolumes=true
+
+# API server admission controllers
+kube_apiserver_enable_admission_plugins:
+  - NodeRestriction
+  - ResourceQuota
+  - LimitRanger
+  - ServiceAccount
+  - DefaultStorageClass
+  - MutatingAdmissionWebhook
+  - ValidatingAdmissionWebhook
+
+# Enable pod security standards
+pod_security_policy_enabled: false
+kube_pod_security_use_default: true
+
+# Resource management
+kube_system_reserved: true
+kube_system_reserved_namespace: kube-system
+
+# Networking
+kube_proxy_mode: iptables
+kube_proxy_strict_arp: true

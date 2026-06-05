@@ -1,0 +1,321 @@
+#cloud-config
+users:
+  - default
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${public_key}
+
+# Corporate firewall detection and workaround setup
+write_files:
+  - path: /usr/local/bin/detect-corporate-firewall.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Corporate Firewall Detection Script
+      set -euo pipefail
+      
+      LOGFILE="/var/log/corporate-firewall-detection.log"
+      
+      log() {
+          echo "[$(date)] $*" | tee -a "$LOGFILE"
+      }
+      
+      log "Starting corporate firewall detection..."
+      
+      # Test registry access by checking certificates
+      test_registry_access() {
+          local registry="$1"
+          local expected_cn="$2"
+          
+          log "Testing access to $registry..."
+          
+          # Get the actual certificate subject
+          actual_cert=$(echo | timeout 10 openssl s_client -connect "$registry:443" -servername "$registry" 2>/dev/null | openssl x509 -noout -subject 2>/dev/null || echo "FAILED")
+          
+          if [[ "$actual_cert" == "FAILED" ]]; then
+              log "ERROR: Cannot connect to $registry"
+              return 1
+          fi
+          
+          # Check if certificate matches expected
+          if [[ "$actual_cert" =~ "$expected_cn" ]]; then
+              log "SUCCESS: $registry certificate is valid"
+              return 0
+          else
+              log "WARNING: $registry certificate mismatch: $actual_cert"
+              return 1
+          fi
+      }
+      
+      # Detect corporate firewall by testing key registries
+      CORPORATE_FIREWALL_DETECTED=false
+      
+      if ! test_registry_access "registry-1.docker.io" "registry-1.docker.io"; then
+          CORPORATE_FIREWALL_DETECTED=true
+      fi
+      
+      if ! test_registry_access "ghcr.io" "ghcr.io"; then
+          CORPORATE_FIREWALL_DETECTED=true
+      fi
+      
+      # Test if registry.k8s.io is accessible (our fallback)
+      REGISTRY_K8S_ACCESSIBLE=false
+      if test_registry_access "registry.k8s.io" "registry.k8s.io"; then
+          REGISTRY_K8S_ACCESSIBLE=true
+      fi
+      
+      # Write detection results
+      cat > /etc/corporate-firewall-status << EOF
+      CORPORATE_FIREWALL_DETECTED=$CORPORATE_FIREWALL_DETECTED
+      REGISTRY_K8S_ACCESSIBLE=$REGISTRY_K8S_ACCESSIBLE
+      DETECTION_TIMESTAMP=$(date -Iseconds)
+      EOF
+      
+      log "Corporate firewall detection complete:"
+      log "  CORPORATE_FIREWALL_DETECTED=$CORPORATE_FIREWALL_DETECTED"
+      log "  REGISTRY_K8S_ACCESSIBLE=$REGISTRY_K8S_ACCESSIBLE"
+      
+      # Apply workarounds if corporate firewall detected
+      if [[ "$CORPORATE_FIREWALL_DETECTED" == "true" ]]; then
+          log "Applying corporate firewall workarounds..."
+          /usr/local/bin/setup-corporate-firewall-workarounds.sh
+      fi
+
+  - path: /usr/local/bin/setup-corporate-firewall-workarounds.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Corporate Firewall Workarounds Setup
+      set -euo pipefail
+      
+      LOGFILE="/var/log/corporate-firewall-workarounds.log"
+      
+      log() {
+          echo "[$(date)] $*" | tee -a "$LOGFILE"
+      }
+      
+      log "Setting up corporate firewall workarounds..."
+      
+      # 1. Configure containerd with TLS skip verification
+      setup_containerd_config() {
+          log "Configuring containerd for corporate firewall..."
+          
+          mkdir -p /etc/containerd
+          cat > /etc/containerd/config.toml << 'EOF'
+      version = 2
+      
+      [plugins]
+        [plugins."io.containerd.grpc.v1.cri"]
+          sandbox_image = "registry.k8s.io/pause:3.9"
+          max_container_log_line_size = -1
+          enable_unprivileged_ports = false
+          enable_unprivileged_icmp = false
+          [plugins."io.containerd.grpc.v1.cri".containerd]
+            default_runtime_name = "runc"
+            snapshotter = "overlayfs"
+            [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+                runtime_type = "io.containerd.runc.v2"
+                runtime_engine = ""
+                base_runtime_spec = "/etc/containerd/cri-base.json"
+                [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+                  systemdCgroup = true
+                  binaryName = "/usr/local/bin/runc"
+          [plugins."io.containerd.grpc.v1.cri".registry]
+            [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+                endpoint = ["https://registry-1.docker.io"]
+              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."quay.io"]
+                endpoint = ["https://quay.io"]
+              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."ghcr.io"]
+                endpoint = ["https://ghcr.io"]
+              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry.k8s.io"]
+                endpoint = ["https://registry.k8s.io"]
+            [plugins."io.containerd.grpc.v1.cri".registry.configs]
+              [plugins."io.containerd.grpc.v1.cri".registry.configs."registry-1.docker.io".tls]
+                insecure_skip_verify = true
+              [plugins."io.containerd.grpc.v1.cri".registry.configs."quay.io".tls]
+                insecure_skip_verify = true
+              [plugins."io.containerd.grpc.v1.cri".registry.configs."ghcr.io".tls]
+                insecure_skip_verify = true
+              [plugins."io.containerd.grpc.v1.cri".registry.configs."registry.k8s.io".tls]
+                insecure_skip_verify = false
+      EOF
+          
+          log "Containerd configuration updated for corporate firewall"
+      }
+      
+      # 2. Pre-create CNI bridge configuration
+      # setup_bridge_cni() {
+      #     log "Setting up fallback bridge CNI configuration..."
+      #     
+      #     mkdir -p /etc/cni/net.d
+      #     cat > /etc/cni/net.d/10-bridge.conf << 'EOF'
+      # {
+      #   "cniVersion": "0.4.0",
+      #   "name": "bridge-network",
+      #   "type": "bridge",
+      #   "bridge": "cni0",
+      #   "isGateway": true,
+      #   "ipMasq": true,
+      #   "ipam": {
+      #     "type": "host-local",
+      #     "subnet": "10.244.0.0/16",
+      #     "routes": [
+      #       { "dst": "0.0.0.0/0" }
+      #     ]
+      #   }
+      # }
+      # EOF
+      #     
+      #     log "Bridge CNI configuration created"
+      # }
+      
+      # 3. Create kubeadm configuration for external etcd with proper certificates
+      setup_kubeadm_config() {
+          log "Creating kubeadm configuration for external etcd..."
+          
+          mkdir -p /etc/kubernetes
+          cat > /etc/kubernetes/kubeadm-config.yaml << 'EOF'
+      apiVersion: kubeadm.k8s.io/v1beta3
+      kind: ClusterConfiguration
+      kubernetesVersion: v1.28.11
+      controlPlaneEndpoint: MASTER_IP:6443
+      networking:
+        serviceSubnet: 10.96.0.0/12
+        podSubnet: 10.244.0.0/16
+      etcd:
+        external:
+          endpoints:
+          - https://MASTER_IP:2379
+          caFile: /etc/kubernetes/pki/etcd-ca.crt
+          certFile: /etc/kubernetes/pki/apiserver-etcd-client.crt
+          keyFile: /etc/kubernetes/pki/apiserver-etcd-client.key
+      ---
+      apiVersion: kubeadm.k8s.io/v1beta3
+      kind: InitConfiguration
+      localAPIEndpoint:
+        advertiseAddress: MASTER_IP
+        bindPort: 6443
+      EOF
+          
+          log "Kubeadm configuration template created"
+      }
+      
+      # 4. Create etcd certificate setup script
+      setup_etcd_certificates() {
+          log "Creating etcd certificate setup script..."
+          
+          cat > /usr/local/bin/setup-etcd-certificates.sh << 'EOF'
+      #!/bin/bash
+      # Setup etcd client certificates for kube-apiserver
+      set -euo pipefail
+      
+      if [[ -d /etc/ssl/etcd/ssl ]]; then
+          echo "Setting up etcd client certificates..."
+          mkdir -p /etc/kubernetes/pki
+          
+          # Copy etcd CA and client certificates
+          cp /etc/ssl/etcd/ssl/ca.pem /etc/kubernetes/pki/etcd-ca.crt
+          cp /etc/ssl/etcd/ssl/node-$(hostname).pem /etc/kubernetes/pki/apiserver-etcd-client.crt
+          cp /etc/ssl/etcd/ssl/node-$(hostname)-key.pem /etc/kubernetes/pki/apiserver-etcd-client.key
+          
+          # Fix permissions
+          chmod 600 /etc/kubernetes/pki/apiserver-etcd-client.key
+          chmod 644 /etc/kubernetes/pki/apiserver-etcd-client.crt
+          chmod 644 /etc/kubernetes/pki/etcd-ca.crt
+          
+          echo "etcd certificates configured successfully"
+      else
+          echo "etcd certificates not found, skipping..."
+      fi
+      EOF
+          
+          chmod +x /usr/local/bin/setup-etcd-certificates.sh
+          log "etcd certificate setup script created"
+      }
+      
+      # 5. Create corporate firewall kubespray script
+      setup_kubespray_workarounds() {
+          log "Creating kubespray corporate firewall wrapper..."
+          
+          cat > /usr/local/bin/kubespray-corporate-firewall.sh << 'EOF'
+      #!/bin/bash
+      # Kubespray with Corporate Firewall Workarounds
+      set -euo pipefail
+      
+      echo "Running kubespray with corporate firewall workarounds..."
+      
+      # Source firewall detection results
+      if [[ -f /etc/corporate-firewall-status ]]; then
+          source /etc/corporate-firewall-status
+          echo "Corporate firewall detected: $CORPORATE_FIREWALL_DETECTED"
+          echo "registry.k8s.io accessible: $REGISTRY_K8S_ACCESSIBLE"
+      fi
+      
+      # Set environment variables for corporate firewall
+      export DOWNLOAD_VALIDATE_CERTS=false
+      export DOWNLOAD_RETRIES=10
+      export DOWNLOAD_TIMEOUT=900
+      
+      # Run the actual kubespray command with additional flags
+      exec "$@"
+      EOF
+          
+          chmod +x /usr/local/bin/kubespray-corporate-firewall.sh
+          log "Kubespray corporate firewall wrapper created"
+      }
+      
+      # Execute all setup functions
+      setup_containerd_config
+      setup_kubeadm_config
+      setup_etcd_certificates
+      setup_kubespray_workarounds
+      
+      log "Corporate firewall workarounds setup complete"
+
+  - path: /etc/systemd/system/corporate-firewall-detection.service
+    content: |
+      [Unit]
+      Description=Corporate Firewall Detection and Workaround Setup
+      After=network-online.target
+      Wants=network-online.target
+      
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/detect-corporate-firewall.sh
+      RemainAfterExit=yes
+      StandardOutput=journal
+      StandardError=journal
+      
+      [Install]
+      WantedBy=multi-user.target
+
+# System updates and basic setup
+package_update: true
+package_upgrade: false
+
+# Install required packages
+packages:
+  - curl
+  - wget
+  - git
+  - python3
+  - python3-pip
+  - jq
+  - openssl
+
+# Enable the corporate firewall detection service
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable corporate-firewall-detection.service
+  - systemctl start corporate-firewall-detection.service
+  
+# Configure SSH
+ssh_authorized_keys:
+  - ${public_key}
+
+# Ensure cloud-init completes
+final_message: "Corporate firewall detection and workaround setup complete. System ready for Kubespray deployment."

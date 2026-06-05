@@ -1,0 +1,102 @@
+# Kubespray all.yml configuration for OpenStudio Server
+# Optimized for corporate firewall environments
+
+# Basic cluster configuration
+cluster_name: "{{ cluster_name | default('openstudio-server') }}"
+kubernetes_version: v1.31.3
+kube_version: v1.31.3
+
+# Network Configuration
+kube_service_addresses: 10.233.0.0/18
+kube_pods_subnet: 10.233.64.0/18
+kube_network_node_prefix: 24
+
+# Container runtime
+container_manager: containerd
+
+# Corporate firewall detection and configuration
+# Use wrapper script if corporate firewall is detected
+use_corporate_firewall_wrapper: "{{ lookup('env', 'CORPORATE_FIREWALL_DETECTED') | default('false') | bool }}"
+
+# Download configuration - adjusted for corporate environments  
+download_run_once: true
+download_localhost: false
+download_cache_dir: /tmp/kubespray_cache
+download_keep_remote_cache: false
+download_force_cache: false
+
+# Download validation (set based on corporate firewall detection)
+download_validate_certs: "{{ not (use_corporate_firewall_wrapper | bool) }}"
+download_retries: "{{ 10 if use_corporate_firewall_wrapper else 3 }}"
+download_delay: "{{ 5 if use_corporate_firewall_wrapper else 1 }}"
+download_timeout: "{{ 900 if use_corporate_firewall_wrapper else 300 }}"
+
+# OpenStack cloud provider configuration
+cloud_provider: openstack
+openstack_cloud_provider: true
+openstack_blockstorage_version: "v3"
+
+# External cloud provider (for LoadBalancer services)
+external_openstack_cloud_provider: true
+
+# Enable addons required for OpenStudio Server
+dns_mode: coredns
+ingress_nginx_enabled: true
+cert_manager_enabled: false
+metallb_enabled: false
+
+# Storage configuration
+csi_openstack_cinder_enabled: true
+csi_openstack_cinder_blockstorage_version: "v3"
+persistent_volumes_enabled: true
+expand_persistent_volumes: true
+
+# Node labeling for workload separation
+node_labels:
+  master: "node-role.kubernetes.io/control-plane=true"
+  web: "nodegroup=web-group,workload=web"
+  worker: "nodegroup=worker-group,workload=compute"
+
+# Resource reservations
+kube_reserved: true
+system_reserved: true
+
+# Kubernetes API server configuration
+kube_apiserver_enable_admission_plugins:
+  - NodeRestriction
+  - PodSecurityPolicy
+
+# Kubelet configuration
+kubelet_max_pods: 250
+kubelet_pods_per_core: 10
+
+# Docker/containerd configuration
+containerd_extra_args: {}
+docker_containerd_extra_args: {}
+
+# Enable necessary features
+podsecuritypolicy_enabled: false
+kubernetes_audit: false
+
+# Etcd configuration for high availability
+etcd_deployment_type: docker
+etcd_memory_limit: 2G
+etcd_cpu_limit: 1000m
+
+# CNI plugin configuration (Calico recommended for OpenStack)
+kube_network_plugin: calico
+calico_version: "{{ calico_version | default('v3.28.2') }}"
+calico_cni_version: "{{ calico_cni_version | default('v3.28.2') }}"
+calico_felix_default_endpoint_to_host_action: "ACCEPT"
+calico_pool_cidr: "{{ kube_pods_subnet }}"
+
+# Registry mirrors (configured by corporate firewall detection)
+containerd_registries:
+  "docker.io":
+    - "https://registry-1.docker.io"
+  "quay.io":
+    - "https://quay.io"  
+  "registry.k8s.io":
+    - "https://registry.k8s.io"
+  "ghcr.io":
+    - "https://ghcr.io"
