@@ -14,8 +14,13 @@ This directory contains legacy automation for building a Kubernetes cluster dire
 
 ```bash
 cp ../openstudio-server/values_production.templateyaml ../openstudio-server/values.yaml
-# Edit values.yaml (passwords/secrets/resources/provider=openstack)
+# Edit values.yaml (resources/provider=openstack/storage classes/secret name)
 # values.yaml is intentionally local/untracked; templates are the tracked source of truth.
+kubectl -n openstudio-server create secret generic openstudio-app-secrets \
+  --from-literal=db-username="openstudio" \
+  --from-literal=db-password="replace-with-strong-password" \
+  --from-literal=redis-password="replace-with-strong-password" \
+  --from-literal=web-secret-key="replace-with-long-random-secret"
 helm upgrade --install openstudio-server ../openstudio-server -f ../openstudio-server/values.yaml
 ```
 
@@ -201,6 +206,31 @@ Security hardening notes:
 - If using an externally managed secret (`secrets.existingSecret`), credentials only need to be entered once when creating that secret.
 - For normal upgrades in this environment, use your local `./openstudio-server/values.yaml` and avoid repeating secret flags.
 - If your cluster policy blocks Helm hook jobs, disable cleanup hook with `--set hooks.preDeleteCleanup.enabled=false`.
+- If `secrets.existingSecret` is set, keep `secrets.create=false`; the chart now fails fast when both are enabled.
+
+### Upgrade migration for `--reuse-values` users
+
+Older installs that relied on chart-managed or plaintext values should migrate to an external Kubernetes Secret before upgrading:
+
+```bash
+# 1) Create (or update) the app secret in the release namespace
+kubectl -n openstudio-server create secret generic openstudio-app-secrets \
+  --from-literal=db-username="openstudio" \
+  --from-literal=db-password="replace-with-strong-password" \
+  --from-literal=redis-password="replace-with-strong-password" \
+  --from-literal=web-secret-key="replace-with-long-random-secret" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# 2) Ensure your local values file uses external-secret mode
+# secrets:
+#   existingSecret: openstudio-app-secrets
+#   create: false
+
+# 3) Upgrade using explicit values file (preferred over pure --reuse-values)
+helm upgrade --install openstudio-server ./openstudio-server \
+  --namespace openstudio-server \
+  -f ./openstudio-server/values.yaml
+```
 
 By default, this chart enables Cluster Autoscaler on AWS and disables it for other providers (including OpenStack). If you want autoscaling on OpenStack, set:
 
@@ -258,6 +288,12 @@ If your cluster uses a different Cinder class name, set it explicitly in your va
 global:
   storageClasses:
     block: <your-cinder-storageclass-name>
+```
+
+Render/lint matrix before deploy:
+
+```bash
+./scripts/install-dry-run.sh
 ```
 
 ## 🏭 Architecture

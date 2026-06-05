@@ -35,7 +35,7 @@ cp openstudio-server/values_production.templateyaml openstudio-server/values.yam
 
 Then edit `openstudio-server/values.yaml` to:
 - Set your cloud provider in `global.provider.name` (`google`, `aws`, `azure`, or `openstack`)
-- Change default passwords (db.password, redis.password, web.secret_key_value)
+- Set your external app secret name (`secrets.existingSecret`) and keep `secrets.create=false` unless you intentionally want chart-managed secrets
 - Adjust resource allocations for your workload
 - Configure storage sizes
 
@@ -113,10 +113,16 @@ The `openstack/` directory in this repository contains legacy self-managed clust
 Once your Kubernetes cluster is available and your kubeconfig is configured, install the Helm chart:
 
 ```bash
-helm install openstudio-server ./openstudio-server
+kubectl -n openstudio-server create secret generic openstudio-app-secrets \
+  --from-literal=db-username="openstudio" \
+  --from-literal=db-password="replace-with-strong-password" \
+  --from-literal=redis-password="replace-with-strong-password" \
+  --from-literal=web-secret-key="replace-with-long-random-secret"
+helm upgrade --install openstudio-server ./openstudio-server
 ```
 
 **Note:** Provider is read from `global.provider.name` in your `values.yaml`, so you do not need `--set` provider flags during installation.
+Use `./scripts/install-dry-run.sh` to run lint/render checks across default and OpenStack values before deployment.
 
 ## Uninstalling the Chart
 

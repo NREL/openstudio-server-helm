@@ -1,5 +1,6 @@
-# OpenStack-specific values for openstudio-server
-# Based on values.yaml but adjusted for NFS storage with smaller disk sizes
+# OpenStack-specific values template for openstudio-server (external NFS class, small disks)
+# Copy this file to a local, untracked values file before deployment.
+# Do not commit populated credentials.
 
 # Set to openstack provider
 global:
@@ -13,6 +14,11 @@ storageclass:
 
 cluster:
   name: "openstudio-server"
+
+secrets:
+  # Recommended: pre-create this secret in the release namespace.
+  existingSecret: "openstudio-app-secrets"
+  create: false
 
 nfs-server-provisioner:
   enabled: false
@@ -29,8 +35,8 @@ nfs-server-provisioner:
 db:
   name:  "db"
   label: "db"
-  username: "openstudio"
-  password: "openstudio"
+  username: ""
+  password: ""
   container:
     name: "mongo-db"
     image: "mongo:6.0.7"
@@ -73,7 +79,7 @@ nfs_pvc:
 redis:
   name: "redis"
   label: "redis"
-  password: "openstudio"
+  password: ""
   container:
     name: "redis"
     image: "redis:6.0.9"
@@ -93,7 +99,7 @@ redis_svc:
   name: "queue"
   label: "redis"
   port: 6379
-  url: "redis://:openstudio@queue:6379"
+  url: "redis://:${REDIS_PASSWORD}@queue:6379"
 
 rserve:
   name: "rserve"
@@ -127,7 +133,7 @@ web_background:
 web:
   name: "web"
   label: "web"
-  secret_key_value: "CHANGE_ME_TO_A_LONG_RANDOM_SECRET"
+  secret_key_value: ""
   passenger_memory_per_process: 250
   container:
     name: "web"

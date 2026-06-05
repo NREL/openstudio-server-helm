@@ -99,6 +99,11 @@ affinity:
 {{- default "redis" .Values.redis.name -}}
 {{- end -}}
 
+{{- define "openstudio.nfsPvcName" -}}
+{{- $nfsPvc := default (dict) (get .Values "nfs_pvc") -}}
+{{- default "nfs-pvc" (get $nfsPvc "name") -}}
+{{- end -}}
+
 {{- define "openstudio.redisServiceName" -}}
 {{- $redisSvc := default (dict) (get .Values "redis_svc") -}}
 {{- default "queue" (get $redisSvc "name") -}}
@@ -143,10 +148,16 @@ affinity:
 {{- define "openstudio.secretName" -}}
 {{- $secrets := default (dict) .Values.secrets -}}
 {{- $existingSecret := default "" (get $secrets "existingSecret") -}}
+{{- $create := true -}}
+{{- if hasKey $secrets "create" -}}
+{{- $create = (get $secrets "create") -}}
+{{- end -}}
+{{- if and (ne $existingSecret "") $create -}}
+{{- fail "secrets.existingSecret and secrets.create=true cannot both be set; choose one secret source" -}}
+{{- end -}}
 {{- if ne $existingSecret "" -}}
 {{- $existingSecret -}}
 {{- else -}}
-{{- $create := default true (get $secrets "create") -}}
 {{- if not $create -}}
 {{- fail "Either secrets.existingSecret must be set or secrets.create must be true" -}}
 {{- end -}}

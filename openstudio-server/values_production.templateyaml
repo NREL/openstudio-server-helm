@@ -29,8 +29,10 @@ autoscaler:
   extraArgs: []
 
 secrets:
-  existingSecret: ""
-  create: true
+  # Recommended default: pre-create this secret once and reference it.
+  existingSecret: "openstudio-app-secrets"
+  # Set to true only if you intentionally want chart-managed secret creation.
+  create: false
   nameOverride: ""
   keys:
     dbUsername: "db-username"

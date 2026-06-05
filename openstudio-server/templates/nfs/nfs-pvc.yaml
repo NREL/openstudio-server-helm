@@ -1,11 +1,14 @@
+{{- $nfsPvc := default (dict) (get .Values "nfs_pvc") -}}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
-  name: nfs-pvc
+  name: {{ include "openstudio.nfsPvcName" . }}
 spec:
   accessModes:
-    - ReadWriteMany
-  storageClassName: "nfs"
+{{- range $mode := default (list "ReadWriteMany") (get $nfsPvc "accessModes") }}
+    - {{ $mode }}
+{{- end }}
+  storageClassName: {{ default "nfs" (get $nfsPvc "storage_class") | quote }}
   resources:
     requests:
-      storage:  {{ .Values.nfs_pvc.storage }}
+      storage:  {{ default "2Gi" (get $nfsPvc "storage") }}

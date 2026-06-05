@@ -48,5 +48,5 @@ spec:
       volumes:
         - name: db
           persistentVolumeClaim:
-            claimName: db
+            claimName: {{ include "openstudio.dbName" . }}
           

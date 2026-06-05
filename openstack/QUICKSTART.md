@@ -17,9 +17,16 @@ Once your cluster is created and kubeconfig is configured:
 
 ```bash
 cp ../openstudio-server/values_production.templateyaml ../openstudio-server/values.yaml
-# edit ../openstudio-server/values.yaml (provider=openstack, passwords/secrets/resources)
-helm install openstudio-server ../openstudio-server
+# edit ../openstudio-server/values.yaml (provider=openstack, resources, storage, and secret name)
+kubectl -n openstudio-server create secret generic openstudio-app-secrets \
+  --from-literal=db-username="openstudio" \
+  --from-literal=db-password="replace-with-strong-password" \
+  --from-literal=redis-password="replace-with-strong-password" \
+  --from-literal=web-secret-key="replace-with-long-random-secret"
+helm upgrade --install openstudio-server ../openstudio-server -f ../openstudio-server/values.yaml
 ```
+
+All tracked values files in this repository are templates. Keep real credentials in a local untracked values file and Kubernetes Secret.
 
 The production template sets OpenStack storage hardening defaults:
 

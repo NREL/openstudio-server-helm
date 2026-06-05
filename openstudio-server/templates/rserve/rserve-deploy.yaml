@@ -65,4 +65,4 @@ spec:
       volumes:
         - name: osdata
           persistentVolumeClaim:
-            claimName: nfs-pvc
+            claimName: {{ include "openstudio.nfsPvcName" . }}

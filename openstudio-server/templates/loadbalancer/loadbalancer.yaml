@@ -1,9 +1,10 @@
 apiVersion: v1
 kind: Service
 {{ $loadBalancer := (get .Values "load_balancer") | default (dict) }}
+{{ $ports := (get $loadBalancer "ports") | default (dict) }}
 {{ $providerName := include "openstudio.providerName" . }}
 metadata:
-  name: ingress-load-balancer
+  name: {{ default "ingress-load-balancer" (get $loadBalancer "name") }}
   annotations:
 {{- if and (eq $providerName "aws") (get $loadBalancer "internal") }}
     service.beta.kubernetes.io/aws-load-balancer-internal: "true"
@@ -21,9 +22,9 @@ spec:
     app: {{ default "web" (get $loadBalancer "label") }}
     release: {{ .Release.Name }}
   ports:
-    - name: http
-      protocol: TCP
-      port: 80
-    - name: https
-      protocol: TCP
-      port: 443
+    - name: {{ default "http" (get $ports "http_name") }}
+      protocol: {{ default "TCP" (get $ports "http_protocol") }}
+      port: {{ default 80 (get $ports "http_port") }}
+    - name: {{ default "https" (get $ports "https_name") }}
+      protocol: {{ default "TCP" (get $ports "https_protocol") }}
+      port: {{ default 443 (get $ports "https_port") }}
