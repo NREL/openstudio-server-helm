@@ -1,7 +1,11 @@
 {{- $global := default (dict) .Values.global -}}
 {{- $globalProvider := default (dict) (get $global "provider") -}}
 {{- $legacyProvider := default (dict) .Values.provider -}}
-{{- $providerName := default (default "" (get $legacyProvider "name")) (get $globalProvider "name") }}
+{{- $legacyProviderName := lower (default "" (get $legacyProvider "name")) -}}
+{{- if ne $legacyProviderName "" -}}
+{{- fail "provider.name is deprecated and no longer supported. Set global.provider.name instead." -}}
+{{- end -}}
+{{- $providerName := lower (default "" (get $globalProvider "name")) }}
 {{- $storageClasses := default (dict) (get $global "storageClasses") -}}
 {{- $openstackBlockStorageClass := default "cinder-csi" (get $storageClasses "block") -}}
 {{- $defaultStorageClass := ternary $openstackBlockStorageClass "ssd" (eq $providerName "openstack") }}

@@ -74,4 +74,19 @@ helm template openstudio-server "${CHART_DIR}" \
   --set load_balancer.ports.http_port=8080 \
   --set load_balancer.ports.https_port=8443 >/dev/null
 
+if helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name=aws \
+  --set provider.name=aws >/dev/null 2>&1; then
+  echo "Expected failure when deprecated provider.name is set"
+  exit 1
+fi
+
+if ! helm template openstudio-server "${CHART_DIR}" \
+  -f "${ROOT_DIR}/openstack/values-openstack.yaml" \
+  --set secrets.validateExistingSecret=false \
+  | grep -q 'storageClassName: "cinder-csi"'; then
+  echo "Expected OpenStack values to render cinder-csi as NFS provisioner backing storageClass"
+  exit 1
+fi
+
 echo "Helm lint/render matrix completed."

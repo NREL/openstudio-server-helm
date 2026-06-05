@@ -2,7 +2,11 @@
 {{- $global := default (dict) .Values.global -}}
 {{- $globalProvider := default (dict) (get $global "provider") -}}
 {{- $legacyProvider := default (dict) .Values.provider -}}
-{{- $provider := lower (default (default "" (get $legacyProvider "name")) (get $globalProvider "name")) -}}
+{{- $legacyProviderName := lower (default "" (get $legacyProvider "name")) -}}
+{{- if ne $legacyProviderName "" -}}
+{{- fail "provider.name is deprecated and no longer supported. Set global.provider.name instead." -}}
+{{- end -}}
+{{- $provider := lower (default "" (get $globalProvider "name")) -}}
 {{- if eq $provider "" -}}
 {{- fail "global.provider.name is required. Set one of: aws, google, azure, openstack." -}}
 {{- end -}}

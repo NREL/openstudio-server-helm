@@ -40,10 +40,18 @@ The production template sets OpenStack storage hardening defaults:
 If you explicitly choose to run self-managed cluster automation from this directory:
 
 ```bash
-./deploy.sh
+# Required before deploy-openstudio-cluster.sh:
+kubectl -n openstudio-server create secret generic openstudio-app-secrets \
+  --from-literal=db-username="openstudio" \
+  --from-literal=db-password="replace-with-strong-password" \
+  --from-literal=redis-password="replace-with-strong-password" \
+  --from-literal=web-secret-key="replace-with-long-random-secret"
+
+./deploy-openstudio-cluster.sh small
 ```
 
 This flow provisions and bootstraps Kubernetes directly on OpenStack, but it is a legacy path and may require substantial environment-specific troubleshooting.
+By default it applies `./values-openstack.yaml`, enforces `global.provider.name=openstack`, and requires `APP_SECRET_NAME` (default `openstudio-app-secrets`) to already exist.
 
 ## Expected Output
 

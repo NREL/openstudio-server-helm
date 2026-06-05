@@ -8,6 +8,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KUBESPRAY_PATH="${KUBESPRAY_PATH:-$HOME/kubespray}"
 HELM_CHART_PATH="${HELM_CHART_PATH:-../openstudio-server}"
+HELM_VALUES_FILE="${HELM_VALUES_FILE:-$SCRIPT_DIR/values-openstack.yaml}"
+APP_SECRET_NAME="${APP_SECRET_NAME:-openstudio-app-secrets}"
 
 # Color codes for output
 RED='\033[0;31m'
@@ -63,6 +65,8 @@ ENVIRONMENT VARIABLES:
     - TF_VAR_openstack_user_domain_name
     - TF_VAR_openstack_project_domain_id
     - TF_VAR_openstack_project_id
+    - HELM_VALUES_FILE (optional; default: ./values-openstack.yaml)
+    - APP_SECRET_NAME (optional; default: openstudio-app-secrets)
 
 Examples:
     $0 small                    # Deploy small cluster
@@ -415,16 +419,28 @@ deploy_openstudio() {
     log "Adding Helm repositories..."
     helm repo add nfs-server-provisioner https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner
     helm repo update
+
+    if [[ ! -f "$HELM_VALUES_FILE" ]]; then
+        error "Helm values file not found: $HELM_VALUES_FILE"
+    fi
     
     # Create namespace
     kubectl create namespace openstudio-server || true
+
+    if ! kubectl get secret "$APP_SECRET_NAME" -n openstudio-server >/dev/null 2>&1; then
+        error "Required secret '$APP_SECRET_NAME' was not found in namespace 'openstudio-server'. Create it before running this script."
+    fi
     
     # Deploy OpenStudio Server
     log "Installing OpenStudio Server..."
     helm upgrade --install openstudio-server "$HELM_CHART_PATH" \
         --namespace openstudio-server \
         --values "$HELM_CHART_PATH/values.yaml" \
-        --set provider.name=openstack \
+        --values "$HELM_VALUES_FILE" \
+        --set secrets.existingSecret="$APP_SECRET_NAME" \
+        --set secrets.create=false \
+        --set secrets.validateExistingSecret=true \
+        --set global.provider.name=openstack \
         --timeout=20m \
         --wait
     

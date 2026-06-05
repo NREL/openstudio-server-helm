@@ -32,8 +32,21 @@ helm upgrade --install openstudio-server ../openstudio-server \
 If you still need to self-manage Kubernetes on OpenStack with the scripts in this directory:
 
 ```bash
+# Pre-create app secret used by deploy-openstudio-cluster.sh
+kubectl -n openstudio-server create secret generic openstudio-app-secrets \
+  --from-literal=db-username="openstudio" \
+  --from-literal=db-password="replace-with-strong-password" \
+  --from-literal=redis-password="replace-with-strong-password" \
+  --from-literal=web-secret-key="replace-with-long-random-secret"
+
 ./deploy-openstudio-cluster.sh small
 ```
+
+By default, `deploy-openstudio-cluster.sh` deploys with:
+
+- `HELM_VALUES_FILE=./values-openstack.yaml`
+- `APP_SECRET_NAME=openstudio-app-secrets`
+- `global.provider.name=openstack`
 
 ## Legacy Path Features
 
@@ -115,6 +128,10 @@ export TF_VAR_nodeport_access_cidr="0.0.0.0/0"
 
 # Deploy test cluster without Helm (infrastructure only)
 ./deploy-openstudio-cluster.sh test --skip-helm
+
+# Use a custom values overlay and secret name
+HELM_VALUES_FILE=./values-openstack-nfs.yaml APP_SECRET_NAME=openstudio-app-secrets \
+  ./deploy-openstudio-cluster.sh small
 ```
 
 ### Advanced Options
