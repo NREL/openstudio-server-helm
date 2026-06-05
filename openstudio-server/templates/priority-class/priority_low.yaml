@@ -1,9 +1,13 @@
-{{- if not (lookup "scheduling.k8s.io/v1" "PriorityClass" "" "high-priority") }}
+{{- $priorityClasses := default (dict) .Values.priorityClasses -}}
+{{- if (default true (get $priorityClasses "create")) -}}
+{{- $lowName := default "low-priority" (get $priorityClasses "lowName") -}}
+{{- if not (lookup "scheduling.k8s.io/v1" "PriorityClass" "" $lowName) }}
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
-  name: low-priority
+  name: {{ $lowName }}
 value: 10000
 globalDefault: true
 description: "Used for non-core service pods only. This is default"
+{{- end }}
 {{- end }}

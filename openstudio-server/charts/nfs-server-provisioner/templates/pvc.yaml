@@ -1,9 +1,33 @@
+{{- $global := default (dict) .Values.global -}}
+{{- $globalProvider := default (dict) (get $global "provider") -}}
+{{- $legacyProvider := default (dict) .Values.provider -}}
+{{- $legacyProviderName := lower (default "" (get $legacyProvider "name")) -}}
+{{- $allowLegacyProviderName := default true (get $globalProvider "allowLegacyName") -}}
+{{- $providerName := lower (default "" (get $globalProvider "name")) -}}
+{{- if ne $legacyProviderName "" -}}
+{{- if not $allowLegacyProviderName -}}
+{{- fail "provider.name is deprecated and disabled by default. Set global.provider.name, or set global.provider.allowLegacyName=true temporarily during migration." -}}
+{{- end -}}
+{{- if and (ne $providerName "") (ne $providerName $legacyProviderName) -}}
+{{- fail (printf "provider.name=%q conflicts with global.provider.name=%q. Remove provider.name and keep global.provider.name." $legacyProviderName $providerName) -}}
+{{- end -}}
+{{- if eq $providerName "" -}}
+{{- if ne $legacyProviderName "" -}}
+{{- $providerName = $legacyProviderName -}}
+{{- else -}}
+{{- $providerName = "aws" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $storageClasses := default (dict) (get $global "storageClasses") -}}
+{{- $openstackBlockStorageClass := default "cinder-csi" (get $storageClasses "block") -}}
+{{- $defaultStorageClass := ternary $openstackBlockStorageClass "ssd" (eq $providerName "openstack") }}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: {{ .Values.persistence.name  }}
 spec:
-  storageClassName: {{ .Values.persistence.storageClass }}
+  storageClassName: {{ default $defaultStorageClass .Values.persistence.storageClass | quote }}
   accessModes:
     {{ .Values.persistence.accessModes }}
   resources:

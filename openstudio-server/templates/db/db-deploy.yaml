@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.db.name }}
+  name: {{ include "openstudio.dbName" . }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: {{ .Values.db.name  }}
+      app: {{ default "db" .Values.db.label }}
       release: {{ .Release.Name }}
   strategy:
     type: RollingUpdate
@@ -16,38 +16,41 @@ spec:
   template:
     metadata:
       labels:
-        app: {{ .Values.db.name }}
+        app: {{ default "db" .Values.db.label }}
         release: {{ .Release.Name }}
+    {{ $dbContainer := (get .Values.db "container") | default (dict) }}
+    {{ $dbContainerPorts := (get $dbContainer "ports") | default (dict) }}
+    {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
+      {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
+      {{- if (default true (get $priorityClasses "enabled")) }}
+      priorityClassName: {{ default "high-priority" (get $priorityClasses "highName") }}
+      {{- end }}
       containers:
-        - name: {{ .Values.db.container.name }}
+        - name: {{ default "mongo-db" .Values.db.container.name }}
           image: {{ .Values.db.container.image }}
           ports:
-            - containerPort:  {{ .Values.db.container.ports.db_port }}
+            - containerPort:  {{ default 27017 (get $dbContainerPorts "db_port") }}
           volumeMounts:
             - mountPath: /data/db
-              name: {{ .Values.db.name }}
+              name: db
           resources:
             requests:
               cpu:  {{  .Values.db.container.resources.requests.cpu  }}
               memory:  {{  .Values.db.container.resources.requests.memory  }}
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
-              value: {{ .Values.db.username }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyDbUsername" . }}
             - name: MONGO_INITDB_ROOT_PASSWORD
-              value: {{ .Values.db.password }}
-      priorityClassName: high-priority
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyDbPassword" . }}
       volumes:
-        - name: {{ .Values.db.name }}
+        - name: db
           persistentVolumeClaim:
-            claimName: {{ .Values.db.name }}
+            claimName: {{ include "openstudio.dbName" . }}
           

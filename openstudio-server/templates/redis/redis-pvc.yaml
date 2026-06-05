@@ -1,11 +1,14 @@
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
-  name: {{ .Values.redis.name  }}
+  name: {{ include "openstudio.redisName" . }}
+{{- $redisPersistence := default (dict) (get .Values.redis "persistence") }}
 spec:
-  storageClassName: {{ .Values.redis.persistence.storageClass }}
+  storageClassName: {{ default (include "openstudio.defaultAppPersistenceStorageClass" .) (get $redisPersistence "storageClass") | quote }}
   accessModes:
-    {{ .Values.redis.persistence.accessModes }}
+{{- range $mode := default (list "ReadWriteOnce") (get $redisPersistence "accessModes") }}
+    - {{ $mode | quote }}
+{{- end }}
   resources:
     requests:
       storage:  {{ .Values.redis.persistence.size }}

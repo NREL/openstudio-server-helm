@@ -1,3 +1,51 @@
+{{- $providerName := include "openstudio.providerName" . -}}
+{{- $autoscaler := default (dict) .Values.autoscaler -}}
+{{- $autoscalerEnabled := default (eq $providerName "aws") (get $autoscaler "enabled") -}}
+{{- $openstackNodeGroups := default (list) (get $autoscaler "openstackNodeGroups") -}}
+{{- $autoscalerImage := default (dict) (get $autoscaler "image") -}}
+{{- $kubeMinor := regexFind "^[0-9]+" .Capabilities.KubeVersion.Minor -}}
+{{- $defaultAutoscalerTag := printf "v%s.%s.0" .Capabilities.KubeVersion.Major $kubeMinor -}}
+{{- $autoscalerImageTag := default $defaultAutoscalerTag (get $autoscalerImage "tag") -}}
+{{- $autoscalerImageRepo := default "registry.k8s.io/autoscaling/cluster-autoscaler" (get $autoscalerImage "repository") -}}
+{{- $autoscalerImagePullPolicy := default "IfNotPresent" (get $autoscalerImage "pullPolicy") -}}
+{{- $expectedTagPrefix := printf "v%s.%s." .Capabilities.KubeVersion.Major $kubeMinor -}}
+{{- $openstackAutoscaler := default (dict) (get $autoscaler "openstack") -}}
+{{- $cloudConfigSecretName := default "" (get $openstackAutoscaler "cloudConfigSecretName") -}}
+{{- $cloudConfigSecretKey := default "cloud.conf" (get $openstackAutoscaler "cloudConfigSecretKey") -}}
+{{- $cloudConfigMountPath := default "/etc/kubernetes/cloud.conf" (get $openstackAutoscaler "cloudConfigMountPath") -}}
+{{- $caBundleSecretName := default "" (get $openstackAutoscaler "caBundleSecretName") -}}
+{{- $caBundleSecretKey := default "ca.crt" (get $openstackAutoscaler "caBundleSecretKey") -}}
+{{- $caBundleMountPath := default "/etc/ssl/certs/openstack-ca.crt" (get $openstackAutoscaler "caBundleMountPath") -}}
+{{- $checkExistingOwnership := default true (get $openstackAutoscaler "checkExistingDeploymentOwnership") -}}
+{{- $extraArgs := default (list) (get $autoscaler "extraArgs") -}}
+{{- $hasCloudConfigArg := false -}}
+{{- range $arg := $extraArgs -}}
+  {{- if regexMatch "^--cloud-config=.*" (printf "%v" $arg) -}}
+    {{- $hasCloudConfigArg = true -}}
+  {{- end -}}
+{{- end -}}
+{{- if and $autoscalerEnabled (eq $providerName "openstack") (eq (len $openstackNodeGroups) 0) -}}
+{{- fail "autoscaler.enabled=true for OpenStack requires autoscaler.openstackNodeGroups with at least one {name,min,max} entry." -}}
+{{- end -}}
+{{- if and $autoscalerEnabled (not (hasPrefix $expectedTagPrefix $autoscalerImageTag)) -}}
+{{- fail (printf "autoscaler.image.tag=%q should match cluster minor version prefix %q for compatibility with Kubernetes %s. Set autoscaler.image.tag explicitly." $autoscalerImageTag $expectedTagPrefix .Capabilities.KubeVersion.Version) -}}
+{{- end -}}
+{{- if and $autoscalerEnabled (eq $providerName "openstack") (eq $cloudConfigSecretName "") (not $hasCloudConfigArg) -}}
+{{- fail "OpenStack autoscaler requires cloud config. Set autoscaler.openstack.cloudConfigSecretName or provide --cloud-config=<path> in autoscaler.extraArgs." -}}
+{{- end -}}
+{{- if and $autoscalerEnabled (eq $providerName "openstack") $checkExistingOwnership -}}
+{{- $existingAutoscaler := lookup "apps/v1" "Deployment" "kube-system" "cluster-autoscaler" -}}
+{{- if $existingAutoscaler -}}
+{{- $existingMetadata := default (dict) (get $existingAutoscaler "metadata") -}}
+{{- $existingAnnotations := default (dict) (get $existingMetadata "annotations") -}}
+{{- $existingReleaseName := default "" (get $existingAnnotations "meta.helm.sh/release-name") -}}
+{{- $existingReleaseNamespace := default "" (get $existingAnnotations "meta.helm.sh/release-namespace") -}}
+{{- if not (and (eq $existingReleaseName .Release.Name) (eq $existingReleaseNamespace .Release.Namespace)) -}}
+{{- fail "autoscaler.enabled=true on OpenStack conflicts with an existing kube-system/cluster-autoscaler deployment not owned by this release. Use Azimuth/platform autoscaling only, or remove the existing deployment before enabling chart autoscaler." -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if $autoscalerEnabled }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -137,18 +185,10 @@ spec:
         prometheus.io/scrape: 'true'
         prometheus.io/port: '8085'
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
+      {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
       serviceAccountName: cluster-autoscaler
       containers:
-        - image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.26.6
+        - image: {{ printf "%s:%s" $autoscalerImageRepo $autoscalerImageTag }}
           name: cluster-autoscaler
           resources:
             limits:
@@ -161,17 +201,55 @@ spec:
             - ./cluster-autoscaler
             - --v=4
             - --stderrthreshold=info
-            - --cloud-provider={{ .Values.provider.name }}
+            - --cloud-provider={{ $providerName }}
             - --skip-nodes-with-local-storage=false
             - --expander=least-waste
+            {{- if eq $providerName "aws" }}
             - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/{{ .Values.cluster.name }}
+            {{- else if eq $providerName "openstack" }}
+            {{- range $group := $openstackNodeGroups }}
+            - --nodes={{ required "autoscaler.openstackNodeGroups[].min is required when autoscaler is enabled for openstack" $group.min }}:{{ required "autoscaler.openstackNodeGroups[].max is required when autoscaler is enabled for openstack" $group.max }}:{{ required "autoscaler.openstackNodeGroups[].name is required when autoscaler is enabled for openstack" $group.name }}
+            {{- end }}
+            {{- if and (ne $cloudConfigSecretName "") (not $hasCloudConfigArg) }}
+            - --cloud-config={{ $cloudConfigMountPath }}
+            {{- end }}
+            {{- end }}
+            {{- range $arg := $extraArgs }}
+            - {{ $arg }}
+            {{- end }}
             - --scale-down-unneeded-time=5m
+          {{- if and (eq $providerName "openstack") (ne $caBundleSecretName "") }}
+          env:
+            - name: SSL_CERT_FILE
+              value: {{ $caBundleMountPath | quote }}
+          {{- end }}
+          imagePullPolicy: {{ $autoscalerImagePullPolicy | quote }}
+          {{- if and (eq $providerName "openstack") (or (ne $cloudConfigSecretName "") (ne $caBundleSecretName "")) }}
           volumeMounts:
-            - name: ssl-certs
-              mountPath: /etc/ssl/certs/ca-certificates.crt
+            {{- if ne $cloudConfigSecretName "" }}
+            - name: openstack-cloud-config
+              mountPath: {{ $cloudConfigMountPath | quote }}
+              subPath: {{ $cloudConfigSecretKey | quote }}
               readOnly: true
-          imagePullPolicy: "Always"
+            {{- end }}
+            {{- if ne $caBundleSecretName "" }}
+            - name: openstack-ca-bundle
+              mountPath: {{ $caBundleMountPath | quote }}
+              subPath: {{ $caBundleSecretKey | quote }}
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if and (eq $providerName "openstack") (or (ne $cloudConfigSecretName "") (ne $caBundleSecretName "")) }}
       volumes:
-        - name: ssl-certs
-          hostPath:
-            path: "/etc/ssl/certs/ca-bundle.crt"
+        {{- if ne $cloudConfigSecretName "" }}
+        - name: openstack-cloud-config
+          secret:
+            secretName: {{ $cloudConfigSecretName | quote }}
+        {{- end }}
+        {{- if ne $caBundleSecretName "" }}
+        - name: openstack-ca-bundle
+          secret:
+            secretName: {{ $caBundleSecretName | quote }}
+        {{- end }}
+      {{- end }}
+{{- end }}

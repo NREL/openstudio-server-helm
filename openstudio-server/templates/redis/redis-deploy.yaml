@@ -1,43 +1,46 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.redis.name  }}
+  name: {{ include "openstudio.redisName" . }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: {{ .Values.redis.name  }}
+      app: {{ default "redis" .Values.redis.label }}
       release: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app: {{ .Values.redis.name  }}
+        app: {{ default "redis" .Values.redis.label }}
         release: {{ .Release.Name }}
+    {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
+      {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
+      {{- if (default true (get $priorityClasses "enabled")) }}
+      priorityClassName: {{ default "high-priority" (get $priorityClasses "highName") }}
+      {{- end }}
       containers:
-        - name: {{ .Values.redis.container.name  }}
+        - name: {{ default "redis" .Values.redis.container.name  }}
           image: {{ .Values.redis.container.image  }}
           resources:
             requests:
               cpu:  {{  .Values.redis.container.resources.requests.cpu  }}
               memory:  {{  .Values.redis.container.resources.requests.memory  }}
           ports:
-            - containerPort: {{ .Values.redis.container.port  }}
+            - containerPort: {{ default 6379 .Values.redis.container.port }}
           volumeMounts:
             - mountPath: /data
-              name: {{ .Values.redis.name }}
-          args: ["redis-server", "--appendonly yes", "--requirepass", "{{ .Values.redis.password  }}"]
-      priorityClassName: high-priority
+              name: redis
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyRedisPassword" . }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"
       volumes:
-        - name: {{ .Values.redis.name }}
+        - name: redis
           persistentVolumeClaim:
-            claimName: {{ .Values.redis.name }}
+            claimName: {{ include "openstudio.redisName" . }}

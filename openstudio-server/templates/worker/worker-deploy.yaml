@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.worker.name   }}
+  name: {{ include "openstudio.workerName" . }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: {{ .Values.worker.name }}
+      app: {{ default "worker" .Values.worker.label }}
       release: {{ .Release.Name }}
   strategy:
     type: RollingUpdate
@@ -16,21 +16,18 @@ spec:
   template:
     metadata:
       labels:
-        app: {{ .Values.worker.name }}
+        app: {{ default "worker" .Values.worker.label }}
         release: {{ .Release.Name }}
+    {{ $priorityClasses := default (dict) .Values.priorityClasses }}
+    {{ $redis := default (dict) .Values.redis }}
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - worker-group
+      {{- include "openstudio.affinityForRole" (dict "root" . "role" "worker") | nindent 6 }}
+      {{- if (default true (get $priorityClasses "enabled")) }}
+      priorityClassName: {{ default "low-priority" (get $priorityClasses "lowName") }}
+      {{- end }}
       containers:
-        - name: {{ .Values.worker.container.name   }}
-          image: {{ .Values.worker.container.image   }}
+        - name: {{ default "worker" .Values.worker.container.name }}
+          image: {{ default (include "openstudio.serverImage" .) .Values.worker.container.image }}
           imagePullPolicy: Always
           lifecycle:
             preStop:
@@ -45,20 +42,35 @@ spec:
               mountPath: "/mnt/openstudio"
           env:
             - name:  QUEUES
-              value: simulations
+              value: {{ .Values.worker.queues | quote }}
+            - name:  QUEUE
+              value: {{ .Values.worker.queues | quote }}
             - name:  COUNT
               value: "1"
             - name: SECRET_KEY_BASE
-              value: {{ .Values.web.secret_key_value }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyWebSecret" . }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyRedisPassword" . }}
             - name: REDIS_URL
-              value: {{ .Values.redis_svc.url  }}
+              value: {{ default (printf "redis://:$(REDIS_PASSWORD)@%s:6379" (include "openstudio.redisServiceName" .)) (get $redis "url") | quote }}
             - name: MONGO_USER
-              value: {{ .Values.db.username }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyDbUsername" . }}
             - name: MONGO_PASSWORD
-              value: {{ .Values.db.password }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyDbPassword" . }}
           command: ["/usr/local/bin/start-workers"]
       terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs.
-      priorityClassName: low-priority
       volumes:
         - name: osdata-worker
           emptyDir: {}

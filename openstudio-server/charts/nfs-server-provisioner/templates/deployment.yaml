@@ -102,9 +102,39 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- if .Values.affinity }}
       affinity:
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .Values.affinity | nindent 8 }}
+      {{- else }}
+      {{- $global := default (dict) .Values.global }}
+      {{- $globalProvider := default (dict) (get $global "provider") }}
+      {{- $legacyProvider := default (dict) .Values.provider }}
+      {{- $legacyProviderName := lower (default "" (get $legacyProvider "name")) }}
+      {{- $allowLegacyProviderName := default true (get $globalProvider "allowLegacyName") }}
+      {{- $providerName := lower (default "" (get $globalProvider "name")) }}
+      {{- if ne $legacyProviderName "" }}
+      {{- if not $allowLegacyProviderName }}
+      {{- fail "provider.name is deprecated and disabled by default. Set global.provider.name, or set global.provider.allowLegacyName=true temporarily during migration." }}
+      {{- end }}
+      {{- if and (ne $providerName "") (ne $providerName $legacyProviderName) }}
+      {{- fail (printf "provider.name=%q conflicts with global.provider.name=%q. Remove provider.name and keep global.provider.name." $legacyProviderName $providerName) }}
+      {{- end }}
+      {{- if eq $providerName "" }}
+      {{- $providerName = $legacyProviderName }}
+      {{- end }}
+      {{- end }}
+      {{- $nodeGroups := default (dict) (get $global "nodeGroups") }}
+      {{- $labelKeyOverride := default "" (get $nodeGroups "labelKey") }}
+      {{- $webGroupOverride := default "" (get $nodeGroups "web") }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ if ne $labelKeyOverride "" }}{{ $labelKeyOverride }}{{ else if eq $providerName "openstack" }}capi.stackhpc.com/node-group{{ else }}nodegroup{{ end }}
+                    operator: In
+                    values:
+                      - {{ if ne $webGroupOverride "" }}{{ $webGroupOverride }}{{ else if eq $providerName "openstack" }}web{{ else }}web-group{{ end }}
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:

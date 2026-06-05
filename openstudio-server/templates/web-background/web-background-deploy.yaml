@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{  .Values.web_background.name  }}
+  name: {{ include "openstudio.webBackgroundName" . }}
 spec:
   replicas: {{  .Values.web_background.replicas  }}
   selector:
     matchLabels:
-      app: {{  .Values.web_background.name  }}
+      app: {{ default "web-background" .Values.web_background.label }}
       release: {{ .Release.Name }}
   strategy:
     type: RollingUpdate
@@ -16,21 +16,18 @@ spec:
   template:
     metadata:
       labels:
-        app: {{  .Values.web_background.name  }}
+        app: {{ default "web-background" .Values.web_background.label }}
         release: {{ .Release.Name }}
+    {{ $priorityClasses := default (dict) .Values.priorityClasses }}
+    {{ $redis := default (dict) .Values.redis }}
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
+      {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
+      {{- if (default true (get $priorityClasses "enabled")) }}
+      priorityClassName: {{ default "high-priority" (get $priorityClasses "highName") }}
+      {{- end }}
       containers:
-        - name:  {{  .Values.web_background.container.name  }}
-          image:  {{  .Values.web_background.container.image  }}
+        - name:  {{ default "web-background" .Values.web_background.container.name }}
+          image: {{ default (include "openstudio.serverImage" .) .Values.web_background.container.image }}
           imagePullPolicy: Always
           resources:
             requests:
@@ -45,13 +42,27 @@ spec:
             - name: QUEUES
               value: background,analyses
             - name: SECRET_KEY_BASE
-              value: {{ .Values.web.secret_key_value }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyWebSecret" . }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyRedisPassword" . }}
             - name: REDIS_URL
-              value: {{ .Values.redis_svc.url  }}
+              value: {{ default (printf "redis://:$(REDIS_PASSWORD)@%s:6379" (include "openstudio.redisServiceName" .)) (get $redis "url") | quote }}
             - name: MONGO_USER
-              value: {{ .Values.db.username }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyDbUsername" . }}
             - name: MONGO_PASSWORD
-              value: {{ .Values.db.password }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyDbPassword" . }}
           command: ["/usr/local/bin/start-web-background"]
           livenessProbe:
             exec:
@@ -60,8 +71,7 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 30
             failureThreshold: 3
-      priorityClassName: high-priority
       volumes:
         - name: nfs
           persistentVolumeClaim:
-            claimName: nfs-pvc
+            claimName: {{ include "openstudio.nfsPvcName" . }}

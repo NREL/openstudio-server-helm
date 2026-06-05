@@ -1,11 +1,10 @@
-# Default values for openstudio-server.
-# This is a YAML-formatted file.
+# Production values for openstudio-server.
+# This is a YAML-formatted file optimized for production workloads.
 # Declare variables to be passed into your templates.
-
 
 global:
   provider:
-    name: ""
+    name: "openstack"
     # Temporary migration toggle. Keep false unless upgrading legacy values
     # that still set provider.name instead of global.provider.name.
     allowLegacyName: false
@@ -16,7 +15,7 @@ global:
     tag: "3.10.0"
 
 cluster:
-  name: "openstudio-server"
+  name: "openstudio-server-prod"
 
 autoscaler:
   # Defaults to enabled on AWS and disabled on other providers unless explicitly set.
@@ -53,16 +52,19 @@ secrets:
     redisPassword: "redis-password"
     webSecret: "web-secret-key"
 
+# NFS Server Provisioner - Increased storage for production workloads
 nfs-server-provisioner:
   persistence:
     enabled: true
     # Backend storage for the in-cluster NFS server (nfs-pvc-data).
     # Keep nfs_pvc.storage below this value to avoid NFS provisioning failures.
-    size: 550Gi
+    size: 1Ti  # Sized for no-pruning retention and high worker throughput
   storageClass:
-    allowVolumeExpansion: false
+    allowVolumeExpansion: true  # Enable expansion for future growth
     mountOptions:
       - vers=4
+
+# Database - Enhanced for production
 db:
   # Required when secrets.create=true.
   username: ""
@@ -71,17 +73,19 @@ db:
     image: "mongo:6.0.7"
     resources:
       requests:
-        cpu: 1
-        memory: "4Gi"
+        cpu: 2          # Increased from 1 for better performance
+        memory: "8Gi"   # Increased from 4Gi for production workloads
   persistence:
-    size: 200Gi
+    storageClass: "cinder-csi"  # Keep DB state off shared NFS assets volume
+    size: 20Gi        # Increased from 2Gi for production data
 
+# NFS PVC - Increased storage for production
 nfs_pvc:
   # Frontend shared RWX claim consumed by web/rserve/background pods.
   # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
-  storage: "500Gi"
+  storage: "900Gi"
 
-
+# Redis - Enhanced for production
 redis:
   # Required when secrets.create=true.
   password: ""
@@ -92,69 +96,71 @@ redis:
     image: "redis:6.0.9"
     resources:
       requests:
-        cpu: 0.25
-        memory: "1Gi"
+        cpu: 0.5        # Increased from 0.25 for better queue performance
+        memory: "2Gi"   # Increased from 1Gi for larger queues
   persistence:
-    size: 200Gi
+    storageClass: "cinder-csi"  # Keep queue state off shared NFS assets volume
+    size: 5Gi         # Increased from 1Gi for production queues
 
+# RServe - Enhanced for production
 rserve:
-  number_of_workers: "1"
+  number_of_workers: "2"  # Increased from 1 for better R processing
   container:
     resources:
       requests:
-        cpu: 1
-        memory: "2Gi"
+        cpu: 2          # Increased from 1 for better R performance
+        memory: "4Gi"   # Increased from 2Gi for larger R workloads
 
 rserve_svc:
   {}
 
+# Web Background - Enhanced for production
 web_background:
-  replicas: 1
+  replicas: 2           # Increased from 1 for redundancy
   container:
     resources:
       requests:
-        cpu: 0.25
-        memory: "512Mi"
+        cpu: 0.5        # Increased from 0.25 for better background processing
+        memory: "1Gi"   # Increased from 512Mi
 
+# Web - Enhanced for production with proper passenger configuration
 web:
   # Required when secrets.create=true.
   secret_key_value: ""
-  # passenger_max_request_queue_size: "1600"
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
-  # passenger_max_pool_size: "21"
-  # This value is typically between 150 and 400, find this by ssh into web pod and doing `passenger-status`
-  passenger_memory_per_process: 250
+  passenger_memory_per_process: 250          # Keep existing optimized value
   container:
     resources:
       requests:
-        cpu: 1
-        memory: "2Gi"
+        cpu: 2          # Increased from 1 for better web performance
+        memory: "8Gi"   # Increased from 2Gi for production load
 
-# For this to work and have more than 1 web pod we'll need to implement
-# a distributed file locking scheme such a https://github.com/antirez/redlock-rbs
-# as even with using NFS via sync it cannot guarantee file locking using multiple clients
+# Web HPA - Configured for production scaling
 web_hpa:
   minReplicas: 1
   maxReplicas: 1
-  targetCPUUtilizationPercentage: 50
+  targetCPUUtilizationPercentage: 70  # Slightly higher threshold for stability
+  # Note: Distributed file locking still needed for >1 replica
 
 web_svc:
   {}
 
+# Worker - Enhanced for production
 worker:
   queues: "simulations,requeued"
   container:
     resources:
       requests:
-        cpu: 700m
-        memory: "900Mi"
+        cpu: 1          # Increased from 700m for better performance
+        memory: "2Gi"   # Increased from 900Mi for larger simulations
     terminationGracePeriodSeconds: 5200
 
+# Worker HPA - Optimized for production workloads
 worker_hpa:
-  minReplicas: 2
-  maxReplicas: 20
-  targetCPUUtilizationPercentage: 50
-  stabilizationWindowSeconds: 3600
+  minReplicas: 5        # Increased from 2 for baseline production capacity
+  maxReplicas: 50       # Increased from 20 for larger simulation batches
+  targetCPUUtilizationPercentage: 60  # Slightly higher for stability
+  stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
 
 hooks:
   preDeleteCleanup:

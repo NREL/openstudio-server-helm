@@ -93,12 +93,6 @@ nodeSelector: {}
 
 tolerations: []
 
-affinity:
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-      - matchExpressions:
-        - key: nodegroup
-          operator: In
-          values:
-          - web-group
+# Affinity configuration
+# Default: empty. Parent chart injects provider-aware defaults unless explicitly overridden.
+affinity: {}
