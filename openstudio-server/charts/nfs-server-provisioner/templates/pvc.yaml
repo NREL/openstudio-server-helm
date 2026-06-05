@@ -18,6 +18,8 @@
 {{- $storageClasses := default (dict) (get $global "storageClasses") -}}
 {{- $openstackBlockStorageClass := default "cinder-csi" (get $storageClasses "block") -}}
 {{- $defaultStorageClass := ternary $openstackBlockStorageClass "ssd" (eq $providerName "openstack") }}
+{{- $existingPVC := lookup "v1" "PersistentVolumeClaim" .Release.Namespace .Values.persistence.name -}}
+{{- $existingSpec := default (dict) (get $existingPVC "spec") -}}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
@@ -25,7 +27,11 @@ metadata:
 spec:
   storageClassName: {{ default $defaultStorageClass .Values.persistence.storageClass | quote }}
   accessModes:
-    {{ .Values.persistence.accessModes }}
+{{- if $existingPVC }}
+{{ toYaml (default (list "ReadWriteOnce") (get $existingSpec "accessModes")) | nindent 4 }}
+{{- else }}
+{{ toYaml .Values.persistence.accessModes | nindent 4 }}
+{{- end }}
   resources:
     requests:
-      storage:  {{ .Values.persistence.size }}
+      storage: {{ .Values.persistence.size | quote }}

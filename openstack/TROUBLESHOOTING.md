@@ -7,6 +7,59 @@ This guide covers common issues encountered when deploying OpenStudio Server on 
 
 ## 🚨 Critical Issues and Solutions
 
+### 0. Analyses fail before simulation start (MongoDB on NFS)
+
+**Symptoms:**
+- Analyses are accepted but fail during initialization before any simulation jobs run.
+- `web-background` logs include:
+  - `lhs.rb failed with [8]: 1: Operation not permitted (on db:27017...)`
+- `db` (MongoDB) logs include WiredTiger errors:
+  - `__posix_open_file ... /data/db/collection-<n>...wt ... Operation not permitted`
+  - New `collection-*.wt` files may appear as zero-byte files.
+
+**Root Cause:**
+- MongoDB/WiredTiger is running on an NFS-backed PVC (`storageClass: nfs`), which is not a safe backend for this workload in this environment.
+
+**Diagnosis:**
+```bash
+# Check DB/Redis PVC backing classes
+kubectl get pvc -n openstudio-server
+
+# Confirm PV storage classes
+kubectl get pv | grep -E "openstudio-server/(db|redis)"
+
+# Confirm app-side failure signatures
+kubectl logs -n openstudio-server deploy/web-background --tail=200 | \
+  grep -E "Operation not permitted|lhs\\.rb failed"
+
+# Confirm MongoDB-side WiredTiger failures
+kubectl logs -n openstudio-server deploy/db --tail=200 | \
+  grep -E "WiredTiger|Operation not permitted|__posix_open_file"
+```
+
+**Fix:**
+1. Set DB/Redis persistence to block storage in values:
+   - `db.persistence.storageClass: csi-cinder`
+   - `redis.persistence.storageClass: csi-cinder`
+2. Migrate DB/Redis PVCs (requires downtime for those services):
+   - scale down `db` and `redis`
+   - delete old DB/Redis PVCs
+   - run `helm upgrade` with corrected values (and desired sizes)
+3. Verify:
+   - new DB/Redis PVCs are `csi-cinder`
+   - no new WiredTiger `Operation not permitted` messages
+   - new analyses move past initialization into queued/running stages
+
+**Prevention (preflight before every upgrade):**
+```bash
+# Render-time values check
+grep -nE "db:|redis:|storageClass" ./openstudio-server/values*.yaml
+
+# Runtime check (live cluster)
+kubectl get pvc -n openstudio-server
+kubectl get pv | grep -E "openstudio-server/(db|redis|nfs-pvc|nfs-pvc-data)"
+```
+
 ### 1. Pod Network Isolation (Most Common Issue)
 
 **Symptoms:**
@@ -97,7 +150,7 @@ kubectl exec -n kube-system <csi-pod-name> -- curl -k <openstack-auth-url>
 
 If events show errors like:
 
-- `storageclass.storage.k8s.io "cinder-csi" not found`
+- `storageclass.storage.k8s.io "csi-cinder" not found`
 
 your chart values are likely using the wrong Cinder StorageClass name for this cluster.
 
@@ -111,7 +164,7 @@ Set the OpenStack block class explicitly in values and redeploy:
 ```yaml
 global:
   storageClasses:
-    block: cinder-csi
+    block: csi-cinder
 ```
 
 ### 3. Container Image Pull Failures

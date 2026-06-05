@@ -121,7 +121,7 @@ affinity:
 {{- define "openstudio.openstackBlockStorageClass" -}}
 {{- $global := default (dict) .Values.global -}}
 {{- $storageClasses := default (dict) (get $global "storageClasses") -}}
-{{- default "cinder-csi" (get $storageClasses "block") -}}
+{{- default "csi-cinder" (get $storageClasses "block") -}}
 {{- end -}}
 
 {{- define "openstudio.defaultNfsProvisionerBackingStorageClass" -}}

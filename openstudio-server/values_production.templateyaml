@@ -76,7 +76,9 @@ db:
         cpu: 2          # Increased from 1 for better performance
         memory: "8Gi"   # Increased from 4Gi for production workloads
   persistence:
-    storageClass: "cinder-csi"  # Keep DB state off shared NFS assets volume
+    # Keep MongoDB on block storage. Do NOT switch to nfs:
+    # WiredTiger may fail with "Operation not permitted" when creating collections.
+    storageClass: "csi-cinder"
     size: 20Gi        # Increased from 2Gi for production data
 
 # NFS PVC - Increased storage for production
@@ -99,7 +101,8 @@ redis:
         cpu: 0.5        # Increased from 0.25 for better queue performance
         memory: "2Gi"   # Increased from 1Gi for larger queues
   persistence:
-    storageClass: "cinder-csi"  # Keep queue state off shared NFS assets volume
+    # Keep Redis on block storage; reserve nfs for shared artifacts only.
+    storageClass: "csi-cinder"
     size: 5Gi         # Increased from 1Gi for production queues
 
 # RServe - Enhanced for production

@@ -1,32 +1,14 @@
-# OpenStack-specific values template for openstudio-server (external NFS class)
-# Copy this file to a local, untracked values file before deployment.
-# Do not commit populated credentials.
+# OpenStack overlay for the external NFS-class deployment.
 
-# Set to openstack provider
 global:
   provider:
     name: "openstack"
-  storageClasses:
-    block: "cinder-csi"
-
-storageclass:
-  createSsd: false
-
-cluster:
-  name: "openstudio-server"
-
-secrets:
-  # Recommended: pre-create this secret in the release namespace.
-  existingSecret: "openstudio-app-secrets"
-  validateExistingSecret: true
-  create: false
 
 nfs-server-provisioner:
   enabled: false
   persistence:
-    enabled: true
-    storageClass: "nfs-client"
     size: 110Gi
+    storageClass: "nfs-client"
   storageClass:
     allowVolumeExpansion: false
     mountOptions:
@@ -34,146 +16,60 @@ nfs-server-provisioner:
       - sync
 
 db:
-  name:  "db"
-  label: "db"
-  username: ""
-  password: ""
+  persistence:
+    size: 100Gi
+    storageClass: "nfs-client"
   container:
-    name: "mongo-db"
-    image: "mongo:6.0.7"
     resources:
       requests:
         cpu: 1
         memory: "4Gi"
-    ports:
-      db_port: 27017
-  persistence:
-    enabled: true
-    storageClass: "nfs-client"
-    size: 100Gi
-    accessModes:
-      - "ReadWriteOnce"
-
-load_balancer:
-  name: "ingress-load-balancer"
-  externalTrafficPolicy: "Local"
-  label: "web"
-  internal: false
-  ports:
-    http_name: "http"
-    http_port: 80
-    http_protocol: "TCP"
-    https_name: "https"
-    https_port: 443
-    https_protocol: "TCP"
-
-nfs:
-  name: "nfs"
 
 nfs_pvc:
-  name: "nfs-pvc"
-  accessModes:
-    - "ReadWriteMany"
-  storage_class: "nfs-client"
   storage: "100Gi"
+  storageClass: "nfs-client"
 
 redis:
-  name: "redis"
-  label: "redis"
-  password: ""
+  persistence:
+    size: 100Gi
+    storageClass: "nfs-client"
   container:
-    name: "redis"
-    image: "redis:6.0.9"
     resources:
       requests:
         cpu: 0.25
         memory: "1Gi"
-    port: 6379
-  persistence:
-    enabled: true
-    storageClass: "nfs-client"
-    size: 100Gi
-    accessModes:
-      - "ReadWriteOnce"
-
-redis_svc:
-  name: "queue"
-  label: "redis"
-  port: 6379
-  url: "redis://:${REDIS_PASSWORD}@queue:6379"
 
 rserve:
-  name: "rserve"
-  label: "rserve"
   number_of_workers: "1"
   container:
-    name: "rserve"
-    image: "nrel/openstudio-rserve:3.8.0-1"
     resources:
       requests:
         cpu: 1
         memory: "2Gi"
 
-rserve_svc:
-  name: "rserve"
-  label: "rserve"
-  port: 6311
-
 web_background:
-  name: "web-background"
-  label: "web-background"
   replicas: 1
   container:
-    name: "web-background"
-    image: "nrel/openstudio-server:3.8.0-1"
     resources:
       requests:
         cpu: 0.25
         memory: "512Mi"
 
 web:
-  name: "web"
-  label: "web"
-  secret_key_value: ""
-  passenger_memory_per_process: 250
   container:
-    name: "web"
-    image: "nrel/openstudio-server:3.8.0-1"
     resources:
       requests:
         cpu: 1
         memory: "2Gi"
-    port:
-     http: 80
-     https: 443
-
-web_hpa:
-  name: "web"
-  minReplicas: 1
-  maxReplicas: 1
-  targetCPUUtilizationPercentage: 50
-
-web_svc:
-  name: "web"
-  label: "web"
-  ports:
-    http: 80
-    https: 443
 
 worker:
-  name: "worker"
-  label: "worker"
   container:
-    name: "worker"
-    image: "nrel/openstudio-server:3.8.0-1"
     resources:
       requests:
         cpu: 700m
         memory: "900Mi"
-    terminationGracePeriodSeconds: 5200
 
 worker_hpa:
-  name: "worker"
   minReplicas: 2
   maxReplicas: 20
   targetCPUUtilizationPercentage: 50

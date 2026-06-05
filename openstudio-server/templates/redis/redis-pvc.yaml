@@ -1,14 +1,26 @@
+{{- $redisPersistence := default (dict) (get .Values.redis "persistence") }}
+{{- $existingPVC := lookup "v1" "PersistentVolumeClaim" .Release.Namespace (include "openstudio.redisName" .) -}}
+{{- $existingSpec := default (dict) (get $existingPVC "spec") -}}
+{{- $storageClassName := default (include "openstudio.defaultAppPersistenceStorageClass" .) (get $redisPersistence "storageClass") -}}
+{{- if $existingPVC -}}
+{{- $storageClassName = default $storageClassName (get $existingSpec "storageClassName") -}}
+{{- end -}}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: {{ include "openstudio.redisName" . }}
-{{- $redisPersistence := default (dict) (get .Values.redis "persistence") }}
 spec:
-  storageClassName: {{ default (include "openstudio.defaultAppPersistenceStorageClass" .) (get $redisPersistence "storageClass") | quote }}
+  storageClassName: {{ $storageClassName | quote }}
   accessModes:
+{{- if $existingPVC }}
+{{- range $mode := default (list "ReadWriteOnce") (get $existingSpec "accessModes") }}
+    - {{ $mode | quote }}
+{{- end }}
+{{- else }}
 {{- range $mode := default (list "ReadWriteOnce") (get $redisPersistence "accessModes") }}
     - {{ $mode | quote }}
 {{- end }}
+{{- end }}
   resources:
     requests:
-      storage:  {{ .Values.redis.persistence.size }}
+      storage: {{ .Values.redis.persistence.size | quote }}

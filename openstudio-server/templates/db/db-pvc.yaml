@@ -1,14 +1,26 @@
+{{- $dbPersistence := default (dict) (get .Values.db "persistence") }}
+{{- $existingPVC := lookup "v1" "PersistentVolumeClaim" .Release.Namespace (include "openstudio.dbName" .) -}}
+{{- $existingSpec := default (dict) (get $existingPVC "spec") -}}
+{{- $storageClassName := default (include "openstudio.defaultAppPersistenceStorageClass" .) (get $dbPersistence "storageClass") -}}
+{{- if $existingPVC -}}
+{{- $storageClassName = default $storageClassName (get $existingSpec "storageClassName") -}}
+{{- end -}}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: {{ include "openstudio.dbName" . }}
-{{- $dbPersistence := default (dict) (get .Values.db "persistence") }}
 spec:
-  storageClassName: {{ default (include "openstudio.defaultAppPersistenceStorageClass" .) (get $dbPersistence "storageClass") | quote }}
+  storageClassName: {{ $storageClassName | quote }}
   accessModes:
+{{- if $existingPVC }}
+{{- range $mode := default (list "ReadWriteOnce") (get $existingSpec "accessModes") }}
+    - {{ $mode | quote }}
+{{- end }}
+{{- else }}
 {{- range $mode := default (list "ReadWriteOnce") (get $dbPersistence "accessModes") }}
     - {{ $mode | quote }}
 {{- end }}
+{{- end }}
   resources:
     requests:
-      storage:  {{ .Values.db.persistence.size }}
+      storage: {{ .Values.db.persistence.size | quote }}
