@@ -243,6 +243,14 @@ NAME               LOCATION    MASTER_VERSION  MASTER_IP     MACHINE_TYPE   NODE
 openstudio-server  us-west1-a  1.14.10-gke.27  35.230.92.87  n1-standard-4  1.14.10-gke.27  3          RUNNING
 ```
 
+After deployment, retrieve the OpenStudio Server external endpoint with:
+
+```bash
+kubectl get svc ingress-load-balancer -n openstudio-server
+```
+
+Use the `EXTERNAL-IP` value in PAT under **Existing Server URL**.
+
 ## Delete cluster
 
 When you are finished and you can simply delete the entire cluster.

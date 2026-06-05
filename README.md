@@ -318,12 +318,20 @@ Note that 1000m means one virtual CPU core.
 
 You can also add `watch` to the beginning of the command to see the output change over time.
 
-Once the cluster is up and running, you can use `kubectl` to determine the external IP or DN to access OpenStudio server and use this in PAT to connect to. For example, on AWS, a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com is the external name. See the examples below for each cloud provider.
+Once the cluster is up and running, use this command to determine the external endpoint for OpenStudio Server:
+
+```bash
+kubectl get svc ingress-load-balancer -n openstudio-server
+```
+
+Use the `EXTERNAL-IP` value in PAT under **Existing Server URL**. For example, on AWS this is often a DNS name, while Google/Azure/OpenStack typically return an IP.
+
+For example, on AWS, `a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com` is the external name. See the examples below for each cloud provider.
 
 AWS is the long domain (a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com)
 
 ```bash
-kubectl get svc ingress-load-balancer
+kubectl get svc ingress-load-balancer -n openstudio-server
 ```
 
 example output:
@@ -336,7 +344,7 @@ ingress-load-balancer   LoadBalancer   10.100.246.21   a52e7c2e22f3940a8aa9d80b5
 Google is 35.247.75.9
 
 ```bash
-kubectl get svc ingress-load-balancer
+kubectl get svc ingress-load-balancer -n openstudio-server
 ```
 
 example output:
@@ -349,7 +357,7 @@ ingress-load-balancer   LoadBalancer   10.55.246.197   35.247.75.9   80:32613/TC
 Azure is 20.190.10.17
 
 ```bash
-kubectl get svc ingress-load-balancer
+kubectl get svc ingress-load-balancer -n openstudio-server
 ```
 
 example output:

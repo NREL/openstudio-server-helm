@@ -74,6 +74,14 @@ aks-nodepool1-23944537-vmss000002   Ready    agent   12m   v1.18.14
 
 The cluster is now ready to deploy the helm chart. Please refer to the helm [README.md](../README.md) to deploy the openstudio-server helm chart.
 
+After deployment, retrieve the OpenStudio Server external endpoint with:
+
+```bash
+kubectl get svc ingress-load-balancer -n openstudio-server
+```
+
+Use the `EXTERNAL-IP` value in PAT under **Existing Server URL**.
+
 ## Delete cluster
 
 When you are finished and you can simply delete the entire cluster.

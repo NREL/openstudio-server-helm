@@ -95,7 +95,15 @@ As of Kubernetes version 1.23, to use EBS volumes you must install an EKS Add-On
 
 ## Connecting to your cluster using kubectl
 
-Once eksctl is done setting up the cluster, it will automatically setup the connection by creating a `~/.kube/config` file so you and can begin using helm and kubectl cli tools to communicate to the cluster. occasionally, you need to run generate this config manually. If you are not able to run `kubectl get nodes` you can re-run the kube config setup by running `aws eks update-kubeconfig --name openstudio-server` Change the `--name` to match the cluster name if different from the example. Now that the cluster is ready, you can now deploy the helm chart. Please refer the main README.md doc for deploying the helm chart. 
+Once eksctl is done setting up the cluster, it will automatically setup the connection by creating a `~/.kube/config` file so you and can begin using helm and kubectl cli tools to communicate to the cluster. occasionally, you need to run generate this config manually. If you are not able to run `kubectl get nodes` you can re-run the kube config setup by running `aws eks update-kubeconfig --name openstudio-server` Change the `--name` to match the cluster name if different from the example. Now that the cluster is ready, you can now deploy the helm chart. Please refer the main README.md doc for deploying the helm chart.
+
+After deployment, retrieve the OpenStudio Server external endpoint with:
+
+```bash
+kubectl get svc ingress-load-balancer -n openstudio-server
+```
+
+Use the `EXTERNAL-IP` value in PAT under **Existing Server URL**.
 
 ## Delete the cluster using eksctl
 
@@ -126,5 +134,4 @@ It's always good idea to verify the cluster has been deleted.
 This cmd should return no clusters. You can also use the web console in your AWS account to verify as well.
 
 If the cluster didn't get fully deleted, go to [CloudFormation](console.aws.amazon.com/cloudformation) and manually delete the cluster stack.
-
 
