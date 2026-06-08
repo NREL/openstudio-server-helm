@@ -124,27 +124,78 @@ write_files:
                   systemdCgroup = true
                   binaryName = "/usr/local/bin/runc"
           [plugins."io.containerd.grpc.v1.cri".registry]
-            [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
-              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
-                endpoint = ["https://registry-1.docker.io"]
-              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."quay.io"]
-                endpoint = ["https://quay.io"]
-              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."ghcr.io"]
-                endpoint = ["https://ghcr.io"]
-              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry.k8s.io"]
-                endpoint = ["https://registry.k8s.io"]
+            # REMOVED: Registry mirrors (docker.io → quay.io redirects)
+            # Using direct registry access instead to avoid quay.io auth issues
+            # Registry mirrors section intentionally deleted:
+            # - [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+            # - [plugins."io.containerd.grpc.v1.cri".registry.mirrors."quay.io"]
+            # - [plugins."io.containerd.grpc.v1.cri".registry.mirrors."ghcr.io"]
+            # - [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry.k8s.io"]
+            #
+            # TLS config: direct access only, no mirror interception
             [plugins."io.containerd.grpc.v1.cri".registry.configs]
               [plugins."io.containerd.grpc.v1.cri".registry.configs."registry-1.docker.io".tls]
                 insecure_skip_verify = true
-              [plugins."io.containerd.grpc.v1.cri".registry.configs."quay.io".tls]
+              [plugins."io.containerd.grpc.v1.cri".registry.configs."docker.io".tls]
                 insecure_skip_verify = true
               [plugins."io.containerd.grpc.v1.cri".registry.configs."ghcr.io".tls]
                 insecure_skip_verify = true
               [plugins."io.containerd.grpc.v1.cri".registry.configs."registry.k8s.io".tls]
                 insecure_skip_verify = false
+              [plugins."io.containerd.grpc.v1.cri".registry.configs."quay.io".tls]
+                insecure_skip_verify = true
       EOF
+           
+         log "Containerd configuration updated for corporate firewall"
+      }
+      
+      # Pre-cache container images in containerd before kubelet starts
+      # This ensures pods schedule immediately without ImagePullBackOff
+      prepull_container_images() {
+         log "Pre-pulling container images into local cache..."
           
-          log "Containerd configuration updated for corporate firewall"
+         # Start containerd if not already running
+         systemctl is-active --quiet containerd || systemctl start containerd
+         sleep 2
+          
+         # List of critical images for OpenStudio Server
+         IMAGES=(
+             # OpenStudio application
+             "nrel/openstudio-server:3.10.0"
+             "nrel/openstudio-rserve:3.10.0"
+             "erezsh2/nfs-provisioner:v2.3.0"
+             "mongo:6.0.7"
+             "redis:6.0.9"
+              
+             # Kubernetes system
+             "registry.k8s.io/pause:3.10.1"
+             "registry.k8s.io/coredns/coredns:v1.12.0"
+             "registry.k8s.io/kube-proxy:v1.33.1"
+              
+             # Networking
+             "docker.io/calico/node:v3.29.3"
+             "docker.io/calico/kube-controllers:v3.29.3"
+             "docker.io/calico/typha:v3.29.3"
+             "busybox:1.36"
+         )
+          
+         # Pull images in background (non-blocking)
+         for image in "${IMAGES[@]}"; do
+             (
+                 log "  Pulling: $image"
+                 if ctr -n k8s.io images pull "$image" 2>&1 | tee -a "$LOGFILE"; then
+                     log "  ✓ Success: $image"
+                 else
+                     log "  ✗ Failed: $image (may retry when pod schedules)"
+                 fi
+             ) &
+         done
+          
+         # Wait for all pulls to complete (max 5 minutes)
+         log "Waiting for image pulls to complete (timeout: 5 min)..."
+         wait
+          
+         log "Image pre-pull complete"
       }
       
       # 2. Pre-create CNI bridge configuration
@@ -270,6 +321,7 @@ write_files:
       
       # Execute all setup functions
       setup_containerd_config
+      prepull_container_images
       setup_kubeadm_config
       setup_etcd_certificates
       setup_kubespray_workarounds
