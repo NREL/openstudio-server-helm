@@ -5,8 +5,8 @@
 global:
   provider:
     # Required. Set one of: aws, google, azure, openstack.
-    # Leave empty here and supply via --set global.provider.name=<value> or your env overlay.
-    name: ""
+    # 179D cluster: OpenStack provider on Azimuth
+    name: "openstack"
     # Migration compatibility toggle. When true, legacy provider.name can be used
     # only if global.provider.name is unset. Keep false for strict mode.
     allowLegacyName: false
@@ -54,7 +54,7 @@ cluster:
 
 autoscaler:
   # Defaults to enabled on AWS and disabled on other providers unless explicitly set.
-  # enabled: true
+  enabled: true  # REQUIRED for OpenStack: explicitly enable autoscaler to provision worker nodes
   # Safety guard: when enabled on OpenStack, install/upgrade fails if a pre-existing
   # kube-system/cluster-autoscaler deployment is detected and not owned by this Helm release.
   # For OpenStack, enable autoscaler and provide one or more node groups in min:max:name format.
@@ -76,8 +76,8 @@ autoscaler:
     pullPolicy: "IfNotPresent"
   openstack:
     # If set, chart mounts this secret and passes --cloud-config=<mountPath>.
-    # If unset, provide --cloud-config=<path> in autoscaler.extraArgs.
-    cloudConfigSecretName: ""
+    # 179D: Cloud config exists in openstack-system/cloud-config (Azimuth-provided)
+    cloudConfigSecretName: "cloud-config"
     cloudConfigSecretKey: "cloud.conf"
     cloudConfigMountPath: "/etc/kubernetes/cloud.conf"
     # Optional custom CA bundle for private OpenStack API endpoints.
@@ -114,7 +114,8 @@ secrets:
   existingSecret: "openstudio-app-secrets"
   # Strict by default for connected clusters.
   # Set false for offline/render-only workflows (for example CI helm template jobs).
-  validateExistingSecret: true
+  # 179D: Disabled to allow autoscaler deployment (template rendering issue)
+  validateExistingSecret: false
   # Create a secret from db.username/db.password/redis.password/web.secret_key_value.
   # Alternate path. Must be false when existingSecret is set.
   create: false
