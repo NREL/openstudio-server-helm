@@ -276,10 +276,9 @@ worker:
 # Worker HPA - Optimized for production workloads with aggressive scale-up
 worker_hpa:
   minReplicas: 2        # Keep >1 to reduce throughput collapse from a single stuck worker
-  # Set to ~90% of cluster worker capacity (node_count × CPUs_per_node × 0.9 / worker_CPU_request).
-  # IMPORTANT: This value also drives MAX_REQUESTS in the web container (maxReplicas × 1.05).
-  # Override in your env overlay to match actual node capacity.
-  maxReplicas: 1443
+  # Reduced from 1443 to 30 to match current cluster capacity: 2 nodes × ~15 pods/node
+  # With autoscaler disabled and quay.io blocker preventing new nodes, practical max is ~30 pods
+  maxReplicas: 30
   targetCPUUtilizationPercentage: 60  # Slightly higher for stability
   stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
   # Scale-up behavior: 32 pods + 200% every 15s (conservative 4 pods → aggressive)
