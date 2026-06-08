@@ -20,6 +20,10 @@ spec:
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
+      {{- if eq (include "openstudio.workloadServiceAccountUse" .) "true" }}
+      serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
+      {{- end }}
+      {{- include "openstudio.podImagePullSecrets" . | nindent 6 }}
       {{- if (default true (get $priorityClasses "enabled")) }}
       priorityClassName: {{ default "high-priority" (get $priorityClasses "highName") }}
       {{- end }}

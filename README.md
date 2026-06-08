@@ -95,6 +95,62 @@ global:
     affinityMode: "preferred"  # required | preferred | disabled
 ```
 
+For internal/private image registries, set image source and auth in values:
+
+```yaml
+global:
+  images:
+    registry: "registry.example.org"
+    repositoryPrefix: "proxy-cache"   # optional
+    org: "nrel"
+    serverRepository: "openstudio-server"
+    rserveRepository: "openstudio-rserve"
+    tag: "3.10.0"
+  imagePullSecrets:
+    - "registry-credentials"
+
+serviceAccount:
+  create: true
+  name: "openstudio-workload"
+  imagePullSecrets:
+    - "registry-credentials"
+```
+
+Image auth precedence:
+1. Pod-level `global.imagePullSecrets` (if set)
+2. ServiceAccount-level pull secrets (`serviceAccount.imagePullSecrets`)
+3. Cluster/node runtime auth configuration
+
+For OpenStack/Azimuth environments, prefer cache-friendly pull behavior and configurable init pulls:
+
+```yaml
+web:
+  initContainer:
+    image: ""                # defaults to openstudio server image
+    imagePullPolicy: ""      # defaults by provider (openstack=IfNotPresent)
+  container:
+    imagePullPolicy: ""
+web_background:
+  container:
+    imagePullPolicy: ""
+worker:
+  container:
+    imagePullPolicy: ""
+```
+
+Optional image warmup before large scale-up:
+
+```yaml
+prepull:
+  enabled: true
+  role: ""                   # "", "web", or "worker"
+  imagePullPolicy: ""        # defaults by provider
+  includeRserve: true
+  includeWebInit: true
+```
+
+Disable `prepull.enabled` after warmup if you do not want the DaemonSet to stay deployed.
+
 **Note:** `openstudio-server/values.yaml` is a tracked baseline for reproducible defaults. Put environment-specific or sensitive overrides in a separate local file (for example `openstudio-server/values.local.yaml`) and pass it with `-f`.
 
 ## Installing the Chart
@@ -257,9 +313,15 @@ worker.container.preStop.signal | Signal sent to resque processes during preStop
 worker.container.preStop.pollIntervalSeconds | Polling interval while waiting for ruby/openstudio process drain | 30 |
 worker.container.preStop.maxWaitSeconds | Upper bound for worker preStop wait loop before allowing termination | 5100 |
 global.images.org | Docker image organization/registry namespace for OpenStudio images | nrel |
+global.images.registry | Optional registry host for OpenStudio images | "" |
+global.images.repositoryPrefix | Optional path prefix between registry and org/repository | "" |
 global.images.serverRepository | Repository name used by web, web-background, and worker containers | openstudio-server |
 global.images.rserveRepository | Repository name used by rserve container | openstudio-rserve |
 global.images.tag | Shared image tag used for both server and rserve repositories | 3.10.0 |
+global.imagePullSecrets | Optional pod-level image pull secret names for chart workloads | [] |
+serviceAccount.create | Create a dedicated workload ServiceAccount for chart Deployments | false |
+serviceAccount.name | Existing or created workload ServiceAccount name (auto-generated when create=true and empty) | "" |
+serviceAccount.imagePullSecrets | Optional image pull secret names attached to chart-created ServiceAccount | [] |
 web_background.container.image  | Optional explicit override for web-background image. If omitted, chart uses global.images.* defaults | (derived) |
 web.container.image   | Optional explicit override for web image. If omitted, chart uses global.images.* defaults | (derived) |
 worker.container.image   | Optional explicit override for worker image. If omitted, chart uses global.images.* defaults | (derived) |
@@ -491,6 +553,26 @@ Guardrails:
 - Recovery is apply-gated and uses a Redis lock to prevent concurrent remediation runs.
 - Recovery only mutates stale entries older than the configured threshold.
 - Batch-run jobs are finalized only when all datapoints are terminal.
+
+### Quick Retrospective: Pull Failures and Low Effective Worker Concurrency
+
+Recent incident pattern and proven response:
+
+1. Symptom: desired worker replicas were high, but most worker/web pods were `ErrImagePull`/`ImagePullBackOff`.
+2. Root cause: node runtime mirror/auth path failed (for example `.../azimuth/docker.io/...` with `401 UNAUTHORIZED`), so pods could not pull required images.
+3. Secondary blocker: web init container image was not cached/pullable, preventing web readiness even after some worker recovery.
+4. Throughput confusion: a worker pod can be `Running` with low CPU when blocked in datapoint initialization (for example waiting on receipt/lock state), so "pod up" is not sufficient to confirm progress.
+
+Recommended fast checks:
+
+```bash
+kubectl -n openstudio-server get deploy worker -o wide
+kubectl -n openstudio-server get pods -l app=worker --no-headers | awk '{print $3}' | sort | uniq -c
+kubectl -n openstudio-server get events --sort-by=.lastTimestamp | tail -n 80
+kubectl -n openstudio-server describe pod <failing-pod-name>
+```
+
+If mirror auth is broken, temporary mitigation is to use node-cached images and `IfNotPresent` while registry auth is corrected.
 
 ### Postmortem Template and Corrective-Action Checklist
 

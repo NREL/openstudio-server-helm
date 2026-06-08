@@ -86,6 +86,68 @@ export TF_VAR_k8s_api_access_cidr="203.0.113.10/32"
 export TF_VAR_nodeport_access_cidr="0.0.0.0/0"
 ```
 
+OpenStack RC credentials are required for OpenStack API operations in this directory
+(for example `openstack token issue`, OpenTofu/Terraform provisioning). They are not
+required for Helm-only upgrades to an already-accessible Kubernetes cluster.
+
+### Internal Registry / Mirror Configuration
+
+For managed Azimuth clusters, the recommended pattern is to use an internal registry or Harbor
+proxy cache and point chart images at it:
+
+```yaml
+global:
+  images:
+    registry: "registry.<ingress-base-domain>"
+    repositoryPrefix: "proxy-cache" # optional
+    org: "nrel"
+    serverRepository: "openstudio-server"
+    rserveRepository: "openstudio-rserve"
+    tag: "3.10.0"
+  imagePullSecrets:
+    - "registry-credentials"
+```
+
+You can also use a dedicated workload ServiceAccount with image pull secrets:
+
+```yaml
+serviceAccount:
+  create: true
+  name: "openstudio-workload"
+  imagePullSecrets:
+    - "registry-credentials"
+```
+
+For OpenStack clusters, set pull policies to favor cached images and avoid repeated mirror fetches:
+
+```yaml
+web:
+  initContainer:
+    imagePullPolicy: ""
+  container:
+    imagePullPolicy: ""
+web_background:
+  container:
+    imagePullPolicy: ""
+worker:
+  container:
+    imagePullPolicy: ""
+```
+
+`""` uses chart defaults (OpenStack => `IfNotPresent`, other providers => `Always`).
+
+For planned scale events/upgrades, optionally pre-warm node caches:
+
+```yaml
+prepull:
+  enabled: true
+  role: ""            # "", "web", or "worker"
+  includeRserve: true
+  includeWebInit: true
+```
+
+After warmup completes, set `prepull.enabled: false` to remove the DaemonSet.
+
 ## 🏗️ Cluster Configurations
 
 ### Small Cluster (Development/Testing)
@@ -510,6 +572,38 @@ kubectl get configmap -n kube-system cloud-config -o yaml
 # Check external cloud provider
 kubectl get pods -n kube-system | grep cloud
 ```
+
+#### Image Pull BackOff with Low Effective Worker Count
+
+If desired worker replicas are much higher than running replicas, first confirm whether pulls are failing through a mirror/auth path.
+
+```bash
+kubectl -n openstudio-server get deploy worker -o wide
+kubectl -n openstudio-server get pods -l app=worker --no-headers | awk '{print $3}' | sort | uniq -c
+kubectl -n openstudio-server get events --sort-by=.lastTimestamp | tail -n 120
+```
+
+High-signal indicator: repeated `Failed to pull image` with `401 UNAUTHORIZED` against a mirrored registry path.
+
+Temporary mitigation for incident response:
+
+1. Ensure workloads use known-cached images.
+2. Set `imagePullPolicy: IfNotPresent` for affected containers/init containers.
+3. Restart only affected deployments and verify status transitions to `Running`.
+
+Permanent fix is registry/mirror auth correction at the platform/runtime layer.
+
+#### Node Access (Bastion/Floating IP) Troubles
+
+If direct SSH to node IPs fails, verify the OpenStack network path before troubleshooting Kubernetes:
+
+```bash
+openstack network list --external -f table -c ID -c Name
+openstack server show <jump-or-bastion-server> -f value -c addresses -c key_name
+route -n get <floating-ip>
+```
+
+Common causes are unreachable external network selection, missing/incorrect keypair, or no route from current client network.
 
 ## 🔄 Updates and Maintenance
 

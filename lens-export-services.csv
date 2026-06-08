@@ -1,0 +1,7 @@
+name,namespace,type,cluster-ip,ports,external-ip,selector,age,status
+db,openstudio-server,ClusterIP,172.31.85.161,27017,-,"app=db, release=openstudio-server",1780692126000,Active
+ingress-load-balancer,openstudio-server,LoadBalancer,172.24.92.42,"80, 443",10.60.105.93,"app=web, release=openstudio-server",1780692126000,Active
+openstudio-server-nfs-server-provisioner,openstudio-server,ClusterIP,172.30.123.199,"2049, 2049, 32803, 32803, 20048, 20048, 875, 875, 111, 111, 662, 662",-,"app=nfs-server-provisioner, release=openstudio-server",1780692126000,Active
+queue,openstudio-server,ClusterIP,172.30.42.166,6379,-,"app=redis, release=openstudio-server",1780692127000,Active
+rserve,openstudio-server,ClusterIP,172.24.14.149,6311,-,"app=rserve, release=openstudio-server",1780692127000,Active
+web,openstudio-server,ClusterIP,172.26.97.208,"80, 443",-,"app=web, release=openstudio-server",1780692127000,Active

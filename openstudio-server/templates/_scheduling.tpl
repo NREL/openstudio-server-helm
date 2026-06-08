@@ -236,16 +236,79 @@ affinity:
 
 {{- define "openstudio.serverImage" -}}
 {{- $images := (get .Values.global "images") | default (dict) -}}
+{{- $registry := trimSuffix "/" (default "" (get $images "registry")) -}}
+{{- $repositoryPrefix := trimAll "/" (default "" (get $images "repositoryPrefix")) -}}
 {{- $org := default "nrel" (get $images "org") -}}
 {{- $repo := default "openstudio-server" (get $images "serverRepository") -}}
 {{- $tag := default "latest" (get $images "tag") -}}
-{{- printf "%s/%s:%s" $org $repo $tag -}}
+{{- $pathParts := list -}}
+{{- if ne $repositoryPrefix "" -}}
+{{- $pathParts = append $pathParts $repositoryPrefix -}}
+{{- end -}}
+{{- if ne $org "" -}}
+{{- $pathParts = append $pathParts $org -}}
+{{- end -}}
+{{- $pathParts = append $pathParts $repo -}}
+{{- $repositoryPath := join "/" $pathParts -}}
+{{- if ne $registry "" -}}
+{{- printf "%s/%s:%s" $registry $repositoryPath $tag -}}
+{{- else -}}
+{{- printf "%s:%s" $repositoryPath $tag -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "openstudio.rserveImage" -}}
 {{- $images := (get .Values.global "images") | default (dict) -}}
+{{- $registry := trimSuffix "/" (default "" (get $images "registry")) -}}
+{{- $repositoryPrefix := trimAll "/" (default "" (get $images "repositoryPrefix")) -}}
 {{- $org := default "nrel" (get $images "org") -}}
 {{- $repo := default "openstudio-rserve" (get $images "rserveRepository") -}}
 {{- $tag := default "latest" (get $images "tag") -}}
-{{- printf "%s/%s:%s" $org $repo $tag -}}
+{{- $pathParts := list -}}
+{{- if ne $repositoryPrefix "" -}}
+{{- $pathParts = append $pathParts $repositoryPrefix -}}
+{{- end -}}
+{{- if ne $org "" -}}
+{{- $pathParts = append $pathParts $org -}}
+{{- end -}}
+{{- $pathParts = append $pathParts $repo -}}
+{{- $repositoryPath := join "/" $pathParts -}}
+{{- if ne $registry "" -}}
+{{- printf "%s/%s:%s" $registry $repositoryPath $tag -}}
+{{- else -}}
+{{- printf "%s:%s" $repositoryPath $tag -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "openstudio.workloadServiceAccountName" -}}
+{{- $serviceAccount := default (dict) .Values.serviceAccount -}}
+{{- default (printf "%s-workload" .Release.Name) (get $serviceAccount "name") -}}
+{{- end -}}
+
+{{- define "openstudio.workloadServiceAccountUse" -}}
+{{- $serviceAccount := default (dict) .Values.serviceAccount -}}
+{{- if or (default false (get $serviceAccount "create")) (ne (default "" (get $serviceAccount "name")) "") -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{- define "openstudio.podImagePullSecrets" -}}
+{{- $global := default (dict) .Values.global -}}
+{{- $imagePullSecrets := default (list) (get $global "imagePullSecrets") -}}
+{{- if gt (len $imagePullSecrets) 0 -}}
+imagePullSecrets:
+{{- range $secretName := $imagePullSecrets }}
+  - name: {{ $secretName | quote }}
+{{- end }}
+{{- end -}}
+{{- end -}}
+
+{{- define "openstudio.defaultWorkloadImagePullPolicy" -}}
+{{- if eq (include "openstudio.providerName" .) "openstack" -}}
+IfNotPresent
+{{- else -}}
+Always
+{{- end -}}
 {{- end -}}

@@ -24,11 +24,30 @@ global:
     # web: ""
     # worker: ""
     # affinityMode: ""
+  # Optional pod-level image pull secrets applied to chart workloads.
+  # Use this for private registries when pull secrets should be attached directly to Pods.
+  imagePullSecrets: []
   images:
+    # Optional registry host (for example registry.example.org).
+    # When unset, image references keep existing docker-style names (for example nrel/openstudio-server:tag).
+    registry: ""
+    # Optional repository prefix path between registry and org/repo
+    # (for example "proxy-cache" -> registry.example.org/proxy-cache/nrel/openstudio-server:tag).
+    repositoryPrefix: ""
     org: "nrel"
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
     tag: "3.10.0"
+
+# Optional shared ServiceAccount for chart workloads.
+# If create=true, chart creates one and can attach imagePullSecrets to it.
+# If create=false and name is set, workloads use that existing ServiceAccount.
+# If both are unset/default, workloads use the namespace default ServiceAccount.
+serviceAccount:
+  create: false
+  name: ""
+  annotations: {}
+  imagePullSecrets: []
 
 cluster:
   name: "openstudio-server"
@@ -167,6 +186,9 @@ rserve_svc:
 web_background:
   replicas: 2           # Increased from 1 for redundancy
   container:
+    # Optional explicit pull policy override. If empty, uses provider-aware default
+    # (openstack=IfNotPresent, others=Always).
+    imagePullPolicy: ""
     resources:
       requests:
         cpu: 0.5        # Increased from 0.25 for better background processing
@@ -181,7 +203,15 @@ web:
   secret_key_value: ""
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
   passenger_memory_per_process: 250          # Keep existing optimized value
+  initContainer:
+    # Optional override for init-wait-for-db image. Defaults to openstudio server image.
+    image: ""
+    # Optional override. If empty, uses provider-aware default (openstack=IfNotPresent, others=Always).
+    imagePullPolicy: ""
   container:
+    # Optional explicit pull policy override. If empty, uses provider-aware default
+    # (openstack=IfNotPresent, others=Always).
+    imagePullPolicy: ""
     resources:
       requests:
         cpu: 2          # Increased from 1 for better web performance
@@ -212,6 +242,9 @@ web_hpa:
 worker:
   queues: "simulations,requeued"
   container:
+    # Optional explicit pull policy override. If empty, uses provider-aware default
+    # (openstack=IfNotPresent, others=Always).
+    imagePullPolicy: ""
     resources:
       requests:
         cpu: 900m          # Increased from 700m for better performance
@@ -228,7 +261,7 @@ worker:
 
 # Worker HPA - Optimized for production workloads
 worker_hpa:
-  minReplicas: 1        # Increased from 2 for baseline production capacity
+  minReplicas: 2        # Keep >1 to reduce throughput collapse from a single stuck worker
   # Set to ~90% of cluster worker capacity (node_count × CPUs_per_node × 0.9 / worker_CPU_request).
   # IMPORTANT: This value also drives MAX_REQUESTS in the web container (maxReplicas × 1.05).
   # Override in your env overlay to match actual node capacity.
@@ -239,3 +272,17 @@ worker_hpa:
 hooks:
   preDeleteCleanup:
     enabled: true
+
+prepull:
+  # Optional image warmup DaemonSet for scale-up/upgrade events.
+  # Enable temporarily, wait until all prepull pods are Running, then disable if desired.
+  enabled: false
+  # Optional role affinity for prepull DaemonSet: "", "web", or "worker".
+  role: ""
+  # Optional explicit pull policy override. If empty, uses provider-aware default
+  # (openstack=IfNotPresent, others=Always).
+  imagePullPolicy: ""
+  # Optional image override for the prepull DaemonSet primary container.
+  image: ""
+  includeRserve: true
+  includeWebInit: true

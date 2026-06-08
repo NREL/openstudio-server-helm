@@ -61,6 +61,7 @@ spec:
       name: nfs-client-cleanup
     spec:
       serviceAccountName: {{ $cleanupServiceAccount }}
+      {{- include "openstudio.podImagePullSecrets" . | nindent 6 }}
       containers:
         - name: kubectl
           image: "bitnami/kubectl:1.31"

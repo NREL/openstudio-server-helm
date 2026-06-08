@@ -1,0 +1,56 @@
+{{- $prepull := default (dict) .Values.prepull -}}
+{{- if (default false (get $prepull "enabled")) }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}-image-prepull
+  labels:
+    app: image-prepull
+    release: {{ .Release.Name }}
+spec:
+  selector:
+    matchLabels:
+      app: image-prepull
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: image-prepull
+        release: {{ .Release.Name }}
+    spec:
+      {{- $prepullRole := default "" (get $prepull "role") -}}
+      {{- if or (eq $prepullRole "web") (eq $prepullRole "worker") }}
+      {{- include "openstudio.affinityForRole" (dict "root" . "role" $prepullRole) | nindent 6 }}
+      {{- end }}
+      {{- if eq (include "openstudio.workloadServiceAccountUse" .) "true" }}
+      serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
+      {{- end }}
+      {{- include "openstudio.podImagePullSecrets" . | nindent 6 }}
+      initContainers:
+        - name: prepull-server
+          image: {{ default (include "openstudio.serverImage" .) (get $prepull "image") }}
+          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $prepull "imagePullPolicy") }}
+          command: ["/bin/sh", "-c", "true"]
+      {{- if (default true (get $prepull "includeRserve")) }}
+        - name: prepull-rserve
+          image: {{ include "openstudio.rserveImage" . }}
+          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $prepull "imagePullPolicy") }}
+          command: ["/bin/sh", "-c", "true"]
+      {{- end }}
+      {{- if (default true (get $prepull "includeWebInit")) }}
+        - name: prepull-web-init
+          image: {{ default (include "openstudio.serverImage" .) .Values.web.initContainer.image }}
+          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $prepull "imagePullPolicy") }}
+          command: ["/bin/sh", "-c", "true"]
+      {{- end }}
+      containers:
+        - name: hold
+          image: {{ default (include "openstudio.serverImage" .) (get $prepull "image") }}
+          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $prepull "imagePullPolicy") }}
+          command: ["/bin/sh", "-c", "trap : TERM INT; sleep infinity & wait"]
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+      terminationGracePeriodSeconds: 1
+{{- end }}

@@ -24,13 +24,17 @@ spec:
     {{ $webBackgroundStartup := default (dict) (get $webBackgroundContainer "startup") }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
+      {{- if eq (include "openstudio.workloadServiceAccountUse" .) "true" }}
+      serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
+      {{- end }}
+      {{- include "openstudio.podImagePullSecrets" . | nindent 6 }}
       {{- if (default true (get $priorityClasses "enabled")) }}
       priorityClassName: {{ default "high-priority" (get $priorityClasses "highName") }}
       {{- end }}
       containers:
         - name:  {{ default "web-background" .Values.web_background.container.name }}
           image: {{ default (include "openstudio.serverImage" .) .Values.web_background.container.image }}
-          imagePullPolicy: Always
+          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) .Values.web_background.container.imagePullPolicy }}
           resources:
             requests:
               cpu:  {{  .Values.web_background.container.resources.requests.cpu  }}

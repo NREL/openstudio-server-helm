@@ -11,6 +11,10 @@ This guide prioritizes the OpenStack-managed Kubernetes path (for example Azimut
 - kubectl installed
 - Helm installed
 
+OpenStack RC credentials are only required when you run OpenStack API/CLI automation
+(`openstack` CLI, OpenTofu/Terraform in `openstack/`). They are not required for Helm-only
+application deploys when your kubeconfig is already configured.
+
 ## 🚀 Recommended Deployment (Managed Kubernetes)
 
 Once your cluster is created and kubeconfig is configured:
@@ -24,6 +28,21 @@ kubectl -n openstudio-server create secret generic openstudio-app-secrets \
   --from-literal=redis-password="replace-with-strong-password" \
   --from-literal=web-secret-key="replace-with-long-random-secret"
 helm upgrade --install openstudio-server ../openstudio-server -f ../openstudio-server/values.yaml
+```
+
+For private registries/mirrors, add overrides in your values file:
+
+```yaml
+global:
+  images:
+    registry: "registry.<your-domain>"
+    repositoryPrefix: "proxy-cache"  # optional
+    org: "nrel"
+    serverRepository: "openstudio-server"
+    rserveRepository: "openstudio-rserve"
+    tag: "3.10.0"
+  imagePullSecrets:
+    - "registry-credentials"
 ```
 
 `secrets.validateExistingSecret` is strict by default when using `secrets.existingSecret`. For offline render-only checks, use `--set secrets.validateExistingSecret=false`.
@@ -122,6 +141,48 @@ If you encounter issues:
 ./deploy.sh destroy
 ./deploy.sh
 ```
+
+### Managed-Cluster Quick Triage (Image Pull Failures)
+
+When using an OpenStack-managed Kubernetes cluster (for example Azimuth), start with:
+
+```bash
+kubectl -n openstudio-server get deploy worker -o wide
+kubectl -n openstudio-server get pods -l app=worker --no-headers | awk '{print $3}' | sort | uniq -c
+kubectl -n openstudio-server get events --sort-by=.lastTimestamp | tail -n 120
+```
+
+If events show repeated `ErrImagePull`/`ImagePullBackOff` with `401 UNAUTHORIZED` on mirrored image paths:
+
+1. Verify registry settings and pull secrets in Helm values.
+2. Confirm init container images are also pullable/cached (not only main containers).
+3. Use `IfNotPresent` as a temporary mitigation while fixing registry mirror auth.
+4. Restart only affected deployments and re-check pod status distribution.
+
+If you use `kubectl debug` during incident response, pick an image that is already cached on the node and set `--image-pull-policy=Never`.
+
+Recommended hardening values for managed OpenStack clusters:
+
+```yaml
+web:
+  initContainer:
+    imagePullPolicy: ""
+  container:
+    imagePullPolicy: ""
+web_background:
+  container:
+    imagePullPolicy: ""
+worker:
+  container:
+    imagePullPolicy: ""
+prepull:
+  enabled: false      # set true temporarily for image warmup
+  role: ""
+  includeRserve: true
+  includeWebInit: true
+```
+
+Provider-aware default for empty pull policy is `IfNotPresent` on OpenStack.
 
 ## Manual Steps (If Needed)
 

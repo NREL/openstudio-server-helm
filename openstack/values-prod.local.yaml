@@ -3,6 +3,16 @@
 global:
   provider:
     name: "openstack"
+  # Optional internal registry/mirror overrides.
+  # images:
+  #   registry: "registry.example.org"
+  #   repositoryPrefix: "proxy-cache"
+  #   org: "nrel"
+  #   serverRepository: "openstudio-server"
+  #   rserveRepository: "openstudio-rserve"
+  #   tag: "3.10.0"
+  # imagePullSecrets:
+  #   - "registry-credentials"
 
 autoscaler:
   extraArgs: []
@@ -39,3 +49,10 @@ worker_hpa:
   minReplicas: 5
   maxReplicas: 50
   stabilizationWindowSeconds: 1800
+
+# Optional ServiceAccount-based registry auth
+# serviceAccount:
+#   create: true
+#   name: "openstudio-workload"
+#   imagePullSecrets:
+#     - "registry-credentials"
