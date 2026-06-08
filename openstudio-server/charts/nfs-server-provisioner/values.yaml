@@ -7,7 +7,7 @@ replicaCount: 1
 # imagePullSecrets:
 
 image:
-  repository: quay.io/kubernetes_incubator/nfs-provisioner
+  repository: erezsh2/nfs-provisioner  # Changed from quay.io/kubernetes_incubator to Docker Hub (erezsh2/nfs-provisioner) to remove quay.io dependency
   tag: v2.3.0
   pullPolicy: IfNotPresent
 

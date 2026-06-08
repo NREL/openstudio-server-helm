@@ -166,7 +166,7 @@ nfs_pvc:
   storageClass: "nfs"
   # Frontend shared RWX claim consumed by web/rserve/background pods.
   # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
-  storage: "300Gi"     # Increased from 2Gi for production shared storage
+  storage: "1740Gi"    # Match existing PVC capacity to allow helm upgrade
 
 # Redis - Enhanced for production
 redis:
