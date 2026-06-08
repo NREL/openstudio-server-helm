@@ -54,7 +54,7 @@ cluster:
 
 autoscaler:
   # Defaults to enabled on AWS and disabled on other providers unless explicitly set.
-  enabled: true  # REQUIRED for OpenStack: explicitly enable autoscaler to provision worker nodes
+  enabled: false  # Disabled: all worker nodes configured with quay.io registry mirror; can't pull images
   # Safety guard: when enabled on OpenStack, install/upgrade fails if a pre-existing
   # kube-system/cluster-autoscaler deployment is detected and not owned by this Helm release.
   # For OpenStack, enable autoscaler and provide one or more node groups in min:max:name format.
