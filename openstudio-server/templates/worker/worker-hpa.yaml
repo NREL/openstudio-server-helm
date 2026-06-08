@@ -12,6 +12,16 @@ spec:
   minReplicas: {{ .Values.worker_hpa.minReplicas  }}
   maxReplicas: {{ .Values.worker_hpa.maxReplicas  }}
   behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 10
+      policies:
+      - type: Pods
+        value: 32
+        periodSeconds: 15
+      - type: Percent
+        value: 200
+        periodSeconds: 15
+      selectPolicy: Max
     scaleDown:
       stabilizationWindowSeconds: {{ .Values.worker_hpa.stabilizationWindowSeconds  }}
       policies:

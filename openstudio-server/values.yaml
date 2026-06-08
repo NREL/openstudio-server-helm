@@ -66,6 +66,9 @@ autoscaler:
   #   - name: worker-group
   #     min: 1
   #     max: 50
+  # IMPORTANT for 179D cluster: Configure worker and web node groups for batch scaling.
+  # Batch scaling reduces node bootstrap time overhead (parallel vs. sequential).
+  # Set max based on cluster capacity and cost constraints.
   image:
     repository: "registry.k8s.io/autoscaling/cluster-autoscaler"
     # When empty, defaults to v<cluster-major>.<cluster-minor>.0.
@@ -86,8 +89,18 @@ autoscaler:
     # kube-system/cluster-autoscaler deployment and fails if it's not owned by this release.
     # Set false only when release-time RBAC cannot read kube-system deployments.
     checkExistingDeploymentOwnership: true
-  openstackNodeGroups: []
-  extraArgs: []
+  openstackNodeGroups:
+    - name: "openstudio-179d-worker"
+      min: 1
+      max: 60
+  extraArgs:
+    - "--scale-down-enabled=false"           # Skip scale-down during high-load periods
+    - "--scale-down-delay-after-add=10m"     # Wait 10 min after scale-up before scale-down
+    - "--expander=priority"                  # Use priority expander for node group selection
+    - "--max-node-provision-time=15m"        # Allow 15 min for node bootstrap
+    - "--max-total-unready-percentage=45"    # Allow 45% unready nodes during scaling
+    - "--ok-total-unready-count=20"          # Alternative: up to 20 unready nodes
+    - "--new-pod-scale-up-delay=2m"          # Wait 2 min before scaling for newly created pods
 
 priorityClasses:
   enabled: true
@@ -259,7 +272,7 @@ worker:
       pollIntervalSeconds: 30
       maxWaitSeconds: 5100
 
-# Worker HPA - Optimized for production workloads
+# Worker HPA - Optimized for production workloads with aggressive scale-up
 worker_hpa:
   minReplicas: 2        # Keep >1 to reduce throughput collapse from a single stuck worker
   # Set to ~90% of cluster worker capacity (node_count × CPUs_per_node × 0.9 / worker_CPU_request).
@@ -268,6 +281,8 @@ worker_hpa:
   maxReplicas: 1443
   targetCPUUtilizationPercentage: 60  # Slightly higher for stability
   stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
+  # Scale-up behavior: 32 pods + 200% every 15s (conservative 4 pods → aggressive)
+  # This enables reaching 411 pods in ~3-4 minutes vs. 10+ minutes previously.
 
 hooks:
   preDeleteCleanup:
@@ -276,13 +291,13 @@ hooks:
 prepull:
   # Optional image warmup DaemonSet for scale-up/upgrade events.
   # Enable temporarily, wait until all prepull pods are Running, then disable if desired.
-  enabled: false
+  enabled: true
   # Optional role affinity for prepull DaemonSet: "", "web", or "worker".
-  role: ""
+  role: "worker"
   # Optional explicit pull policy override. If empty, uses provider-aware default
   # (openstack=IfNotPresent, others=Always).
   imagePullPolicy: ""
   # Optional image override for the prepull DaemonSet primary container.
   image: ""
-  includeRserve: true
-  includeWebInit: true
+  includeRserve: false
+  includeWebInit: false
