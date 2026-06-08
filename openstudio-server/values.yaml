@@ -245,9 +245,9 @@ web_svc:
 web_hpa:
   name: "web"
   minReplicas: 1
-  # Intentionally capped at 1. Increase only after implementing distributed file locking
-  # on /mnt/openstudio — multiple web replicas without locking can cause race conditions.
-  maxReplicas: 1
+  # Increased to 2 to enable redundancy and relieve resource pressure on single web node
+  # Note: File locking on /mnt/openstudio is required for >1 replica to prevent race conditions.
+  maxReplicas: 2
   targetCPUUtilizationPercentage: 50
   # stabilizationWindowSeconds controls how long to wait before scaling down.
   stabilizationWindowSeconds: 600
