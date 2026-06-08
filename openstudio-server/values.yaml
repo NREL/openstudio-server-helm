@@ -44,8 +44,8 @@ global:
 # If create=false and name is set, workloads use that existing ServiceAccount.
 # If both are unset/default, workloads use the namespace default ServiceAccount.
 serviceAccount:
-  create: false
-  name: ""
+  create: true
+  name: openstudio-workload
   annotations: {}
   imagePullSecrets: []
 
@@ -166,7 +166,7 @@ nfs_pvc:
   storageClass: "nfs"
   # Frontend shared RWX claim consumed by web/rserve/background pods.
   # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
-  storage: "1740Gi"    # Match existing PVC capacity to allow helm upgrade
+  storage: "100Gi"    # Match existing nfs-pvc bound capacity
 
 # Redis - Enhanced for production
 redis:
