@@ -30,6 +30,27 @@ kubectl -n openstudio-server create secret generic openstudio-app-secrets \
 helm upgrade --install openstudio-server ../openstudio-server -f ../openstudio-server/values.yaml
 ```
 
+Before running Helm, do a storage quota preflight for Cinder-backed claims:
+
+```text
+nfs-server-provisioner.persistence.size
++ db.persistence.size
++ redis.persistence.size
++ existing in-use Cinder GB
+<= Cinder quota GB
+```
+
+If over quota, reduce requested sizes first. Otherwise `nfs-pvc-data` can fail with `413 VolumeSizeExceedsAvailableQuota`, which cascades into pending `nfs-pvc`, then pending `web`, `web-background`, and `rserve`.
+
+If your managed cluster mirror blocks `docker.io/erezsh2/nfs-provisioner` with `401`, pin the NFS provisioner image to Quay in values:
+
+```yaml
+nfs-server-provisioner:
+  image:
+    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
+    tag: "v2.3.0"
+```
+
 For private registries/mirrors, add overrides in your values file:
 
 ```yaml

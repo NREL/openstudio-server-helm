@@ -43,6 +43,13 @@ spec:
           imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $prepull "imagePullPolicy") }}
           command: ["/bin/sh", "-c", "true"]
       {{- end }}
+      {{- $additionalImages := default (list) (get $prepull "additionalImages") }}
+      {{- range $i, $img := $additionalImages }}
+        - name: prepull-extra-{{ $i }}
+          image: {{ $img | quote }}
+          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" $) (get $prepull "imagePullPolicy") }}
+          command: ["/bin/sh", "-c", "true"]
+      {{- end }}
       containers:
         - name: hold
           image: {{ default (include "openstudio.serverImage" .) (get $prepull "image") }}

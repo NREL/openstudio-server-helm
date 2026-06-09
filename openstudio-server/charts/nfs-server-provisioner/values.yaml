@@ -6,6 +6,10 @@ replicaCount: 1
 
 # imagePullSecrets:
 
+# Single-replica deployment with an RWO backend PVC must avoid RollingUpdate,
+# otherwise updates can deadlock with two pods contending for the same volume.
+deploymentStrategyType: Recreate
+
 image:
   repository: erezsh2/nfs-provisioner  # Changed from quay.io/kubernetes_incubator to Docker Hub (erezsh2/nfs-provisioner) to remove quay.io dependency
   tag: v2.3.0

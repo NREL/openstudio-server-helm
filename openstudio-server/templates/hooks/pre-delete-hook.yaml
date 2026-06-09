@@ -2,6 +2,8 @@
 {{- if default true (get $preDeleteHook "enabled") }}
 {{- $cleanupName := printf "%s-nfs-client-cleanup" .Release.Name | trunc 63 | trimSuffix "-" -}}
 {{- $cleanupServiceAccount := printf "%s-sa" $cleanupName | trunc 63 | trimSuffix "-" -}}
+{{- $cleanupImage := default "bitnami/kubectl:1.31" (get $preDeleteHook "image") -}}
+{{- $cleanupImagePullPolicy := default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $preDeleteHook "imagePullPolicy") -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -64,7 +66,7 @@ spec:
       {{- include "openstudio.podImagePullSecrets" . | nindent 6 }}
       containers:
         - name: kubectl
-          image: "bitnami/kubectl:1.31"
+          image: {{ $cleanupImage | quote }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -72,7 +74,7 @@ spec:
             capabilities:
               drop:
                 - ALL
-          imagePullPolicy: "IfNotPresent"
+          imagePullPolicy: {{ $cleanupImagePullPolicy | quote }}
           command:
           - /bin/sh
           - -c

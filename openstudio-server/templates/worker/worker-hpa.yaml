@@ -1,3 +1,4 @@
+{{- if eq (include "openstudio.workerAutoscalingMode" .) "hpa" }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -35,3 +36,4 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.worker_hpa.targetCPUUtilizationPercentage  }}
+{{- end }}

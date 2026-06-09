@@ -1,0 +1,47 @@
+## OpenStack-first Harbor/internal-registry profile.
+## Copy to a local override and replace placeholder values before deploy.
+## This file must never contain credentials.
+
+global:
+  provider:
+    name: "openstack"
+  images:
+    # Internal registry or Harbor endpoint reachable by cluster nodes.
+    registry: "registry.<ingress-base-domain>"
+    # Optional Harbor proxy-cache project path.
+    repositoryPrefix: "proxy-cache"
+    org: "nrel"
+    serverRepository: "openstudio-server"
+    rserveRepository: "openstudio-rserve"
+    tag: "3.10.0"
+  # Pod-level pull secret fallback.
+  imagePullSecrets:
+    - "registry-credentials"
+
+# Dedicated workload ServiceAccount with registry pull credentials.
+serviceAccount:
+  create: true
+  name: "openstudio-workload"
+  imagePullSecrets:
+    - "registry-credentials"
+
+# OpenStack defaults resolve empty values to IfNotPresent.
+web:
+  initContainer:
+    imagePullPolicy: ""
+  container:
+    imagePullPolicy: ""
+web_background:
+  container:
+    imagePullPolicy: ""
+worker:
+  container:
+    imagePullPolicy: ""
+
+# Keep enabled for planned scale events to pre-warm node image caches.
+prepull:
+  enabled: false
+  role: "worker"
+  includeRserve: true
+  includeWebInit: true
+  additionalImages: []

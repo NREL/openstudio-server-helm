@@ -32,6 +32,7 @@ spec:
       containers:
         - name: {{ default "mongo-db" .Values.db.container.name }}
           image: {{ .Values.db.container.image }}
+          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) .Values.db.container.imagePullPolicy }}
           ports:
             - containerPort:  {{ default 27017 (get $dbContainerPorts "db_port") }}
           volumeMounts:

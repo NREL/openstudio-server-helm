@@ -17,5 +17,9 @@ worker_flavor = "shared_c8m16d50" # 8 vCPUs, 16GB RAM
 # Storage configuration
 volume_size = 100 # GB for each node
 
+# Image configuration (optional - uncomment and set to override default)
+# image_name = "ubuntu-jammy-kube-v1.33.2-250701-1108"  # Replace with actual image name from: openstack image list
+# Find available images: openstack image list | grep -i ubuntu
+
 # SSH key configuration
 key_pair = "achapin"

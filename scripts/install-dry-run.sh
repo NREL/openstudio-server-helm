@@ -42,14 +42,15 @@ helm template openstudio-server "${CHART_DIR}" \
   --set redis.password=chart-pass \
   --set web.secret_key_value=chart-secret >/dev/null
 
-if helm template openstudio-server "${CHART_DIR}" >/dev/null 2>&1; then
+if helm template openstudio-server "${CHART_DIR}" --set global.provider.name= >/dev/null 2>&1; then
   echo "Expected failure when global.provider.name is unset"
   exit 1
 fi
 
 if helm template openstudio-server "${CHART_DIR}" \
-  --set global.provider.name=aws >/dev/null 2>&1; then
-  echo "Expected failure when secrets.validateExistingSecret defaults to true without a live cluster Secret"
+  --set global.provider.name=aws \
+  --set secrets.validateExistingSecret=true >/dev/null 2>&1; then
+  echo "Expected failure when secrets.validateExistingSecret=true without a live cluster Secret"
   exit 1
 fi
 
@@ -71,8 +72,9 @@ if helm template openstudio-server "${CHART_DIR}" \
 fi
 
 if helm template openstudio-server "${CHART_DIR}" \
-  -f "${ROOT_DIR}/openstack/values-openstack.yaml" >/dev/null 2>&1; then
-  echo "Expected failure when OpenStack values enable secrets.validateExistingSecret without a live cluster Secret"
+  -f "${ROOT_DIR}/openstack/values-openstack.yaml" \
+  --set secrets.validateExistingSecret=true >/dev/null 2>&1; then
+  echo "Expected failure when OpenStack values set secrets.validateExistingSecret=true without a live cluster Secret"
   exit 1
 fi
 
@@ -80,6 +82,7 @@ if helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=openstack \
   --set secrets.validateExistingSecret=false \
   --set autoscaler.enabled=true \
+  --set autoscaler.openstack.cloudConfigSecretName= \
   --set autoscaler.openstackNodeGroups[0].name=worker \
   --set autoscaler.openstackNodeGroups[0].min=1 \
   --set autoscaler.openstackNodeGroups[0].max=5 >/dev/null 2>&1; then
@@ -125,6 +128,22 @@ if ! helm template openstudio-server "${CHART_DIR}" \
   --set secrets.validateExistingSecret=false \
   | grep -q 'storageClassName: "csi-cinder"'; then
   echo "Expected OpenStack values to render csi-cinder as NFS provisioner backing storageClass"
+  exit 1
+fi
+
+if ! helm template openstudio-server "${CHART_DIR}" \
+  -f "${ROOT_DIR}/openstudio-server/values.registry-live.yaml" \
+  --set secrets.validateExistingSecret=false \
+  | grep -q 'registry.<ingress-base-domain>/proxy-cache/nrel/openstudio-server:3.10.0'; then
+  echo "Expected registry profile to render internal registry image references"
+  exit 1
+fi
+
+if ! helm template openstudio-server "${CHART_DIR}" \
+  -f "${ROOT_DIR}/openstudio-server/values.registry-live.yaml" \
+  --set secrets.validateExistingSecret=false \
+  | grep -q 'name: "registry-credentials"'; then
+  echo "Expected registry profile to render imagePullSecrets wiring"
   exit 1
 fi
 
@@ -296,6 +315,40 @@ fi
 
 if ! grep -Fq "create namespace openstudio-server" "${MOCK_KUBECTL_LOG}"; then
   echo "Expected install.sh existing mode to create namespace before validation"
+  exit 1
+fi
+
+if ! PATH="${TMP_DIR}:${PATH}" \
+  HELM_DEBUG=false \
+  PROVIDER=openstack \
+  SECRET_MODE=existing \
+  EXISTING_SECRET_NAME=openstudio-app-secrets \
+  REGISTRY_PROFILE=true \
+  REGISTRY_VALUES_FILE="${ROOT_DIR}/openstudio-server/values.registry-live.yaml" \
+  REGISTRY_PULL_SECRET_NAME=registry-credentials \
+  WORKLOAD_SERVICEACCOUNT_NAME=openstudio-workload \
+  RELEASE_NAME=openstudio-server \
+  NAMESPACE=openstudio-server \
+  CHART_PATH="${CHART_DIR}" \
+  MOCK_SECRET_STATE=present \
+  MOCK_HELM_LOG="${MOCK_HELM_LOG}" \
+  "${ROOT_DIR}/scripts/install.sh" >/dev/null; then
+  echo "Expected install.sh registry profile mode to succeed"
+  exit 1
+fi
+
+if ! grep -Fq -- "--values ${ROOT_DIR}/openstudio-server/values.registry-live.yaml" "${MOCK_HELM_LOG}"; then
+  echo "Expected install.sh registry profile mode to include registry values file"
+  exit 1
+fi
+
+if ! grep -Fq "global.imagePullSecrets[0]=registry-credentials" "${MOCK_HELM_LOG}"; then
+  echo "Expected install.sh registry profile mode to set global imagePullSecrets"
+  exit 1
+fi
+
+if ! grep -Fq "serviceAccount.imagePullSecrets[0]=registry-credentials" "${MOCK_HELM_LOG}"; then
+  echo "Expected install.sh registry profile mode to set serviceAccount imagePullSecrets"
   exit 1
 fi
 

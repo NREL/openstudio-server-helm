@@ -14,6 +14,7 @@ Note that this repository has both information for small and large workloads in 
 - Kubernetes 1.27+ cluster. Please refer to cluster setup instructions for [google](/google/README.md) or [aws](/aws/README.md) for information on how to provision a cluster.
 - [helm client](https://helm.sh/docs/intro/install/) (v3.12.0 or higher)
 - [kubectl client](https://kubernetes.io/docs/tasks/tools/install-kubectl/) (v1.27.0 or higher)
+- If using queue-based worker autoscaling (`worker_autoscaling.mode: keda-hybrid`), install KEDA first: [Install KEDA (self-managed prerequisite)](#install-keda-self-managed-prerequisite).
 
 ## Configuration Setup
 
@@ -41,6 +42,7 @@ Then edit your chosen values file (for example `openstudio-server/values.yaml`) 
 - If Redis credentials include URI-reserved characters, set an explicit `redis.url` override (for example `redis://:encoded-password@queue:6379`).
 - Adjust resource allocations for your workload
 - Configure storage sizes
+- For OpenStack, run a storage quota preflight before install/upgrade (see below)
 
 `provider.name` is deprecated and disabled by default. Any values file that still sets `provider.name` should be migrated to `global.provider.name`.
 For temporary migration-only compatibility, you can opt in with:
@@ -75,6 +77,31 @@ For OpenStack production deployments, `values_production.templateyaml` explicitl
 
 This keeps MongoDB/Redis off the shared NFS assets volume used by worker outputs.
 
+### OpenStack Storage Quota Preflight (Required)
+
+Before `helm install` / `helm upgrade`, verify requested storage fits Cinder quota:
+
+```text
+nfs-server-provisioner.persistence.size
++ db.persistence.size
++ redis.persistence.size
++ existing in-use Cinder GB
+<= Cinder quota GB
+```
+
+If this check fails, `nfs-pvc-data` can stay `Pending` with `413 VolumeSizeExceedsAvailableQuota`. That blocks the NFS provisioner pod, which then blocks `nfs-pvc`, and finally keeps `web`, `web-background`, and `rserve` in `Pending`.
+
+For existing releases, PVC request size is immutable in-place for reductions. If live DB/Redis claims are already larger than your local values file, keep values aligned with the live size (or plan a migration/recreate window) before `helm upgrade`.
+
+Some managed OpenStack clusters also apply auth-gated DockerHub mirrors. If `openstudio-server-nfs-server-provisioner` fails with `ErrImagePull`/`401` for `docker.io/erezsh2/nfs-provisioner`, set:
+
+```yaml
+nfs-server-provisioner:
+  image:
+    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
+    tag: "v2.3.0"
+```
+
 NFS mount options are intentionally conservative by default in template files:
 
 - Default: `mountOptions: ["vers=4"]`
@@ -93,9 +120,18 @@ global:
     web: ""
     worker: ""
     affinityMode: "preferred"  # required | preferred | disabled
+    # Optional per-role overrides:
+    # webAffinityMode: "preferred"
+    # workerAffinityMode: "required"
 ```
 
-For internal/private image registries, set image source and auth in values:
+For internal/private image registries, use the tracked profile `openstudio-server/values.registry-live.yaml` as the starting point, then copy it to a local override and customize placeholders:
+
+```bash
+cp openstudio-server/values.registry-live.yaml openstudio-server/values.local.yaml
+```
+
+At minimum, set image source and auth:
 
 ```yaml
 global:
@@ -147,9 +183,22 @@ prepull:
   imagePullPolicy: ""        # defaults by provider
   includeRserve: true
   includeWebInit: true
+  additionalImages: []       # optional extra image references to pre-cache
 ```
 
 Disable `prepull.enabled` after warmup if you do not want the DaemonSet to stay deployed.
+
+If you use `scripts/install.sh`, you can enable the same profile directly:
+
+```bash
+PROVIDER=openstack \
+REGISTRY_PROFILE=true \
+REGISTRY_VALUES_FILE=./openstudio-server/values.registry-live.yaml \
+REGISTRY_PULL_SECRET_NAME=registry-credentials \
+./scripts/install.sh
+```
+
+`REGISTRY_PULL_SECRET_NAME` wires both `global.imagePullSecrets` and `serviceAccount.imagePullSecrets` at install time.
 
 **Note:** `openstudio-server/values.yaml` is a tracked baseline for reproducible defaults. Put environment-specific or sensitive overrides in a separate local file (for example `openstudio-server/values.local.yaml`) and pass it with `-f`.
 
@@ -291,14 +340,23 @@ nfs_pvc:
 
 Parameter | Description | Default
 --------- | ----------- | -------
-nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 550Gi |
-nfs_pvc.storage | Shared RWX claim request consumed by web/rserve/background pods; keep below backend NFS size | 500Gi |
-db.persistence.size | Size of the volume for MongoDB | 200Gi |
+nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 200Gi |
+nfs-server-provisioner.deploymentStrategyType | Deployment strategy for single-replica NFS provisioner (`Recreate` avoids RWO multi-pod contention during upgrades) | Recreate |
+nfs_pvc.storage | Shared RWX claim request consumed by web/rserve/background pods; keep below backend NFS size | 180Gi |
+db.persistence.size | Size of the volume for MongoDB | 300Gi |
 global.provider.allowLegacyName | Temporary migration flag that permits legacy `provider.name` only when `global.provider.name` is unset | false |
 cluster.name | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly | openstudio-server |
 worker_hpa.minReplicas | Worker pods that run the simulations | 2 |
 worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 50 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
+worker_autoscaling.mode | Worker autoscaling mode: `hpa` (CPU HPA) or `keda-hybrid` (queue depth + CPU via KEDA) | hpa |
+worker_autoscaling.keda.queueLengthPerWorker | Queue items per worker target for KEDA Redis triggers | 80 |
+worker_autoscaling.keda.activationQueueLength | Minimum queue depth before KEDA begins scaling from idle/min state | 1 |
+worker_autoscaling.keda.queueNames | Redis queue names used for KEDA triggers (rendered as `resque:queue:<name>`) | [simulations,requeued] |
+worker_autoscaling.keda.enableCpuTrigger | Include CPU trigger alongside queue triggers in `keda-hybrid` mode | false |
+autoscaler.expander | Cluster Autoscaler expander strategy (`least-waste`, `most-pods`, `random`, `priority`) | least-waste |
+autoscaler.priorityExpander.enabled | Render priority-expander ConfigMap for deterministic node-group selection (requires `autoscaler.expander=priority`) | false |
+prepull.additionalImages | Additional image references pre-pulled by prepull DaemonSet on each node | [] |
 worker.queues | Comma-separated worker queues consumed by simulation workers. Include `requeued` to drain requeue backlog automatically. | simulations,requeued |
 redis.url | Optional explicit Redis URI used for `REDIS_URL`; recommended when credentials contain URI-reserved characters | "" |
 load_balancer.annotations | Optional extra annotations map applied to the LoadBalancer Service | {} |
@@ -319,7 +377,7 @@ global.images.serverRepository | Repository name used by web, web-background, an
 global.images.rserveRepository | Repository name used by rserve container | openstudio-rserve |
 global.images.tag | Shared image tag used for both server and rserve repositories | 3.10.0 |
 global.imagePullSecrets | Optional pod-level image pull secret names for chart workloads | [] |
-serviceAccount.create | Create a dedicated workload ServiceAccount for chart Deployments | false |
+serviceAccount.create | Create a dedicated workload ServiceAccount for chart Deployments | true |
 serviceAccount.name | Existing or created workload ServiceAccount name (auto-generated when create=true and empty) | "" |
 serviceAccount.imagePullSecrets | Optional image pull secret names attached to chart-created ServiceAccount | [] |
 web_background.container.image  | Optional explicit override for web-background image. If omitted, chart uses global.images.* defaults | (derived) |
@@ -472,6 +530,25 @@ Notes:
 - `nfs_pvc.storage` is a request value; it is not an independent quota when backed by the same NFS server volume.
 - Existing PVC `storageClassName` is immutable. If migrating DB/Redis from NFS to block storage, use a planned migration window with backup/restore.
 
+### NFS Mount `No such file or directory` During Rollout
+
+If pods fail mounting `nfs-pvc` with `mount.nfs ... No such file or directory`:
+
+1. Confirm the NFS provisioner has exactly one active pod and no stale rollout replica:
+   ```bash
+   kubectl -n openstudio-server get deploy,rs,pods | grep nfs-server-provisioner
+   ```
+2. Ensure the provisioner deployment strategy is `Recreate` (single-replica + RWO backend):
+   ```bash
+   kubectl -n openstudio-server get deploy openstudio-server-nfs-server-provisioner \
+     -o jsonpath='{.spec.strategy.type}{"\n"}'
+   ```
+3. Check provisioner logs for invalid export state (`No export entries found` / `/nonexistent`):
+   ```bash
+   kubectl -n openstudio-server logs deploy/openstudio-server-nfs-server-provisioner --tail=200
+   ```
+4. If Kubernetes API requests are intermittently returning `502 Bad Gateway`, treat this as a platform control-plane incident first. NFS export reconciliation depends on API availability.
+
 ### Reliability Preflight, Snapshot, and Helm Reconcile Automation
 
 Use `scripts/openstudio-reliability` to standardize triage and recovery steps:
@@ -483,6 +560,12 @@ Use `scripts/openstudio-reliability` to standardize triage and recovery steps:
 # Capture queue/job snapshots before any mutation
 ./scripts/openstudio-reliability --mode snapshot \
   --snapshot-dir ./incident-snapshots/openstudio-server-$(date +%Y%m%d-%H%M%S)
+
+# Collect a timed scale baseline (repeated snapshots + timeline TSV)
+./scripts/openstudio-reliability --mode scale-baseline \
+  --duration-seconds 1200 \
+  --interval-seconds 30 \
+  --snapshot-dir ./incident-snapshots/openstudio-server-scale-$(date +%Y%m%d-%H%M%S)
 
 # Reconcile Helm only for managed-field conflict failures
 ./scripts/openstudio-reliability --mode reconcile-helm --apply --allow-chart-apply
@@ -496,6 +579,7 @@ Design notes:
 - Script defaults to read-only mode.
 - Mutating operations require explicit `--apply`.
 - Snapshot mode captures queue depths and app job status for incident auditability.
+- Scale-baseline mode captures repeated snapshots plus `scale_timeline.tsv` (HPA/deployment replicas, node readiness, and queue depths) for scale-up latency decomposition.
 
 ### Helm Failed-State Reconcile Playbook (SSA Conflicts)
 
@@ -611,11 +695,90 @@ Run a monthly drill that executes:
 
 1. `./scripts/openstudio-reliability --mode check`
 2. `./scripts/openstudio-reliability --mode snapshot --snapshot-dir <drill-artifacts>`
-3. Helm reconcile dry procedure review (no mutation), then controlled reconcile in non-prod.
-4. Post-drill retrospective with action-item updates.
+3. `./scripts/openstudio-reliability --mode scale-baseline --duration-seconds 600 --interval-seconds 30 --snapshot-dir <drill-artifacts>/scale-baseline`
+4. Helm reconcile dry procedure review (no mutation), then controlled reconcile in non-prod.
+5. Post-drill retrospective with action-item updates.
 
 ## Auto Scaling
 
-The worker pods are configured to auto-scale based on CPU threshold (default 12%). Once the aggregate CPU for all worker pods exceed the defined threshold (in this case 12%), the Kubernetes engine will start adding additional worker pods up to the maximum specified. This is also dependent on how the Kuebernetes cluster was configured as additional VM node instances will also be added. Please refer to the notes on [aws](/aws/README.md) and [google](/google/README.md) when setting up the cluster and note the instance type and maximum nodes specified.
+Worker autoscaling supports two modes:
 
-Once the aggregate CPU of the workers drop below 12%, the Kubernetes engine will start removing worker pod instances. There is a [prestop hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/) configured in the worker pod to drain resque workers and wait for active ruby/openstudio processes before termination. The wait behavior is bounded and configurable via `worker.container.preStop.*`.
+1. `worker_autoscaling.mode: hpa` (default): CPU-based Kubernetes HPA using `worker_hpa.*`.
+2. `worker_autoscaling.mode: keda-hybrid`: KEDA `ScaledObject` with Redis queue depth triggers (`simulations`, `requeued` by default) plus CPU utilization trigger.
+
+In both modes, scale bounds still come from `worker_hpa.minReplicas` and `worker_hpa.maxReplicas`, so existing capacity envelopes remain consistent.
+
+For `keda-hybrid` mode:
+
+- KEDA must be installed in the cluster.
+- The chart creates a `TriggerAuthentication` that reads Redis password from the existing app secret.
+- Queue signal tuning is controlled with `worker_autoscaling.keda.*`.
+
+### Install KEDA (self-managed prerequisite)
+
+Install KEDA once per cluster before enabling `worker_autoscaling.mode: keda-hybrid`.
+
+1. Add/update the KEDA Helm repository:
+
+```bash
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo update
+```
+
+2. Install (or upgrade) KEDA in its own namespace:
+
+```bash
+helm upgrade --install keda kedacore/keda \
+  --namespace keda \
+  --create-namespace \
+  --wait \
+  --timeout 10m
+```
+
+3. Verify CRDs and operator health:
+
+```bash
+kubectl get crd scaledobjects.keda.sh triggerauthentications.keda.sh clustertriggerauthentications.keda.sh
+kubectl -n keda get deploy,pods
+```
+
+Expected result: KEDA CRDs exist and `keda-operator`, `keda-operator-metrics-apiserver`, and `keda-admission-webhooks` are `Ready`/`Running`.
+
+Optional lifecycle commands:
+
+```bash
+# Upgrade KEDA later
+helm upgrade keda kedacore/keda -n keda --wait --timeout 10m
+
+# Uninstall KEDA (only if no workloads depend on it)
+helm uninstall keda -n keda
+```
+
+Worker termination remains drain-safe via the [preStop hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/) (`worker.container.preStop.*`) so scale-down does not abruptly kill long-running simulations.
+
+### Scale-up SLOs (recommended)
+
+Use these as baseline objectives for high-capacity clusters and adapt per environment:
+
+- **Time to 25% of max worker replicas:** <= 5 minutes
+- **Time to 50% of max worker replicas:** <= 10 minutes
+- **Time to configured max worker replicas:** <= 20 minutes
+- **Redis queue backlog age (`simulations`):** <= 15 minutes under sustained load
+
+Track these during each scale test with `kubectl get hpa/scaledobject`, worker pod readiness, node readiness, and queue depth snapshots.
+
+### Staged rollout sequence (recommended)
+
+Roll out scaling changes in this order to isolate regressions:
+
+1. Enable/verify observability first (`--mode scale-baseline`) and record baseline.
+2. Apply autoscaling signal changes (`worker_autoscaling.mode`, KEDA tuning) in non-prod.
+3. Apply node supply-side changes (`autoscaler.expander`, node groups, optional priority expander).
+4. Run a controlled load test and compare timeline metrics to baseline.
+5. Promote to production only after SLO and queue-age targets are met.
+
+Rollback checkpoints:
+
+- Autoscaling rollback: set `worker_autoscaling.mode=hpa` and redeploy.
+- Node-strategy rollback: set `autoscaler.expander=least-waste` (or previous setting) and remove `priorityExpander` config.
+- Full release rollback: `helm rollback <release> <revision> -n <namespace>`.

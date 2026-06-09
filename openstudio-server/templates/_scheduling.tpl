@@ -84,8 +84,22 @@
 {{- end -}}
 {{- end -}}
 
+{{- define "openstudio.nodeGroupAffinityModeForRole" -}}
+{{- $nodeGroups := default (dict) .root.Values.global.nodeGroups -}}
+{{- $roleKey := printf "%sAffinityMode" .role -}}
+{{- $roleMode := lower (default "" (get $nodeGroups $roleKey)) -}}
+{{- if ne $roleMode "" -}}
+{{- if not (has $roleMode (list "required" "preferred" "disabled")) -}}
+{{- fail (printf "global.nodeGroups.%s=%q is unsupported. Supported values: required, preferred, disabled." $roleKey $roleMode) -}}
+{{- end -}}
+{{- $roleMode -}}
+{{- else -}}
+{{- include "openstudio.nodeGroupAffinityMode" .root -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "openstudio.affinityForRole" -}}
-{{- $mode := include "openstudio.nodeGroupAffinityMode" .root -}}
+{{- $mode := include "openstudio.nodeGroupAffinityModeForRole" . -}}
 {{- if ne $mode "disabled" -}}
 affinity:
   nodeAffinity:
@@ -311,4 +325,13 @@ IfNotPresent
 {{- else -}}
 Always
 {{- end -}}
+{{- end -}}
+
+{{- define "openstudio.workerAutoscalingMode" -}}
+{{- $workerAutoscaling := default (dict) .Values.worker_autoscaling -}}
+{{- $mode := lower (default "hpa" (get $workerAutoscaling "mode")) -}}
+{{- if not (has $mode (list "hpa" "keda-hybrid")) -}}
+{{- fail (printf "worker_autoscaling.mode=%q is unsupported. Supported values: hpa, keda-hybrid." $mode) -}}
+{{- end -}}
+{{- $mode -}}
 {{- end -}}

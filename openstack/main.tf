@@ -148,9 +148,11 @@ data "openstack_images_image_v2" "ubuntu_image" {
 
 # Enhanced cloud-init with corporate firewall detection and workarounds
 locals {
-  user_data = base64encode(templatefile("${path.module}/k8s-cloud-init.yaml", {
-    public_key = var.public_key
-  }))
+  user_data = base64encode(replace(
+    file("${path.module}/k8s-cloud-init.yaml"),
+    "$${public_key}",
+    var.public_key
+  ))
 }
 
 # Floating IPs for external access

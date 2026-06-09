@@ -13,6 +13,8 @@ ALLOW_NON_CONFLICT_RECONCILE=false
 STALE_THRESHOLD_MINUTES=70
 RECOVERY_LOCK_TTL_SECONDS=1800
 RECOVERY_LOCK_KEY=""
+BASELINE_DURATION_SECONDS=1200
+BASELINE_INTERVAL_SECONDS=30
 
 usage() {
   cat <<'EOF'
@@ -22,6 +24,7 @@ Usage:
 Modes (default: check):
   --mode check            Read-only reliability preflight checks.
   --mode snapshot         Export queue/job snapshots for incident forensics.
+  --mode scale-baseline   Repeated snapshots + timeline for scale-up latency analysis.
   --mode reconcile-helm   Reconcile Helm failed state (requires --apply).
   --mode recover-stuck    Recover stuck analysis state (requires --apply).
 
@@ -38,6 +41,10 @@ Options:
       --stale-minutes <m> Stale cutoff for started jobs/datapoints in recover mode (default: 70).
       --lock-ttl-seconds <s>
                           Redis lock TTL for recover mode (default: 1800).
+      --duration-seconds <s>
+                          Duration for scale-baseline mode (default: 1200).
+      --interval-seconds <s>
+                          Sampling interval for scale-baseline mode (default: 30).
   -h, --help              Show this help.
 
 Examples:
@@ -374,6 +381,91 @@ run_snapshot_mode() {
   log "Snapshot complete: ${out_dir}"
 }
 
+collect_scale_metrics_line() {
+  local timeline_file="$1"
+  local iso ts hpa_current hpa_desired deploy_desired deploy_current deploy_available node_total node_ready
+  local redis_pod queue_simulations queue_requeued
+  iso="$(date -Iseconds)"
+  ts="$(date +%s)"
+
+  hpa_current="$(kubectl -n "$NAMESPACE" get hpa worker -o jsonpath='{.status.currentReplicas}' 2>/dev/null || true)"
+  hpa_desired="$(kubectl -n "$NAMESPACE" get hpa worker -o jsonpath='{.status.desiredReplicas}' 2>/dev/null || true)"
+  deploy_desired="$(kubectl -n "$NAMESPACE" get deploy worker -o jsonpath='{.spec.replicas}' 2>/dev/null || true)"
+  deploy_current="$(kubectl -n "$NAMESPACE" get deploy worker -o jsonpath='{.status.replicas}' 2>/dev/null || true)"
+  deploy_available="$(kubectl -n "$NAMESPACE" get deploy worker -o jsonpath='{.status.availableReplicas}' 2>/dev/null || true)"
+  node_total="$(kubectl get nodes --no-headers 2>/dev/null | wc -l | xargs || true)"
+  node_ready="$(kubectl get nodes --no-headers 2>/dev/null | awk '$2 ~ /^Ready/ {c++} END{print c+0}' || true)"
+
+  queue_simulations="na"
+  queue_requeued="na"
+  if redis_pod="$(get_redis_pod 2>/dev/null)"; then
+    queue_simulations="$(kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+      PW="${REDIS_PASSWORD:-}"
+      AUTH=""
+      if [ -n "$PW" ]; then AUTH="-a $PW --no-auth-warning"; fi
+      redis-cli $AUTH LLEN resque:queue:simulations
+    ' 2>/dev/null | tr -d '\r' || true)"
+    queue_requeued="$(kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+      PW="${REDIS_PASSWORD:-}"
+      AUTH=""
+      if [ -n "$PW" ]; then AUTH="-a $PW --no-auth-warning"; fi
+      redis-cli $AUTH LLEN resque:queue:requeued
+    ' 2>/dev/null | tr -d '\r' || true)"
+  fi
+
+  : "${hpa_current:=na}"
+  : "${hpa_desired:=na}"
+  : "${deploy_desired:=na}"
+  : "${deploy_current:=na}"
+  : "${deploy_available:=na}"
+  : "${node_total:=na}"
+  : "${node_ready:=na}"
+  : "${queue_simulations:=na}"
+  : "${queue_requeued:=na}"
+  printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+    "$iso" "$ts" "$hpa_current" "$hpa_desired" "$deploy_desired" "$deploy_current" "$deploy_available" "$node_ready" "$node_total" "${queue_simulations},${queue_requeued}" \
+    >> "$timeline_file"
+}
+
+run_scale_baseline_mode() {
+  local root_dir start_epoch now elapsed sample_idx sample_ts sample_dir original_snapshot_dir timeline_file
+  [[ "$BASELINE_DURATION_SECONDS" =~ ^[0-9]+$ ]] || die "--duration-seconds must be an integer"
+  [[ "$BASELINE_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || die "--interval-seconds must be an integer"
+  (( BASELINE_DURATION_SECONDS >= BASELINE_INTERVAL_SECONDS )) || die "--duration-seconds must be >= --interval-seconds"
+  (( BASELINE_INTERVAL_SECONDS >= 5 )) || die "--interval-seconds must be >= 5"
+
+  root_dir="${SNAPSHOT_DIR:-./incident-snapshots/${RELEASE}-scale-baseline-$(date +%Y%m%d-%H%M%S)}"
+  mkdir -p "$root_dir"
+  timeline_file="${root_dir}/scale_timeline.tsv"
+  printf "timestamp_iso\ttimestamp_epoch\thpa_current\thpa_desired\tdeploy_desired\tdeploy_current\tdeploy_available\tnodes_ready\tnodes_total\tqueues_simulations_requeued\n" > "$timeline_file"
+  printf "duration_seconds=%s\ninterval_seconds=%s\nnamespace=%s\nrelease=%s\n" \
+    "$BASELINE_DURATION_SECONDS" "$BASELINE_INTERVAL_SECONDS" "$NAMESPACE" "$RELEASE" > "${root_dir}/baseline_config.txt"
+
+  start_epoch="$(date +%s)"
+  sample_idx=0
+  original_snapshot_dir="${SNAPSHOT_DIR:-}"
+  while true; do
+    now="$(date +%s)"
+    elapsed="$((now - start_epoch))"
+    if (( elapsed > BASELINE_DURATION_SECONDS )); then
+      break
+    fi
+
+    sample_ts="$(date +%Y%m%d-%H%M%S)"
+    sample_dir="${root_dir}/sample-$(printf '%04d' "$sample_idx")-${sample_ts}"
+    log "Scale baseline sample ${sample_idx} at +${elapsed}s -> ${sample_dir}"
+    SNAPSHOT_DIR="$sample_dir"
+    run_snapshot_mode
+    collect_scale_metrics_line "$timeline_file"
+    sample_idx=$((sample_idx + 1))
+    sleep "$BASELINE_INTERVAL_SECONDS"
+  done
+  SNAPSHOT_DIR="$original_snapshot_dir"
+
+  log "Scale baseline complete: ${root_dir}"
+  log "Timeline: ${timeline_file}"
+}
+
 run_reconcile_mode() {
   [[ "$APPLY" == "true" ]] || die "Refusing to mutate without --apply"
   [[ "$ALLOW_CHART_APPLY" == "true" ]] || die "Refusing local chart upgrade without --allow-chart-apply"
@@ -424,6 +516,10 @@ while [[ $# -gt 0 ]]; do
       STALE_THRESHOLD_MINUTES="$2"; shift 2 ;;
     --lock-ttl-seconds)
       RECOVERY_LOCK_TTL_SECONDS="$2"; shift 2 ;;
+    --duration-seconds)
+      BASELINE_DURATION_SECONDS="$2"; shift 2 ;;
+    --interval-seconds)
+      BASELINE_INTERVAL_SECONDS="$2"; shift 2 ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -437,6 +533,7 @@ require_bin helm
 case "$MODE" in
   check) run_check_mode ;;
   snapshot) run_snapshot_mode ;;
+  scale-baseline) run_scale_baseline_mode ;;
   reconcile-helm) run_reconcile_mode ;;
   recover-stuck) recover_stuck_state ;;
   *) die "Unsupported mode: $MODE" ;;

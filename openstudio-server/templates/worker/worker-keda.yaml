@@ -1,0 +1,79 @@
+{{- if eq (include "openstudio.workerAutoscalingMode" .) "keda-hybrid" }}
+{{- $root := . -}}
+{{- $workerAutoscaling := default (dict) .Values.worker_autoscaling -}}
+{{- $keda := default (dict) (get $workerAutoscaling "keda") -}}
+{{- $enableCpuTrigger := true -}}
+{{- if hasKey $keda "enableCpuTrigger" -}}
+{{- $enableCpuTrigger = (get $keda "enableCpuTrigger") -}}
+{{- end -}}
+{{- $queueNames := default (list "simulations" "requeued") (get $keda "queueNames") -}}
+{{- $kedaAddress := default (printf "%s.%s.svc.cluster.local:6379" (include "openstudio.redisServiceName" .) .Release.Namespace) (get $keda "redisAddress") -}}
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "openstudio.workerName" . }}-keda-redis-auth
+spec:
+  secretTargetRef:
+    - parameter: password
+      name: {{ include "openstudio.secretName" . }}
+      key: {{ include "openstudio.secretKeyRedisPassword" . }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "openstudio.workerName" . }}
+spec:
+  scaleTargetRef:
+    kind: Deployment
+    name: {{ include "openstudio.workerName" . }}
+  minReplicaCount: {{ .Values.worker_hpa.minReplicas }}
+  maxReplicaCount: {{ .Values.worker_hpa.maxReplicas }}
+  pollingInterval: {{ default 15 (get $keda "pollingIntervalSeconds") }}
+  cooldownPeriod: {{ default 300 (get $keda "cooldownPeriodSeconds") }}
+  {{- $advanced := default (dict) (get $keda "advanced") }}
+  advanced:
+    restoreToOriginalReplicaCount: {{ default false (get $advanced "restoreToOriginalReplicaCount") }}
+    horizontalPodAutoscalerConfig:
+      name: {{ include "openstudio.workerHpaName" . }}
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 10
+          policies:
+          - type: Pods
+            value: 32
+            periodSeconds: 15
+          - type: Percent
+            value: 200
+            periodSeconds: 15
+          selectPolicy: Max
+        scaleDown:
+          stabilizationWindowSeconds: {{ .Values.worker_hpa.stabilizationWindowSeconds }}
+          policies:
+          - type: Percent
+            value: 25
+            periodSeconds: 60
+  {{- $fallback := default (dict) (get $keda "fallback") }}
+  {{- if and (hasKey $fallback "failureThreshold") (hasKey $fallback "replicas") }}
+  fallback:
+    failureThreshold: {{ get $fallback "failureThreshold" }}
+    replicas: {{ get $fallback "replicas" }}
+  {{- end }}
+  triggers:
+    {{- range $queueName := $queueNames }}
+    - type: redis
+      metadata:
+        address: {{ $kedaAddress | quote }}
+        listName: {{ printf "resque:queue:%s" $queueName | quote }}
+        listLength: {{ default "1" (get $keda "queueLengthPerWorker") | quote }}
+        activationListLength: {{ default "1" (get $keda "activationQueueLength") | quote }}
+      authenticationRef:
+        name: {{ include "openstudio.workerName" $root }}-keda-redis-auth
+    {{- end }}
+    {{- if $enableCpuTrigger }}
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ .Values.worker_hpa.targetCPUUtilizationPercentage | quote }}
+    {{- end }}
+{{- end }}

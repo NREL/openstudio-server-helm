@@ -18,15 +18,19 @@ global:
   # labelKey defaults by provider: openstack => capi.stackhpc.com/node-group, others => nodegroup.
   # web/worker defaults by provider: openstack => web/worker, others => web-group/worker-group.
   # affinityMode: required | preferred | disabled
+  # webAffinityMode / workerAffinityMode can override affinityMode per role.
   # defaults by provider: openstack => preferred, others => required
   nodeGroups:
     # labelKey: ""
     # web: ""
     # worker: ""
     # affinityMode: ""
+    # webAffinityMode: ""
+    # workerAffinityMode: ""
   # Optional pod-level image pull secrets applied to chart workloads.
   # Use this for private registries when pull secrets should be attached directly to Pods.
-  imagePullSecrets: []
+  imagePullSecrets:
+    - name: docker-hub-secret
   images:
     # Optional registry host (for example registry.example.org).
     # When unset, image references keep existing docker-style names (for example nrel/openstudio-server:tag).
@@ -47,14 +51,16 @@ serviceAccount:
   create: true
   name: openstudio-workload
   annotations: {}
-  imagePullSecrets: []
+  imagePullSecrets:
+    - name: docker-hub-secret
 
 cluster:
-  name: "openstudio-server"
+  name: "openstudio-179d"
 
 autoscaler:
   # Defaults to enabled on AWS and disabled on other providers unless explicitly set.
-  enabled: true  # Temporarily enabled for test node provisioning with patched cloud-init
+  # 179D: Keep disabled because Azimuth manages cluster autoscaling for this cluster.
+  enabled: false
   # Safety guard: when enabled on OpenStack, install/upgrade fails if a pre-existing
   # kube-system/cluster-autoscaler deployment is detected and not owned by this Helm release.
   # For OpenStack, enable autoscaler and provide one or more node groups in min:max:name format.
@@ -89,14 +95,26 @@ autoscaler:
     # kube-system/cluster-autoscaler deployment and fails if it's not owned by this release.
     # Set false only when release-time RBAC cannot read kube-system deployments.
     checkExistingDeploymentOwnership: true
-  openstackNodeGroups:
-    - name: "openstudio-179d-worker"
-      min: 1
-      max: 60
+  # openstackNodeGroups:
+  #   - name: "openstudio-179d-worker"
+  #     min: 1
+  #     max: 60
+  # Keep empty when using Azimuth autoscaler.
+  openstackNodeGroups: []
+  # Autoscaler expander strategy: least-waste | most-pods | random | priority
+  expander: "priority"
+  # Optional priority expander config map content.
+  # Enable when using multiple worker node groups and you want deterministic burst ordering.
+  # priorityExpander:
+  #   enabled: true
+  #   config: |
+  #     50:
+  #       - .*worker-on-demand.*
+  #     10:
+  #       - .*worker-spot.*
   extraArgs:
     - "--scale-down-enabled=false"           # Skip scale-down during high-load periods
     - "--scale-down-delay-after-add=10m"     # Wait 10 min after scale-up before scale-down
-    - "--expander=priority"                  # Use priority expander for node group selection
     - "--max-node-provision-time=15m"        # Allow 15 min for node bootstrap
     - "--max-total-unready-percentage=45"    # Allow 45% unready nodes during scaling
     - "--ok-total-unready-count=20"          # Alternative: up to 20 unready nodes
@@ -113,9 +131,8 @@ secrets:
   # If set, chart will not create a secret from db/redis/web values.
   existingSecret: "openstudio-app-secrets"
   # Strict by default for connected clusters.
-  # Set false for offline/render-only workflows (for example CI helm template jobs).
-  # 179D: Disabled to allow autoscaler deployment (template rendering issue)
-  validateExistingSecret: false
+  # Set false only for offline/render-only workflows (for example CI helm template jobs).
+  validateExistingSecret: true
   # Create a secret from db.username/db.password/redis.password/web.secret_key_value.
   # Alternate path. Must be false when existingSecret is set.
   create: false
@@ -127,13 +144,22 @@ secrets:
     redisPassword: "redis-password"
     webSecret: "web-secret-key"
 
-# NFS Server Provisioner - Increased storage for production workloads
+# NFS Server Provisioner
 nfs-server-provisioner:
   persistence:
     enabled: true
     # Backend storage for the in-cluster NFS server (nfs-pvc-data).
     # Keep nfs_pvc.storage below this value to avoid NFS provisioning failures.
-    size: 1.5Ti  # Increased from 5Gi for production
+    # OpenStack preflight (required): ensure this + db.persistence.size +
+    # redis.persistence.size + existing Cinder usage remains below your quota.
+    size: 200Gi
+    # Explicitly pin OpenStack backend class to avoid drift on upgrades.
+    storageClass: "csi-cinder"
+  # 179D managed cluster uses an auth-gated DockerHub mirror path; this image is
+  # pulled from quay to avoid 401 Unauthorized on docker.io/erezsh2.
+  image:
+    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
+    tag: "v2.3.0"
   storageClass:
     allowVolumeExpansion: true  # Enable expansion for future growth
     mountOptions:
@@ -146,12 +172,19 @@ db:
   password: ""
   container:
     image: "mongo:6.0.7"
+    # Optional explicit pull policy override. If empty, uses provider-aware default
+    # (openstack=IfNotPresent, others=Always).
+    imagePullPolicy: "Always"
     resources:
       requests:
         cpu: 2          # Increased from 1 for better performance
         memory: "8Gi"   # Increased from 4Gi for production workloads
   persistence:
-    size: 300Gi        # Increased from 2Gi for production data
+    # For production OpenStack deployments, prefer block storage for DB durability/performance.
+    storageClass: "csi-cinder"
+    # Existing PVC request sizes cannot be reduced in-place.
+    # Keep aligned with live claim (300Gi) unless you plan a migration/recreate.
+    size: 300Gi
 
 load_balancer:
   # Keep provider defaults unless explicitly required.
@@ -161,12 +194,11 @@ load_balancer:
   annotations: {}
   sourceRanges: []
 
-  # NFS PVC - Increased storage for production
 nfs_pvc:
   storageClass: "nfs"
   # Frontend shared RWX claim consumed by web/rserve/background pods.
   # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
-  storage: "100Gi"    # Match existing nfs-pvc bound capacity
+  storage: "180Gi"
 
 # Redis - Enhanced for production
 redis:
@@ -177,17 +209,27 @@ redis:
   url: ""
   container:
     image: "redis:6.0.9"
+    # Optional explicit pull policy override. If empty, uses provider-aware default
+    # (openstack=IfNotPresent, others=Always).
+    imagePullPolicy: "Always"
     resources:
       requests:
-        cpu: 0.5        # Increased from 0.25 for better queue performance
+        cpu: 1        # Increased from 0.25 for better queue performance
         memory: "2Gi"   # Increased from 1Gi for larger queues
   persistence:
-    size: 300Gi         # Increased from 1Gi for production queues
+    # For production OpenStack deployments, prefer block storage for queue durability/performance.
+    storageClass: "csi-cinder"
+    # Existing PVC request sizes cannot be reduced in-place.
+    # Keep aligned with live claim (300Gi) unless you plan a migration/recreate.
+    size: 300Gi
 
 # RServe - Enhanced for production
 rserve:
   number_of_workers: "2"  # Increased from 1 for better R processing
   container:
+    # Optional explicit pull policy override. If empty, uses provider-aware default
+    # (openstack=IfNotPresent, others=Always).
+    imagePullPolicy: "Always"
     resources:
       requests:
         cpu: 2          # Increased from 1 for better R performance
@@ -202,7 +244,7 @@ web_background:
   container:
     # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: ""
+    imagePullPolicy: "Always"
     resources:
       requests:
         cpu: 0.5        # Increased from 0.25 for better background processing
@@ -221,11 +263,11 @@ web:
     # Optional override for init-wait-for-db image. Defaults to openstudio server image.
     image: ""
     # Optional override. If empty, uses provider-aware default (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: ""
+    imagePullPolicy: "Always"
   container:
     # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: ""
+    imagePullPolicy: "Always"
     resources:
       requests:
         cpu: 2          # Increased from 1 for better web performance
@@ -245,9 +287,8 @@ web_svc:
 web_hpa:
   name: "web"
   minReplicas: 1
-  # Increased to 2 to enable redundancy and relieve resource pressure on single web node
-  # Note: File locking on /mnt/openstudio is required for >1 replica to prevent race conditions.
-  maxReplicas: 2
+  # Keep single replica by default until distributed file locking is validated in your environment.
+  maxReplicas: 1
   targetCPUUtilizationPercentage: 50
   # stabilizationWindowSeconds controls how long to wait before scaling down.
   stabilizationWindowSeconds: 600
@@ -258,11 +299,11 @@ worker:
   container:
     # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: ""
+    imagePullPolicy: "Always"
     resources:
       requests:
-        cpu: 800m          # Optimized to 800m (from 900m) - Phase 2 profiling showed 85-90% utilization. See SCALING_OPTIMIZATION.md for details.
-        memory: "800Mi"    # Optimized to 800Mi (from 900Mi) - Observed peak: 1.3GB with current jobs. 800Mi provides safe margin with 11% cost savings.   
+        cpu: 600m
+        memory: "700Mi"
     terminationGracePeriodSeconds: 5200
     startup:
       maxRetries: 12
@@ -276,28 +317,60 @@ worker:
 # Worker HPA - Optimized for production workloads with aggressive scale-up
 worker_hpa:
   minReplicas: 2        # Keep >1 to reduce throughput collapse from a single stuck worker
-  # Restored to 1443 for full cluster capacity now that cloud-init prepulls images
-  # New nodes will arrive with cached images, no longer blocked by quay.io auth
+  # Ceiling for burst scaling; effective scale still depends on schedulable cluster capacity.
   maxReplicas: 1443
   targetCPUUtilizationPercentage: 60  # Slightly higher for stability
   stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
   # Scale-up behavior: 32 pods + 200% every 15s (conservative 4 pods → aggressive)
   # This enables reaching 400+ pods in ~3-4 minutes vs. 10+ minutes previously.
 
+# Worker autoscaling mode:
+# - hpa: Kubernetes HPA on CPU only (default)
+# - keda-hybrid: KEDA ScaledObject using queue depth + CPU
+worker_autoscaling:
+  mode: "keda-hybrid"
+  keda:
+    # Faster queue polling reduces time-to-first-scale and improves burst reaction.
+    pollingIntervalSeconds: 5
+    cooldownPeriodSeconds: 300
+    redisAddress: ""              # Empty => "<redis-service>:6379"
+    queueNames:
+      - simulations
+      - requeued
+    # Faster burst scale-out: target fewer queue items per worker so KEDA requests
+    # higher replica counts earlier while backlog is growing.
+    queueLengthPerWorker: 10       # Target queue items per worker replica
+    activationQueueLength: 1      # Queue depth before scaler activates
+    enableCpuTrigger: true
+    advanced:
+      restoreToOriginalReplicaCount: false
+    # Optional fallback if scaler metrics fail repeatedly
+    # fallback:
+    #   failureThreshold: 3
+    #   replicas: 2
+
 hooks:
   preDeleteCleanup:
     enabled: true
+    # Optional explicit image for pre-delete cleanup job. Set to an internal mirror
+    # to avoid external registry pulls during uninstall/cleanup.
+    image: "bitnami/kubectl:1.31"
+    # Optional explicit pull policy override. If empty, uses provider-aware default
+    # (openstack=IfNotPresent, others=Always).
+    imagePullPolicy: "IfNotPresent"
 
 prepull:
   # Optional image warmup DaemonSet for scale-up/upgrade events.
   # Enable temporarily, wait until all prepull pods are Running, then disable if desired.
-  enabled: true
+  enabled: false
   # Optional role affinity for prepull DaemonSet: "", "web", or "worker".
   role: "worker"
   # Optional explicit pull policy override. If empty, uses provider-aware default
   # (openstack=IfNotPresent, others=Always).
-  imagePullPolicy: ""
+  imagePullPolicy: "Always"
   # Optional image override for the prepull DaemonSet primary container.
   image: ""
   includeRserve: false
   includeWebInit: false
+  # Optional additional images to warm on each node (for example sidecars or infra tools)
+  additionalImages: []

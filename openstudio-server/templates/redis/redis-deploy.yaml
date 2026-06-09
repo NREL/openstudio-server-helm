@@ -30,6 +30,7 @@ spec:
       containers:
         - name: {{ default "redis" .Values.redis.container.name  }}
           image: {{ .Values.redis.container.image  }}
+          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) .Values.redis.container.imagePullPolicy }}
           resources:
             requests:
               cpu:  {{  .Values.redis.container.resources.requests.cpu  }}

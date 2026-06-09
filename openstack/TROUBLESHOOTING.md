@@ -97,6 +97,7 @@ Ensure the bootstrap script applies these patches automatically.
 - PVCs stuck in "Pending" state
 - Events show "Waiting for a volume to be created"
 - Storage provisioner pods are failing or restarting
+- Cinder events include `413 VolumeSizeExceedsAvailableQuota`
 
 **Diagnosis:**
 ```bash
@@ -145,6 +146,24 @@ kubectl get secret cloud-config -n kube-system -o yaml
 # Test OpenStack connectivity from CSI pod
 kubectl exec -n kube-system <csi-pod-name> -- curl -k <openstack-auth-url>
 ```
+
+#### For Cinder Quota Exhaustion (`413 VolumeSizeExceedsAvailableQuota`)
+
+This is a claim-sizing issue, not a scheduler issue.
+
+**Typical cascade:**
+1. `nfs-pvc-data` fails to provision on `csi-cinder` due to quota.
+2. `openstudio-server-nfs-server-provisioner` stays `Pending` (depends on `nfs-pvc-data`).
+3. `nfs-pvc` stays `Pending` (external provisioner unavailable).
+4. `web`, `web-background`, and `rserve` stay `Pending` with unbound PVC errors.
+
+**Fix:**
+1. Lower requested values in Helm values:
+   - `nfs-server-provisioner.persistence.size`
+   - `db.persistence.size`
+   - `redis.persistence.size`
+2. Ensure the sum of requested claims plus current in-use Cinder GB is below quota.
+3. Recreate pending PVCs (`nfs-pvc-data`, `nfs-pvc`) and re-run Helm upgrade/install.
 
 #### For StorageClass Name Mismatch:
 
@@ -210,6 +229,30 @@ EOF"
 # Restart containerd
 ssh ubuntu@<node-ip> "sudo systemctl restart containerd"
 ```
+
+### 8. LoadBalancer Sync Errors (`SyncLoadBalancerFailed`)
+
+**Symptoms:**
+- Service events show repeated `SyncLoadBalancerFailed` / `UpdateLoadBalancerFailed`.
+- Error payload includes Octavia `500` with fault strings referencing unreachable Neutron/security-group endpoints.
+
+**Diagnosis:**
+```bash
+kubectl describe svc -n openstudio-server ingress-load-balancer
+kubectl get events -n openstudio-server \
+  --field-selector involvedObject.kind=Service,involvedObject.name=ingress-load-balancer \
+  --sort-by=.lastTimestamp
+kubectl logs -n openstack-system -l app=openstack-cloud-controller-manager --since=60m | \
+  grep -E 'ingress-load-balancer|SyncLoadBalancerFailed|EnsuredLoadBalancer|faultstring'
+```
+
+**Interpretation:**
+1. If service has external IP + LB ID annotation and CCM logs show `EnsuredLoadBalancer`, earlier warnings were transient and can be ignored.
+2. If failures persist and fault strings show wrong/unreachable OpenStack endpoints (for example `vs-api.hpc.nlr.gov`), this is a platform endpoint/DNS issue in OpenStack/CCM config.
+
+**Fix:**
+1. Platform team updates OpenStack LB/Neutron endpoint config and DNS reachability.
+2. Reconcile the service by re-applying or patching it (or restarting CCM if instructed by platform team).
 
 #### Pre-pull Critical Images:
 ```bash

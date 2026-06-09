@@ -32,6 +32,7 @@ spec:
       containers:
         - name: {{ default "rserve" .Values.rserve.container.name }}
           image: {{ default (include "openstudio.rserveImage" .) .Values.rserve.container.image }}
+          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) .Values.rserve.container.imagePullPolicy }}
           resources:
             requests:
               cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}

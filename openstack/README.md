@@ -16,16 +16,29 @@ This directory contains legacy automation for building a Kubernetes cluster dire
 # Option A: start from the tracked baseline values.yaml
 # Option B: copy production template to a local override file
 cp ../openstudio-server/values_production.templateyaml ../openstudio-server/values.local.yaml
+# Create the namespace if haven't already
+kubectl create namespace openstudio-server
 # Edit your values file (resources/provider=openstack/storage classes/secret name)
 kubectl -n openstudio-server create secret generic openstudio-app-secrets \
   --from-literal=db-username="openstudio" \
   --from-literal=db-password="replace-with-strong-password" \
   --from-literal=redis-password="replace-with-strong-password" \
   --from-literal=web-secret-key="replace-with-long-random-secret"
-helm upgrade --install openstudio-server ../openstudio-server \
-  -f ../openstudio-server/values.yaml \
-  -f ../openstudio-server/values.local.yaml
+helm install openstudio-server ./openstudio-server \
+  -f ./openstudio-server/values.yaml -n openstudio-server
 ```
+
+Before `helm install` / `helm upgrade`, perform a Cinder quota preflight for requested PVC sizes:
+
+```text
+nfs-server-provisioner.persistence.size
++ db.persistence.size
++ redis.persistence.size
++ existing in-use Cinder GB
+<= Cinder quota GB
+```
+
+If over quota, lower requested sizes first. A failed `nfs-pvc-data` claim blocks the in-cluster NFS provisioner, which then blocks `nfs-pvc` and keeps `web`, `web-background`, and `rserve` pending.
 
 ## Legacy Quick Start (Use at Your Own Risk)
 
@@ -93,7 +106,13 @@ required for Helm-only upgrades to an already-accessible Kubernetes cluster.
 ### Internal Registry / Mirror Configuration
 
 For managed Azimuth clusters, the recommended pattern is to use an internal registry or Harbor
-proxy cache and point chart images at it:
+proxy cache and point chart images at it. Start from `openstudio-server/values.registry-live.yaml`:
+
+```bash
+cp openstudio-server/values.registry-live.yaml openstudio-server/values.local.yaml
+```
+
+Core registry settings:
 
 ```yaml
 global:
@@ -147,6 +166,16 @@ prepull:
 ```
 
 After warmup completes, set `prepull.enabled: false` to remove the DaemonSet.
+
+You can apply the same profile through the install helper:
+
+```bash
+PROVIDER=openstack \
+REGISTRY_PROFILE=true \
+REGISTRY_VALUES_FILE=./openstudio-server/values.registry-live.yaml \
+REGISTRY_PULL_SECRET_NAME=registry-credentials \
+./scripts/install.sh
+```
 
 ## 🏗️ Cluster Configurations
 
@@ -329,6 +358,7 @@ By default, this chart enables Cluster Autoscaler on AWS and disables it for oth
 
 - `autoscaler.enabled: true`
 - `autoscaler.openstackNodeGroups` entries with `name`, `min`, and `max`
+- `autoscaler.expander` (optional) when selecting a non-default node-group expander strategy
 - either `autoscaler.openstack.cloudConfigSecretName` **or** a `--cloud-config=...` arg in `autoscaler.extraArgs`
 - optional private-CA wiring via `autoscaler.openstack.caBundleSecretName` (with optional `caBundleSecretKey` and `caBundleMountPath`)
 
@@ -351,6 +381,7 @@ Example:
 ```yaml
 autoscaler:
   enabled: true
+  expander: priority
   openstack:
     cloudConfigSecretName: cloud-config
     # Optional for private OpenStack API CAs:
@@ -364,6 +395,14 @@ autoscaler:
     - name: worker-group
       min: 1
       max: 50
+  # Optional: deterministic node-group ordering for expander=priority
+  # priorityExpander:
+  #   enabled: true
+  #   config: |
+  #     50:
+  #       - .*worker-on-demand.*
+  #     10:
+  #       - .*worker-spot.*
 ```
 
 When `caBundleSecretName` is set, the chart mounts the CA file and sets `SSL_CERT_FILE` in the autoscaler container. If you already bake private CA trust into node/runtime images, this is not required.
@@ -375,6 +414,7 @@ The chart now reads provider from `global.provider.name` in your values file and
 - Worker node group value: `worker`
 
 OpenStack defaults to `global.nodeGroups.affinityMode: preferred` to avoid unschedulable pods when labels drift; set `required` to enforce strict placement.
+You can also override per role with `global.nodeGroups.webAffinityMode` and `global.nodeGroups.workerAffinityMode` (for example keep web preferred but enforce worker required during burst scaling).
 
 If your cluster uses different labels, set `global.nodeGroups.labelKey`, `global.nodeGroups.web`, and `global.nodeGroups.worker` in your values file.
 
@@ -412,12 +452,19 @@ Rollout warning triage (OpenStack):
   - `/` and `/status.json` return HTTP 200,
   - web/worker deployments are fully available.
 - Escalate when warnings persist and service health fails (missing external IP, non-200 health checks, or unavailable web deployment).
+- If kubectl/Helm frequently fail with `502 Bad Gateway` from an nginx proxy, this is a control-plane/API gateway incident; stabilize API path first before further app rollouts.
+- If CCM/Service events contain a provider fault like `vs-api.hpc.nrel.gov ... got 500` and an internal `faultstring` referencing an unreachable endpoint (`vs-api.hpc.nlr.gov`), this is an OpenStack control-plane endpoint/DNS misconfiguration, not a Helm chart issue.
 
 Pod termination caveats:
 
 - `FailedKillPod` events during rollout usually indicate node/container-runtime cleanup delays for replaced pods.
 - If replacement pods are healthy and workloads continue, this is typically infra-side and not a chart-level app failure.
 - Track affected node(s) and coordinate runtime remediation (containerd/kubelet health, node pressure, host IO saturation).
+
+NFS rollout safety:
+
+- `nfs-server-provisioner` is single-replica with an RWO backend PVC.
+- Keep deployment strategy at `Recreate` to avoid simultaneous old/new pods competing for `nfs-pvc-data` during upgrades.
 
 Mongo host tuning note:
 

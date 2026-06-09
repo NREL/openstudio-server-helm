@@ -17,6 +17,10 @@
 {{- $caBundleSecretKey := default "ca.crt" (get $openstackAutoscaler "caBundleSecretKey") -}}
 {{- $caBundleMountPath := default "/etc/ssl/certs/openstack-ca.crt" (get $openstackAutoscaler "caBundleMountPath") -}}
 {{- $checkExistingOwnership := default true (get $openstackAutoscaler "checkExistingDeploymentOwnership") -}}
+{{- $autoscalerExpander := default "least-waste" (get $autoscaler "expander") -}}
+{{- $priorityExpander := default (dict) (get $autoscaler "priorityExpander") -}}
+{{- $priorityExpanderEnabled := default false (get $priorityExpander "enabled") -}}
+{{- $priorityExpanderConfig := default "" (get $priorityExpander "config") -}}
 {{- $extraArgs := default (list) (get $autoscaler "extraArgs") -}}
 {{- $hasCloudConfigArg := false -}}
 {{- range $arg := $extraArgs -}}
@@ -32,6 +36,12 @@
 {{- end -}}
 {{- if and $autoscalerEnabled (eq $providerName "openstack") (eq $cloudConfigSecretName "") (not $hasCloudConfigArg) -}}
 {{- fail "OpenStack autoscaler requires cloud config. Set autoscaler.openstack.cloudConfigSecretName or provide --cloud-config=<path> in autoscaler.extraArgs." -}}
+{{- end -}}
+{{- if and $autoscalerEnabled $priorityExpanderEnabled (ne $autoscalerExpander "priority") -}}
+{{- fail "autoscaler.priorityExpander.enabled=true requires autoscaler.expander=priority." -}}
+{{- end -}}
+{{- if and $autoscalerEnabled $priorityExpanderEnabled (eq (trim $priorityExpanderConfig) "") -}}
+{{- fail "autoscaler.priorityExpander.enabled=true requires autoscaler.priorityExpander.config to be a non-empty YAML mapping string." -}}
 {{- end -}}
 {{- if and $autoscalerEnabled (eq $providerName "openstack") $checkExistingOwnership -}}
 {{- $existingAutoscaler := lookup "apps/v1" "Deployment" "kube-system" "cluster-autoscaler" -}}
@@ -164,6 +174,20 @@ subjects:
     name: cluster-autoscaler
     namespace: kube-system
 
+{{- if $priorityExpanderEnabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-autoscaler-priority-expander
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+data:
+  priorities: |
+{{ $priorityExpanderConfig | nindent 4 }}
+{{- end }}
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -203,7 +227,7 @@ spec:
             - --stderrthreshold=info
             - --cloud-provider={{ $providerName }}
             - --skip-nodes-with-local-storage=false
-            - --expander=least-waste
+            - --expander={{ $autoscalerExpander }}
             {{- if eq $providerName "aws" }}
             - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/{{ .Values.cluster.name }}
             {{- else if eq $providerName "openstack" }}

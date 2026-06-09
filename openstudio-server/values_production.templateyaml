@@ -58,7 +58,14 @@ nfs-server-provisioner:
     enabled: true
     # Backend storage for the in-cluster NFS server (nfs-pvc-data).
     # Keep nfs_pvc.storage below this value to avoid NFS provisioning failures.
+    # OpenStack preflight (required): ensure this + db.persistence.size +
+    # redis.persistence.size + existing Cinder usage remains below your quota.
     size: 1Ti  # Sized for no-pruning retention and high worker throughput
+  # Some managed OpenStack clusters mirror docker.io via auth-gated paths.
+  # Use the Quay-hosted image to avoid docker.io mirror 401 pull failures.
+  image:
+    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
+    tag: "v2.3.0"
   storageClass:
     allowVolumeExpansion: true  # Enable expansion for future growth
     mountOptions:
@@ -164,6 +171,21 @@ worker_hpa:
   maxReplicas: 50       # Increased from 20 for larger simulation batches
   targetCPUUtilizationPercentage: 60  # Slightly higher for stability
   stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
+
+worker_autoscaling:
+  mode: "hpa"
+  keda:
+    pollingIntervalSeconds: 15
+    cooldownPeriodSeconds: 300
+    redisAddress: ""
+    queueNames:
+      - simulations
+      - requeued
+    queueLengthPerWorker: 1
+    activationQueueLength: 1
+    enableCpuTrigger: true
+    advanced:
+      restoreToOriginalReplicaCount: false
 
 hooks:
   preDeleteCleanup:

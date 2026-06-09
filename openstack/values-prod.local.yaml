@@ -23,14 +23,21 @@ cluster:
 
 nfs-server-provisioner:
   persistence:
-    size: 1740Gi
+    # OpenStack preflight (required): ensure this + db.persistence.size +
+    # redis.persistence.size + existing Cinder usage stays below quota.
+    size: 1Ti
+  # Use Quay-hosted image to avoid docker.io mirror auth failures on managed clusters.
+  image:
+    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
+    tag: "v2.3.0"
   storageClass:
     allowVolumeExpansion: true
     mountOptions:
       - vers=4
 
 nfs_pvc:
-  storage: 1.5Ti
+  # Keep 85-95% of nfs-server-provisioner.persistence.size.
+  storage: 900Gi
 
 db:
   persistence:

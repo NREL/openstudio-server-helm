@@ -179,6 +179,50 @@ check_prerequisites() {
     success "Prerequisites check passed"
 }
 
+# Validate OpenStack image exists
+validate_openstack_image() {
+    # Use environment variable if available, otherwise use parameter
+    local image_name="${TF_VAR_image_name:-${1:-ubuntu-jammy}}"
+    log "Validating OpenStack image: $image_name..."
+    
+    # Check if we can query OpenStack (requires credentials)
+    if ! command -v openstack &> /dev/null; then
+        warning "openstack CLI not available; skipping image validation"
+        return 0
+    fi
+    
+    # Try to find the image (support both exact match and partial match)
+    local found_image
+    found_image=$(openstack image list --name "$image_name" -f value -c Name 2>/dev/null | head -1)
+    
+    if [[ -n "$found_image" ]]; then
+        success "Image found: $found_image"
+        # Update TF_VAR_image_name with the exact name for Terraform
+        export TF_VAR_image_name="$found_image"
+        log "Using image: $found_image"
+        return 0
+    fi
+    
+    # If exact match fails, try to find images that match the pattern
+    log "Exact match for '$image_name' not found. Checking for similar images..."
+    local matching_images
+    matching_images=$(openstack image list -f value -c Name 2>/dev/null | grep -i "$image_name" | head -5)
+    
+    if [[ -n "$matching_images" ]]; then
+        log "Found similar images:"
+        echo "$matching_images"
+        first_match=$(echo "$matching_images" | head -1)
+        log "Using first match: $first_match"
+        export TF_VAR_image_name="$first_match"
+        return 0
+    fi
+    
+    # Provide helpful error message
+    log "Image '$image_name' not found. Available images:"
+    openstack image list --format table 2>/dev/null | head -20 || true
+    error "Please set TF_VAR_image_name to a valid image name or override in tfvars file"
+}
+
 # Clean up existing infrastructure
 cleanup_cluster() {
     if [[ "$CLEANUP" == true ]]; then
@@ -484,6 +528,7 @@ main() {
     log "Starting OpenStudio Server deployment ($CLUSTER_SIZE)"
     
     check_prerequisites
+    validate_openstack_image
     cleanup_cluster
     deploy_infrastructure
     generate_inventory

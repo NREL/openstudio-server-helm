@@ -84,9 +84,9 @@ variable "worker_flavor" {
 }
 
 variable "image_name" {
-  description = "The name of the OpenStack image to use."
+  description = "The name of the OpenStack image to use. Can be a partial name like 'ubuntu-jammy' or exact name like 'ubuntu-jammy-20260320'. The deployment script will validate and resolve to exact name."
   type        = string
-  default     = "ubuntu-jammy-kube-v1.33.2-250701-1108"
+  default     = "ubuntu-jammy"
 }
 
 variable "volume_size" {

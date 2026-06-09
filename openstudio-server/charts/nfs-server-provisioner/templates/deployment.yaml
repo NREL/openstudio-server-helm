@@ -10,6 +10,13 @@ metadata:
 spec:
   # TODO: Investigate how/if nfs-provisioner can be scaled out beyond 1 replica
   replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: {{ default "Recreate" .Values.deploymentStrategyType }}
+    {{- if eq (default "Recreate" .Values.deploymentStrategyType) "RollingUpdate" }}
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- end }}
   selector:
     matchLabels:
       app: {{ template "nfs-provisioner.name" . }}
