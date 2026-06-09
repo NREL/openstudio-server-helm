@@ -172,19 +172,19 @@ db:
   password: ""
   container:
     image: "mongo:6.0.7"
-    # Use IfNotPresent to avoid Quay mirror 401 errors on cached images
+    # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: "IfNotPresent"
+    imagePullPolicy: "Always"
     resources:
       requests:
         cpu: 2          # Increased from 1 for better performance
         memory: "8Gi"   # Increased from 4Gi for production workloads
   persistence:
-    # Use NFS for simplicity and to avoid WaitForFirstConsumer circular dependency
-    # with CSI Cinder provisioner
-    storageClass: "nfs"
-    # NFS size can be smaller since it's shared; adjust based on DB growth needs
-    size: 50Gi
+    # For production OpenStack deployments, prefer block storage for DB durability/performance.
+    storageClass: "csi-cinder"
+    # Existing PVC request sizes cannot be reduced in-place.
+    # Keep aligned with live claim (300Gi) unless you plan a migration/recreate.
+    size: 300Gi
 
 load_balancer:
   # Keep provider defaults unless explicitly required.
@@ -217,10 +217,11 @@ redis:
         cpu: 1        # Increased from 0.25 for better queue performance
         memory: "2Gi"   # Increased from 1Gi for larger queues
   persistence:
-    # Use NFS to avoid WaitForFirstConsumer circular dependency with CSI Cinder
-    storageClass: "nfs"
-    # NFS size; adjust based on queue growth needs
-    size: 50Gi
+    # For production OpenStack deployments, prefer block storage for queue durability/performance.
+    storageClass: "csi-cinder"
+    # Existing PVC request sizes cannot be reduced in-place.
+    # Keep aligned with live claim (300Gi) unless you plan a migration/recreate.
+    size: 300Gi
 
 # RServe - Enhanced for production
 rserve:
