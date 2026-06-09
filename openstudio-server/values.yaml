@@ -177,8 +177,8 @@ db:
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 2          # Increased from 1 for better performance
-        memory: "8Gi"   # Increased from 4Gi for production workloads
+        cpu: 0.5        # Reduced from 2 for resource-constrained cluster
+        memory: "1Gi"   # Reduced from 8Gi significantly
   persistence:
     # Use NFS for simplicity and to avoid WaitForFirstConsumer circular dependency
     # with CSI Cinder provisioner
@@ -214,8 +214,8 @@ redis:
     imagePullPolicy: "Always"
     resources:
       requests:
-        cpu: 1        # Increased from 0.25 for better queue performance
-        memory: "2Gi"   # Increased from 1Gi for larger queues
+        cpu: 0.5        # Reduced from 1 for resource-constrained cluster
+        memory: "500Mi" # Reduced significantly
   persistence:
     # Use NFS to avoid WaitForFirstConsumer circular dependency with CSI Cinder
     storageClass: "nfs"
