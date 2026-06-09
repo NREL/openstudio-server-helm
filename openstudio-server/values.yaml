@@ -171,10 +171,9 @@ db:
   username: ""
   password: ""
   container:
-    image: "mongo:6.0.7"
-    # Use IfNotPresent to avoid Quay mirror 401 errors on cached images
-    # (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: "IfNotPresent"
+    image: "bitnami/mongodb:4.0"  # Changed from mongo:6.0.7 to bitnami/mongodb which is available on Quay
+    # Set to Always to ensure fresh pull (bitnami images should work through Quay mirror)
+    imagePullPolicy: "Always"
     resources:
       requests:
         cpu: 0.5        # Reduced from 2 for resource-constrained cluster
@@ -208,7 +207,7 @@ redis:
   # Use this if credentials include URI-reserved characters.
   url: ""
   container:
-    image: "redis:6.0.9"
+    image: "bitnami/redis:6.0"  # Changed from redis:6.0.9 to bitnami/redis which is available on Quay
     # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
     imagePullPolicy: "Always"
@@ -221,6 +220,19 @@ redis:
     storageClass: "nfs"
     # NFS size; adjust based on queue growth needs
     size: 50Gi
+  # Node affinity to avoid nodes with Quay mirror (containerd config drift)
+  # Prefer nodes where other workloads successfully pull images
+  # Avoid node with Quay mirror configured (web-pw89w-rb9nn)
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                  - openstudio-179d-web-pw89w-rb9nn
 
 # RServe - Enhanced for production
 rserve:

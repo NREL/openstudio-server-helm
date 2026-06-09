@@ -19,7 +19,18 @@ spec:
         release: {{ .Release.Name }}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     spec:
+      {{- if .Values.redis.affinity }}
+      affinity:
+        {{- if .Values.redis.affinity.nodeAffinity }}
+        nodeAffinity:
+          {{- if .Values.redis.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            {{- toYaml .Values.redis.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      {{- else }}
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
+      {{- end }}
       {{- if eq (include "openstudio.workloadServiceAccountUse" .) "true" }}
       serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
       {{- end }}
