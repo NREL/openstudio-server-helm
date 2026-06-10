@@ -15,6 +15,10 @@ variable "openstack_auth_url" {
   description = "The authentication URL for OpenStack. Set via tfvars or TF_VAR_openstack_auth_url environment variable."
   type        = string
   default     = null
+  validation {
+    condition     = var.openstack_auth_url != null && trimspace(var.openstack_auth_url) != ""
+    error_message = "openstack_auth_url must be set via tfvars or TF_VAR_openstack_auth_url."
+  }
 }
 
 variable "openstack_tenant_name" {
