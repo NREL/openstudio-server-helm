@@ -161,7 +161,8 @@ check_prerequisites() {
     done
 
     local tfvars_file="openstudio-${CLUSTER_SIZE}.tfvars"
-    if [[ -z "${TF_VAR_openstack_auth_url:-}" ]]; then
+    local auth_url="${TF_VAR_openstack_auth_url:-}"
+    if [[ -z "${auth_url//[[:space:]]/}" ]]; then
         if [[ ! -f "$tfvars_file" ]] || ! grep -Eq '^[[:space:]]*openstack_auth_url[[:space:]]*=' "$tfvars_file"; then
             error "Set TF_VAR_openstack_auth_url or define openstack_auth_url in $tfvars_file"
         fi
