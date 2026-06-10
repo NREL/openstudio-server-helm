@@ -3,7 +3,7 @@
 
 cluster_name = "openstudio-server-small"
 # Replace with your OpenStack identity endpoint URL.
-openstack_auth_url = "https://your-openstack-api.example.com:5000"
+openstack_auth_url = "https://REPLACE_WITH_YOUR_OPENSTACK_API:5000"
 
 # Master node configuration
 master_flavor = "CS.Wee" # 8 vCPUs, 32GB RAM
