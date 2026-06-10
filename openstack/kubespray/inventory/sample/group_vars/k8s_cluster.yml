@@ -31,7 +31,7 @@ external_openstack_cloud_provider: true
 # Cinder CSI driver configuration
 csi_openstack_cinder_enabled: true
 cinder_csi_controller_replicas: 1
-cinder_csi_plugin_image_tag: "latest"
+cinder_csi_plugin_image_tag: "v1.36.0"
 
 # Storage classes for OpenStudio Server requirements
 openstack_cinder_storage_classes:
