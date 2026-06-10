@@ -4,15 +4,23 @@ set -euo pipefail
 # Validate chart rendering across provider matrix, OpenStack overlays, and secret modes.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHART_DIR="${ROOT_DIR}/openstudio-server"
+OPENSTACK_VALUES_DIR="${ROOT_DIR}/openstack"
+OPENSTACK_VALUES_FILE="${OPENSTACK_VALUES_DIR}/values-openstack.yaml"
+OPENSTACK_VALUES_NFS_FILE="${OPENSTACK_VALUES_DIR}/values-openstack-nfs.yaml"
+OPENSTACK_VALUES_NFS_SMALL_FILE="${OPENSTACK_VALUES_DIR}/values-openstack-nfs-small.yaml"
 
 helm lint "${CHART_DIR}" --set global.provider.name=aws --set secrets.validateExistingSecret=false >/dev/null
 helm template openstudio-server "${CHART_DIR}" --set global.provider.name=aws --set secrets.validateExistingSecret=false >/dev/null
 helm template openstudio-server "${CHART_DIR}" --set global.provider.name=google --set secrets.validateExistingSecret=false >/dev/null
 helm template openstudio-server "${CHART_DIR}" --set global.provider.name=azure --set secrets.validateExistingSecret=false >/dev/null
 helm template openstudio-server "${CHART_DIR}" --set global.provider.name=openstack --set secrets.validateExistingSecret=false >/dev/null
-helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack.yaml" --set secrets.validateExistingSecret=false >/dev/null
-helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack-nfs.yaml" --set secrets.validateExistingSecret=false >/dev/null
-helm template openstudio-server "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack-nfs-small.yaml" --set secrets.validateExistingSecret=false >/dev/null
+if [[ -f "${OPENSTACK_VALUES_FILE}" && -f "${OPENSTACK_VALUES_NFS_FILE}" && -f "${OPENSTACK_VALUES_NFS_SMALL_FILE}" ]]; then
+  helm template openstudio-server "${CHART_DIR}" -f "${OPENSTACK_VALUES_FILE}" --set secrets.validateExistingSecret=false >/dev/null
+  helm template openstudio-server "${CHART_DIR}" -f "${OPENSTACK_VALUES_NFS_FILE}" --set secrets.validateExistingSecret=false >/dev/null
+  helm template openstudio-server "${CHART_DIR}" -f "${OPENSTACK_VALUES_NFS_SMALL_FILE}" --set secrets.validateExistingSecret=false >/dev/null
+else
+  echo "Skipping OpenStack values file checks (expected after split; covered by PR #71)." >&2
+fi
 helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=openstack \
   --set secrets.validateExistingSecret=false \
@@ -70,10 +78,12 @@ if helm template openstudio-server "${CHART_DIR}" \
   exit 1
 fi
 
-if helm template openstudio-server "${CHART_DIR}" \
-  -f "${ROOT_DIR}/openstack/values-openstack.yaml" >/dev/null 2>&1; then
-  echo "Expected failure when OpenStack values enable secrets.validateExistingSecret without a live cluster Secret"
-  exit 1
+if [[ -f "${OPENSTACK_VALUES_FILE}" ]]; then
+  if helm template openstudio-server "${CHART_DIR}" \
+    -f "${OPENSTACK_VALUES_FILE}" >/dev/null 2>&1; then
+    echo "Expected failure when OpenStack values enable secrets.validateExistingSecret without a live cluster Secret"
+    exit 1
+  fi
 fi
 
 if helm template openstudio-server "${CHART_DIR}" \
@@ -120,12 +130,14 @@ if ! helm template openstudio-server "${CHART_DIR}" \
   exit 1
 fi
 
-if ! helm template openstudio-server "${CHART_DIR}" \
-  -f "${ROOT_DIR}/openstack/values-openstack.yaml" \
-  --set secrets.validateExistingSecret=false \
-  | grep -q 'storageClassName: "csi-cinder"'; then
-  echo "Expected OpenStack values to render csi-cinder as NFS provisioner backing storageClass"
-  exit 1
+if [[ -f "${OPENSTACK_VALUES_FILE}" ]]; then
+  if ! helm template openstudio-server "${CHART_DIR}" \
+    -f "${OPENSTACK_VALUES_FILE}" \
+    --set secrets.validateExistingSecret=false \
+    | grep -q 'storageClassName: "csi-cinder"'; then
+    echo "Expected OpenStack values to render csi-cinder as NFS provisioner backing storageClass"
+    exit 1
+  fi
 fi
 
 TMP_DIR="$(mktemp -d)"
