@@ -4,7 +4,7 @@ metadata:
   name: {{ include "openstudio.rserveServiceName" . }}
 spec:
   selector:
-    app: {{ default (default "rserve" .Values.rserve.label) .Values.rserve_svc.label }}
+    app: {{ default "rserve" .Values.rserve.label }}
     release: {{ .Release.Name }}
   ports:
     - name: rserve
