@@ -2,6 +2,7 @@
 # Quota-conscious configuration: Total RAM ~84GB
 
 cluster_name = "openstudio-server-small"
+# Replace with your OpenStack identity endpoint URL.
 openstack_auth_url = "https://your-openstack-api.example.com:5000"
 
 # Master node configuration

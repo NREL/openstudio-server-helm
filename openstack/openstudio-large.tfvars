@@ -2,6 +2,7 @@
 # Equivalent to AWS EKS large configuration
 
 cluster_name = "openstudio-server-large"
+# Replace with your OpenStack identity endpoint URL.
 openstack_auth_url = "https://your-openstack-api.example.com:5000"
 
 # Master node configuration

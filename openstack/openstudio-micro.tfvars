@@ -3,6 +3,7 @@
 # Total RAM usage: ~36GB (well within 245GB quota)
 
 cluster_name = "openstudio-server-micro"
+# Replace with your OpenStack identity endpoint URL.
 openstack_auth_url = "https://your-openstack-api.example.com:5000"
 
 # Master node configuration - minimal but functional
