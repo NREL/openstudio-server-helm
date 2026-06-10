@@ -3,6 +3,7 @@
 # Total RAM usage: ~36GB (well within 245GB quota)
 
 cluster_name = "openstudio-server-micro"
+openstack_auth_url = "https://your-openstack-api.example.com:5000"
 
 # Master node configuration - minimal but functional
 master_flavor = "CS.Tiny" # 4 vCPUs, 16GB RAM

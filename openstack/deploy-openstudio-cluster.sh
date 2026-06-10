@@ -151,7 +151,6 @@ check_prerequisites() {
     local required_vars=(
         "TF_VAR_openstack_user_name"
         "TF_VAR_openstack_password"
-        "TF_VAR_openstack_auth_url"
         "TF_VAR_openstack_tenant_name"
     )
     
@@ -160,6 +159,13 @@ check_prerequisites() {
             error "Required environment variable $var is not set"
         fi
     done
+
+    local tfvars_file="openstudio-${CLUSTER_SIZE}.tfvars"
+    if [[ -z "${TF_VAR_openstack_auth_url:-}" ]]; then
+        if [[ ! -f "$tfvars_file" ]] || ! grep -Eq '^[[:space:]]*openstack_auth_url[[:space:]]*=' "$tfvars_file"; then
+            error "Set TF_VAR_openstack_auth_url or define openstack_auth_url in $tfvars_file"
+        fi
+    fi
     
     # Check Kubespray
     if [[ ! -d "$KUBESPRAY_PATH" ]] && [[ "$SKIP_KUBESPRAY" == false ]]; then

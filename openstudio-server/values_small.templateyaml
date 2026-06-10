@@ -4,6 +4,10 @@
 
 
 # Set to google, aws or azure
+global:
+  provider:
+    name: ""
+
 provider:
   name: ""
 
@@ -11,6 +15,7 @@ cluster:
   name: "openstudio-server"
 
 nfs-server-provisioner:
+  enabled: true
   persistence:
     enabled: true
     storageClass: "ssd"
@@ -173,6 +178,5 @@ worker_hpa:
   maxReplicas: 20
   targetCPUUtilizationPercentage: 50
   stabilizationWindowSeconds: 3600
-
 
 

@@ -12,9 +12,9 @@ variable "openstack_password" {
 }
 
 variable "openstack_auth_url" {
-  description = "The authentication URL for OpenStack. Can be set via TF_VAR_openstack_auth_url environment variable."
+  description = "The authentication URL for OpenStack. Set via tfvars or TF_VAR_openstack_auth_url environment variable."
   type        = string
-  default     = "https://vs-api.hpc.nrel.gov:5000"
+  default     = null
 }
 
 variable "openstack_tenant_name" {

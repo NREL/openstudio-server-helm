@@ -2,6 +2,7 @@
 # Equivalent to AWS EKS large configuration
 
 cluster_name = "openstudio-server-large"
+openstack_auth_url = "https://your-openstack-api.example.com:5000"
 
 # Master node configuration
 master_flavor = "CS.2XMedium" # 32 vCPUs, 128GB RAM

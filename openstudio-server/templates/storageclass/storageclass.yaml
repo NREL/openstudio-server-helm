@@ -3,18 +3,18 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: ssd
-{{ if eq .Values.provider.name "aws" }}
+{{ if eq (include "openstudio.providerName" .) "aws" }}
 provisioner: kubernetes.io/aws-ebs
 parameters:
   type: gp3
 {{ end }}
-{{ if eq .Values.provider.name "google" }}
+{{ if eq (include "openstudio.providerName" .) "google" }}
 provisioner: pd.csi.storage.gke.io
 parameters:
   type: pd-ssd
   replication-type: none
 {{ end }}
-{{ if eq .Values.provider.name "azure" }}
+{{ if eq (include "openstudio.providerName" .) "azure" }}
 provisioner: kubernetes.io/azure-disk
 parameters:
   kind: Managed

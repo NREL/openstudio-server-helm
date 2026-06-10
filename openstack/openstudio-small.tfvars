@@ -2,6 +2,7 @@
 # Quota-conscious configuration: Total RAM ~84GB
 
 cluster_name = "openstudio-server-small"
+openstack_auth_url = "https://your-openstack-api.example.com:5000"
 
 # Master node configuration
 master_flavor = "CS.Wee" # 8 vCPUs, 32GB RAM
