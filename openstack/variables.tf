@@ -120,19 +120,16 @@ variable "public_key" {
 }
 
 variable "admin_access_cidr" {
-  description = "Ingress CIDR for admin access (SSH/ICMP). Default is permissive; narrow this in tfvars for production."
+  description = "Ingress CIDR for admin access (SSH/ICMP). REQUIRED: set via tfvars or TF_VAR_admin_access_cidr."
   type        = string
-  default     = "0.0.0.0/0"
 }
 
 variable "k8s_api_access_cidr" {
-  description = "Ingress CIDR for Kubernetes API port 6443. Default is permissive; narrow this in tfvars for production."
+  description = "Ingress CIDR for Kubernetes API port 6443. REQUIRED: set via tfvars or TF_VAR_k8s_api_access_cidr."
   type        = string
-  default     = "0.0.0.0/0"
 }
 
 variable "nodeport_access_cidr" {
-  description = "Ingress CIDR for NodePort services. Default is permissive; narrow this in tfvars for production."
+  description = "Ingress CIDR for NodePort services. REQUIRED: set via tfvars or TF_VAR_nodeport_access_cidr."
   type        = string
-  default     = "0.0.0.0/0"
 }

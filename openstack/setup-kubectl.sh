@@ -99,15 +99,19 @@ print_success "Found master floating IP: $FLOATING_IP"
 
 # Test connectivity to the API server
 print_status "Testing connectivity to Kubernetes API server..."
-if nc -zv "$FLOATING_IP" 6443 &>/dev/null; then
-    print_success "Kubernetes API server is reachable at $FLOATING_IP:6443"
+if command -v nc &>/dev/null; then
+    if nc -zv "$FLOATING_IP" 6443 &>/dev/null; then
+        print_success "Kubernetes API server is reachable at $FLOATING_IP:6443"
+    else
+        print_error "Cannot reach Kubernetes API server at $FLOATING_IP:6443"
+        print_error "Please check:"
+        print_error "  1. The cluster is fully deployed and running"
+        print_error "  2. Security groups allow port 6443"
+        print_error "  3. The floating IP is correctly assigned"
+        exit 1
+    fi
 else
-    print_error "Cannot reach Kubernetes API server at $FLOATING_IP:6443"
-    print_error "Please check:"
-    print_error "  1. The cluster is fully deployed and running"
-    print_error "  2. Security groups allow port 6443"
-    print_error "  3. The floating IP is correctly assigned"
-    exit 1
+    print_warning "nc (netcat) not found; skipping raw port reachability check"
 fi
 
 # Backup existing kubeconfig if it exists

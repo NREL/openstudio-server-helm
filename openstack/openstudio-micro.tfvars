@@ -19,4 +19,4 @@ worker_flavor = "CC.Tiny" # 4 vCPUs, 4GB RAM
 volume_size = 50 # GB for each node
 
 # SSH key configuration
-key_pair = "achapin"
+key_pair = "<your-openstack-keypair-name>"

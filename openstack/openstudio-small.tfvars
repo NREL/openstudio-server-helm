@@ -18,4 +18,4 @@ worker_flavor = "shared_c8m16d50" # 8 vCPUs, 16GB RAM
 volume_size = 100 # GB for each node
 
 # SSH key configuration
-key_pair = "achapin"
+key_pair = "<your-openstack-keypair-name>"

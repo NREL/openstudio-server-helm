@@ -64,8 +64,7 @@ system_reserved: true
 # Kubernetes API server configuration
 kube_apiserver_enable_admission_plugins:
   - NodeRestriction
-  - PodSecurityPolicy
-
+  - PodSecurity
 # Kubelet configuration
 kubelet_max_pods: 250
 kubelet_pods_per_core: 10

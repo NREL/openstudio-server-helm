@@ -16,7 +16,7 @@ provider "openstack" {
 # Create a network
 resource "openstack_networking_network_v2" "k8s_network" {
   name           = "${var.cluster_name}-network"
-  admin_state_up = "true"
+  admin_state_up = true
 }
 
 # Create a subnet
@@ -85,25 +85,19 @@ resource "openstack_networking_secgroup_rule_v2" "k8s_api_access" {
   security_group_id = openstack_networking_secgroup_v2.k8s_secgroup.id
 }
 
-# Internal communication (all ports between cluster nodes)
+# Internal communication (all protocols between cluster nodes)
 resource "openstack_networking_secgroup_rule_v2" "internal_all" {
   direction         = "ingress"
   ethertype         = "IPv4"
-  protocol          = "tcp"
-  port_range_min    = 1
-  port_range_max    = 65535
   remote_ip_prefix  = "10.0.1.0/24"
   security_group_id = openstack_networking_secgroup_v2.k8s_secgroup.id
 }
 
-# Pod network communication (allow pod network to access hosts)
+# Pod network communication (allow pod network to access hosts; all protocols)
 resource "openstack_networking_secgroup_rule_v2" "pod_network_internal" {
   direction         = "ingress"
   ethertype         = "IPv4"
-  protocol          = "tcp"
-  port_range_min    = 1
-  port_range_max    = 65535
-  remote_ip_prefix  = "10.244.0.0/16"
+  remote_ip_prefix  = "10.233.64.0/18"
   security_group_id = openstack_networking_secgroup_v2.k8s_secgroup.id
 }
 
@@ -193,7 +187,7 @@ resource "openstack_blockstorage_volume_v3" "web_volume" {
 resource "openstack_networking_port_v2" "master_port" {
   name               = "${var.cluster_name}-master-port"
   network_id         = openstack_networking_network_v2.k8s_network.id
-  admin_state_up     = "true"
+  admin_state_up     = true
   security_group_ids = [openstack_networking_secgroup_v2.k8s_secgroup.id]
 
   fixed_ip {
@@ -205,7 +199,7 @@ resource "openstack_networking_port_v2" "worker_port" {
   count              = var.worker_count
   name               = "${var.cluster_name}-worker-${count.index + 1}-port"
   network_id         = openstack_networking_network_v2.k8s_network.id
-  admin_state_up     = "true"
+  admin_state_up     = true
   security_group_ids = [openstack_networking_secgroup_v2.k8s_secgroup.id]
 
   fixed_ip {
@@ -217,7 +211,7 @@ resource "openstack_networking_port_v2" "web_port" {
   count              = var.web_count
   name               = "${var.cluster_name}-web-${count.index + 1}-port"
   network_id         = openstack_networking_network_v2.k8s_network.id
-  admin_state_up     = "true"
+  admin_state_up     = true
   security_group_ids = [openstack_networking_secgroup_v2.k8s_secgroup.id]
 
   fixed_ip {

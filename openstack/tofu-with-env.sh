@@ -20,8 +20,9 @@ fi
 
 # Load environment variables
 echo "📄 Loading environment variables from .env..."
+set -a
 source .env
-
+set +a
 # Verify required variables are set
 if [ -z "$TF_VAR_openstack_user_name" ] || [ -z "$TF_VAR_openstack_password" ] || [ -z "$TF_VAR_openstack_tenant_name" ]; then
     echo "❌ Error: Missing required environment variables!"
@@ -35,9 +36,9 @@ if [ -z "$TF_VAR_openstack_user_name" ] || [ -z "$TF_VAR_openstack_password" ] |
 fi
 
 # Add default flavor variables if not set
-export TF_VAR_master_flavor_name="${TF_VAR_master_flavor_name:-CS.Tiny}"
-export TF_VAR_web_flavor_name="${TF_VAR_web_flavor_name:-CS.Wee}"
-export TF_VAR_worker_flavor_name="${TF_VAR_worker_flavor_name:-CM.XLarge}"
+export TF_VAR_master_flavor="${TF_VAR_master_flavor:-CS.Wee}"
+export TF_VAR_web_flavor="${TF_VAR_web_flavor:-CS.2XMedium}"
+export TF_VAR_worker_flavor="${TF_VAR_worker_flavor:-CM.XLarge}"
 
 echo "✅ Environment variables loaded successfully"
 echo "🚀 Running: tofu $@"

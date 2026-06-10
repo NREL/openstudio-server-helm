@@ -16,7 +16,7 @@ This guide prioritizes the OpenStack-managed Kubernetes path (for example Azimut
 Once your cluster is created and kubeconfig is configured:
 
 ```bash
-cp ../openstudio-server/values_production.templateyaml ../openstudio-server/values.yaml
+cp ../openstudio-server/values_large.templateyaml ../openstudio-server/values.yaml
 # edit ../openstudio-server/values.yaml (provider=openstack, resources, storage, and secret name)
 kubectl -n openstudio-server create secret generic openstudio-app-secrets \
   --from-literal=db-username="openstudio" \

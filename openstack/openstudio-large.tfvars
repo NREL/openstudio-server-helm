@@ -18,4 +18,4 @@ worker_flavor = "CE.XLarge" # 32 vCPUs, 300GB RAM (compute enterprise)
 volume_size = 550 # GB for web nodes (matches EKS config)
 
 # SSH key configuration
-key_pair = "achapin"
+key_pair = "<your-openstack-keypair-name>"
