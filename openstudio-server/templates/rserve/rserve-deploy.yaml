@@ -42,13 +42,27 @@ spec:
              - name: OS_SERVER_NUMBER_OF_WORKERS
                value: {{ .Values.rserve.number_of_workers | quote }}
              - name: SECRET_KEY_BASE
-               value: {{ .Values.web.secret_key_value }}
+               valueFrom:
+                 secretKeyRef:
+                   name: {{ include "openstudio.appSecretName" . | quote }}
+                   key: {{ include "openstudio.appSecretKey.webSecret" . | quote }}
+             - name: REDIS_PASSWORD
+               valueFrom:
+                 secretKeyRef:
+                   name: {{ include "openstudio.appSecretName" . | quote }}
+                   key: {{ include "openstudio.appSecretKey.redisPassword" . | quote }}
              - name: REDIS_URL
-               value: {{ .Values.redis_svc.url  }}
+               value: {{ printf "redis://:$(REDIS_PASSWORD)@%s:%v" .Values.redis_svc.name .Values.redis_svc.port | quote }}
              - name: MONGO_USER
-               value: {{ .Values.db.username }}
+               valueFrom:
+                 secretKeyRef:
+                   name: {{ include "openstudio.appSecretName" . | quote }}
+                   key: {{ include "openstudio.appSecretKey.dbUsername" . | quote }}
              - name: MONGO_PASSWORD
-               value: {{ .Values.db.password }}
+               valueFrom:
+                 secretKeyRef:
+                   name: {{ include "openstudio.appSecretName" . | quote }}
+                   key: {{ include "openstudio.appSecretKey.dbPassword" . | quote }}
           livenessProbe:
             exec:
               command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]

@@ -50,6 +50,7 @@ fi
 
 HELM_ARGS+=(--namespace "${NAMESPACE}" --create-namespace)
 HELM_ARGS+=(--set "global.provider.name=${PROVIDER}")
+HELM_ARGS+=(--set "provider.name=${PROVIDER}")
 
 case "${SECRET_MODE}" in
   existing)

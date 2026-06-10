@@ -124,9 +124,28 @@ helm template openstudio-server "${CHART_DIR}" \
 if ! helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=aws \
   --set secrets.validateExistingSecret=false \
-  --set redis.url='redis://:pa%40ss@custom-redis:6380/0' \
-  | grep -q 'value: "redis://:pa%40ss@custom-redis:6380/0"'; then
-  echo "Expected redis.url override to render into REDIS_URL env values"
+  --set secrets.existingSecret=custom-app-secrets \
+  --set secrets.create=false \
+  --set secrets.keys.dbUsername=custom-db-user \
+  --set secrets.keys.dbPassword=custom-db-pass \
+  --set secrets.keys.redisPassword=custom-redis-pass \
+  --set secrets.keys.webSecret=custom-web-secret \
+  | grep -q 'name: "custom-app-secrets"'; then
+  echo "Expected runtime deployments to reference configured secrets.existingSecret"
+  exit 1
+fi
+
+if ! helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name=aws \
+  --set secrets.validateExistingSecret=false \
+  --set secrets.existingSecret=custom-app-secrets \
+  --set secrets.create=false \
+  --set secrets.keys.dbUsername=custom-db-user \
+  --set secrets.keys.dbPassword=custom-db-pass \
+  --set secrets.keys.redisPassword=custom-redis-pass \
+  --set secrets.keys.webSecret=custom-web-secret \
+  | grep -q 'key: "custom-redis-pass"'; then
+  echo "Expected runtime deployments to use configured secret key mappings"
   exit 1
 fi
 
