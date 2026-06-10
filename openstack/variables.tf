@@ -16,12 +16,8 @@ variable "openstack_auth_url" {
   type        = string
   default     = null
   validation {
-    condition     = var.openstack_auth_url != null
-    error_message = "openstack_auth_url must be set via tfvars or TF_VAR_openstack_auth_url."
-  }
-  validation {
-    condition     = var.openstack_auth_url == null || trimspace(var.openstack_auth_url) != ""
-    error_message = "openstack_auth_url cannot be empty or whitespace."
+    condition     = var.openstack_auth_url != null && trimspace(var.openstack_auth_url) != ""
+    error_message = "openstack_auth_url must be set via tfvars or TF_VAR_openstack_auth_url and cannot be empty."
   }
 }
 
