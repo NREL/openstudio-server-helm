@@ -35,6 +35,7 @@ cp openstudio-server/values_production.templateyaml openstudio-server/values.yam
 ```
 
 Then edit your chosen values file (for example `openstudio-server/values.yaml`) to:
+
 - Set your cloud provider in `global.provider.name` (`google`, `aws`, `azure`, or `openstack`). This is required.
 - Configure your app secret source:
   - Primary path: set `secrets.existingSecret` and keep `secrets.create=false`
@@ -57,18 +58,18 @@ This legacy fallback is intended for staged upgrades only.
 
 Provider-aware scheduling defaults are automatic and based on `global.provider.name`:
 
-Provider | Label Key | Web Node Group | Worker Node Group
----------|-----------|----------------|------------------
-openstack | `capi.stackhpc.com/node-group` | `web` | `worker`
-aws/google/azure (default) | `nodegroup` | `web-group` | `worker-group`
+| Provider                   | Label Key                      | Web Node Group | Worker Node Group |
+| -------------------------- | ------------------------------ | -------------- | ----------------- |
+| openstack                  | `capi.stackhpc.com/node-group` | `web`          | `worker`          |
+| aws/google/azure (default) | `nodegroup`                    | `web-group`    | `worker-group`    |
 
 Provider-aware infrastructure defaults are also automatic when values are omitted:
 
-Setting | openstack default | aws/google/azure default
---------|-------------------|------------------------
-`db.persistence.storageClass` | `nfs` | `ssd`
-`redis.persistence.storageClass` | `nfs` | `ssd`
-`load_balancer.externalTrafficPolicy` | `Cluster` | `Local`
+| Setting                               | openstack default | aws/google/azure default |
+| ------------------------------------- | ----------------- | ------------------------ |
+| `db.persistence.storageClass`         | `nfs`             | `ssd`                    |
+| `redis.persistence.storageClass`      | `nfs`             | `ssd`                    |
+| `load_balancer.externalTrafficPolicy` | `Cluster`         | `Local`                  |
 
 For OpenStack production deployments, `values_production.templateyaml` explicitly sets:
 
@@ -93,12 +94,12 @@ If this check fails, `nfs-pvc-data` can stay `Pending` with `413 VolumeSizeExcee
 
 For existing releases, PVC request size is immutable in-place for reductions. If live DB/Redis claims are already larger than your local values file, keep values aligned with the live size (or plan a migration/recreate window) before `helm upgrade`.
 
-Some managed OpenStack clusters also apply auth-gated DockerHub mirrors. If `openstudio-server-nfs-server-provisioner` fails with `ErrImagePull`/`401` for `docker.io/erezsh2/nfs-provisioner`, set:
+Use the local zot registry endpoint for NFS provisioner pulls:
 
 ```yaml
 nfs-server-provisioner:
   image:
-    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
+    repository: "erezsh2/nfs-provisioner"
     tag: "v2.3.0"
 ```
 
@@ -119,13 +120,13 @@ global:
     labelKey: ""
     web: ""
     worker: ""
-    affinityMode: "preferred"  # required | preferred | disabled
+    affinityMode: "preferred" # required | preferred | disabled
     # Optional per-role overrides:
     # webAffinityMode: "preferred"
     # workerAffinityMode: "required"
 ```
 
-For internal/private image registries, use the tracked profile `openstudio-server/values.registry-live.yaml` as the starting point, then copy it to a local override and customize placeholders:
+For internal/private image registries, use the tracked profile `openstudio-server/values.registry-live.yaml` as the starting point, then copy it to a local override:
 
 ```bash
 cp openstudio-server/values.registry-live.yaml openstudio-server/values.local.yaml
@@ -136,8 +137,8 @@ At minimum, set image source and auth:
 ```yaml
 global:
   images:
-    registry: "registry.example.org"
-    repositoryPrefix: "proxy-cache"   # optional
+    registry: "172.29.166.222:5000"
+    repositoryPrefix: "" # optional
     org: "nrel"
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
@@ -152,18 +153,23 @@ serviceAccount:
     - "registry-credentials"
 ```
 
+`global.images.registry` is the central registry host for chart-managed images (for example `172.29.166.222:5000` or `registry.example.com`). Bare names like `zot` are parsed as Docker Hub namespaces, which causes rate-limit pulls from `docker.io`.
+
 Image auth precedence:
+
 1. Pod-level `global.imagePullSecrets` (if set)
 2. ServiceAccount-level pull secrets (`serviceAccount.imagePullSecrets`)
 3. Cluster/node runtime auth configuration
+
+If image pulls still resolve to a mirrored path like `quay.io/v2/azimuth/...`, that is a node runtime registry mirror problem, not a Helm values problem. Fix the containerd mirror config on the nodes or point the workload at a registry the nodes can reach directly.
 
 For OpenStack/Azimuth environments, prefer cache-friendly pull behavior and configurable init pulls:
 
 ```yaml
 web:
   initContainer:
-    image: ""                # defaults to openstudio server image
-    imagePullPolicy: ""      # defaults by provider (openstack=IfNotPresent)
+    image: "" # defaults to openstudio server image
+    imagePullPolicy: "" # defaults by provider (openstack=IfNotPresent)
   container:
     imagePullPolicy: ""
 web_background:
@@ -174,19 +180,119 @@ worker:
     imagePullPolicy: ""
 ```
 
+For the Azimuth 179D cluster, keep the web stack off the worker pool by making web affinity required:
+
+```yaml
+global:
+  nodeGroups:
+    webAffinityMode: "required"
+```
+
+If you keep node-level registry host patching enabled, constrain it to the worker pool:
+
+```yaml
+registryHostsPatch:
+  nodeSelector:
+    capi.stackhpc.com/node-group: "worker"
+```
+
+For very large analysis batches, you can temporarily enable prepull (`prepull.enabled: true`). The chart now uses a tiny bootstrap image plus host `ctr` pulls with a randomized spread window, which avoids stamping the registry with hundreds of large image pulls at once. You can still opt into extra images with `prepull.includeRserve: true`, `prepull.includeWebInit: true`, and tune `prepull.spreadSeconds` if you need a slower ramp.
+
 Optional image warmup before large scale-up:
 
 ```yaml
 prepull:
   enabled: true
-  role: ""                   # "", "web", or "worker"
-  imagePullPolicy: ""        # defaults by provider
-  includeRserve: true
-  includeWebInit: true
-  additionalImages: []       # optional extra image references to pre-cache
+  role: "" # "", "web", or "worker"
+  utilityImage: "registry.k8s.io/e2e-test-images/busybox:1.29-2"
+  utilityImagePullPolicy: "IfNotPresent"
+  spreadSeconds: 300 # per-node jitter before host pulls begin
+  includeRserve: false
+  includeWebInit: false
+  additionalImages: [] # keep this empty unless you are actively pre-warming a new image
+  warmMode: "once" # "once" | "continuous"
+  intervalSeconds: 1200 # re-pull interval for continuous mode
+  failOnAnyPullError: false # keep the warmup non-fatal in steady state
 ```
 
-Disable `prepull.enabled` after warmup if you do not want the DaemonSet to stay deployed.
+Treat prepull as a maintenance action, not a permanent control loop. Keep it worker-only and remove extra images unless you are intentionally pre-warming a rollout.
+
+Optional pod-level registry host fallback:
+
+```yaml
+hostAliases:
+  enabled: true
+  entries:
+    - ip: "10.60.127.127"
+      hostnames:
+        - "pulp-dev.hpc.nlr.gov"
+        - "pulp-dev.hpc.nrel.gov"
+```
+
+Optional explicit node placement override:
+
+```yaml
+worker:
+  nodeSelector:
+    capi.stackhpc.com/node-group: "worker"
+prepull:
+  nodeSelector:
+    capi.stackhpc.com/node-group: "worker"
+registryHostsPatch:
+  nodeSelector:
+    capi.stackhpc.com/node-group: "worker"
+```
+
+For pull-storm prevention during worker scale-up, tune worker HPA behavior directly in values:
+
+```yaml
+worker_hpa:
+  minReplicas: 800
+  maxReplicas: 1200
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120
+      selectPolicy: Min
+      policies:
+        - type: Pods
+          value: 20
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 15
+          periodSeconds: 60
+```
+
+Recommended staged ramp workflow (very conservative):
+
+1. Ensure prepull DaemonSet is healthy and `ImagePullBackOff` is near zero.
+2. Run a sustained quiet-window gate before each cap increase:
+   ```bash
+   ./scripts/openstudio-reliability --mode ceiling-probe \
+     --quiet-window-seconds 900 \
+     --quiet-interval-seconds 30 \
+     --probe-step-replicas 50
+   ```
+3. Increase worker cap in small steps (for example +50) **only** when `RECOMMENDATION=advance`, then wait for readiness convergence.
+4. If `RECOMMENDATION=hold` (or if post-step health regresses), keep/revert to the last stable cap and investigate blockers.
+
+When doing a pre-scale health check, also review recent warning events for:
+
+- `NodeNotReady`
+- `NetworkNotReady` / `FailedCreatePodSandBox`
+- `failed to sync secret cache`
+- `SystemOOM`
+- `ImagePullBackOff` / `ErrImagePull`
+- Octavia `503 Service Unavailable`
+
+Treat `FailedCreatePodSandBox` and `failed to sync secret cache` as hard stop conditions for any further worker ramp.
+
+Also pause further scaling if any node reports `MemoryPressure` or if you see repeated liveness-probe/OOM events; keep the worker ceiling aligned to the stable ready node count until those clear.
+
+For Octavia, check `ingress-load-balancer` service events during ramp tests. Transient `SyncLoadBalancerFailed`/`503 Service Unavailable` warnings are provider-side noise if they clear, but repeated failures should be escalated instead of treated as a chart regression.
 
 If you use `scripts/install.sh`, you can enable the same profile directly:
 
@@ -291,7 +397,8 @@ helm upgrade --install openstudio-server ./openstudio-server \
 ```
 
 **Note:** Instead of repeated `--set` flags, prefer an environment-specific values file and pass it with `-f`.
-Use `./scripts/install-dry-run.sh` to run lint/render checks across default and OpenStack values before deployment.
+Use `./scripts/install-dry-run.sh` to run lint/render checks across default and OpenStack values before deployment. This script enforces `values.schema.json` validation via `helm lint` before rendering templates.
+These same checks are CI-enforced in `.github/workflows/chart-validation.yml`, so local runs match pull request validation.
 For a quick install helper script, run `PROVIDER=openstack ./scripts/install.sh` (supported providers: `aws`, `google`, `azure`, `openstack`).
 
 `scripts/install.sh` now fails fast on secret validation by default:
@@ -316,7 +423,7 @@ To run secret preflight directly:
 To uninstall/delete the `openstudio-server` helm chart:
 
 ```bash
-helm uninstall openstudio-server
+helm uninstall openstudio-server -n openstudio-server
 ```
 
 The command removes all the Kubernetes components associated with the chart and deletes the release _including_ persistent volumes. See more about persistent volumes below.
@@ -338,56 +445,68 @@ nfs_pvc:
 
 **Sizing rule:** `nfs_pvc.storage` must stay below `nfs-server-provisioner.persistence.size` (recommended 85-95%) so dynamic NFS claim provisioning has filesystem/provisioner headroom.
 
-Parameter | Description | Default
---------- | ----------- | -------
-nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 200Gi |
-nfs-server-provisioner.deploymentStrategyType | Deployment strategy for single-replica NFS provisioner (`Recreate` avoids RWO multi-pod contention during upgrades) | Recreate |
-nfs_pvc.storage | Shared RWX claim request consumed by web/rserve/background pods; keep below backend NFS size | 180Gi |
-db.persistence.size | Size of the volume for MongoDB | 300Gi |
-global.provider.allowLegacyName | Temporary migration flag that permits legacy `provider.name` only when `global.provider.name` is unset | false |
-cluster.name | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly | openstudio-server |
-worker_hpa.minReplicas | Worker pods that run the simulations | 2 |
-worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 50 |
-worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
-worker_autoscaling.mode | Worker autoscaling mode: `hpa` (CPU HPA) or `keda-hybrid` (queue depth + CPU via KEDA) | hpa |
-worker_autoscaling.keda.queueLengthPerWorker | Queue items per worker target for KEDA Redis triggers | 80 |
-worker_autoscaling.keda.activationQueueLength | Minimum queue depth before KEDA begins scaling from idle/min state | 1 |
-worker_autoscaling.keda.queueNames | Redis queue names used for KEDA triggers (rendered as `resque:queue:<name>`) | [simulations,requeued] |
-worker_autoscaling.keda.enableCpuTrigger | Include CPU trigger alongside queue triggers in `keda-hybrid` mode | false |
-autoscaler.expander | Cluster Autoscaler expander strategy (`least-waste`, `most-pods`, `random`, `priority`) | least-waste |
-autoscaler.priorityExpander.enabled | Render priority-expander ConfigMap for deterministic node-group selection (requires `autoscaler.expander=priority`) | false |
-prepull.additionalImages | Additional image references pre-pulled by prepull DaemonSet on each node | [] |
-worker.queues | Comma-separated worker queues consumed by simulation workers. Include `requeued` to drain requeue backlog automatically. | simulations,requeued |
-redis.url | Optional explicit Redis URI used for `REDIS_URL`; recommended when credentials contain URI-reserved characters | "" |
-load_balancer.annotations | Optional extra annotations map applied to the LoadBalancer Service | {} |
-load_balancer.sourceRanges | Optional `loadBalancerSourceRanges` list; some OpenStack Octavia providers ignore this setting | [] |
-web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
-web_background.container.startup.maxRetries | Maximum retries when `start-web-background` exits during startup (for transient DB/Redis races) | 12 |
-web_background.container.startup.retryDelaySeconds | Delay between web-background startup retries | 10 |
-worker.container.startup.maxRetries | Maximum retries when `start-workers` exits during startup (for transient DB/Redis races) | 12 |
-worker.container.startup.retryDelaySeconds | Delay between worker startup retries | 10 |
-worker.container.preStop.enabled | Enables worker graceful drain preStop hook | true |
-worker.container.preStop.signal | Signal sent to resque processes during preStop drain | "3" |
-worker.container.preStop.pollIntervalSeconds | Polling interval while waiting for ruby/openstudio process drain | 30 |
-worker.container.preStop.maxWaitSeconds | Upper bound for worker preStop wait loop before allowing termination | 5100 |
-global.images.org | Docker image organization/registry namespace for OpenStudio images | nrel |
-global.images.registry | Optional registry host for OpenStudio images | "" |
-global.images.repositoryPrefix | Optional path prefix between registry and org/repository | "" |
-global.images.serverRepository | Repository name used by web, web-background, and worker containers | openstudio-server |
-global.images.rserveRepository | Repository name used by rserve container | openstudio-rserve |
-global.images.tag | Shared image tag used for both server and rserve repositories | 3.10.0 |
-global.imagePullSecrets | Optional pod-level image pull secret names for chart workloads | [] |
-serviceAccount.create | Create a dedicated workload ServiceAccount for chart Deployments | true |
-serviceAccount.name | Existing or created workload ServiceAccount name (auto-generated when create=true and empty) | "" |
-serviceAccount.imagePullSecrets | Optional image pull secret names attached to chart-created ServiceAccount | [] |
-web_background.container.image  | Optional explicit override for web-background image. If omitted, chart uses global.images.* defaults | (derived) |
-web.container.image   | Optional explicit override for web image. If omitted, chart uses global.images.* defaults | (derived) |
-worker.container.image   | Optional explicit override for worker image. If omitted, chart uses global.images.* defaults | (derived) |
-rserve.container.image   | Optional explicit override for rserve image. If omitted, chart uses global.images.* defaults | (derived) |
+| Parameter                                          | Description                                                                                                                                                                      | Default                |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| nfs-server-provisioner.persistence.size            | Size of the volume for storing the data point results                                                                                                                            | 200Gi                  |
+| nfs-server-provisioner.deploymentStrategyType      | Deployment strategy for single-replica NFS provisioner (`Recreate` avoids RWO multi-pod contention during upgrades)                                                              | Recreate               |
+| nfs_pvc.storage                                    | Shared RWX claim request consumed by web/rserve/background pods; keep below backend NFS size                                                                                     | 180Gi                  |
+| db.persistence.size                                | Size of the volume for MongoDB                                                                                                                                                   | 300Gi                  |
+| global.provider.allowLegacyName                    | Temporary migration flag that permits legacy `provider.name` only when `global.provider.name` is unset                                                                           | false                  |
+| cluster.name                                       | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly                          | openstudio-server      |
+| worker_hpa.minReplicas                             | Worker pods that run the simulations                                                                                                                                             | 2                      |
+| worker_hpa.maxReplicas                             | Maximum Worker pods that run the simulations                                                                                                                                     | 50                     |
+| worker_hpa.targetCPUUtilizationPercentage          | When aggregate CPU % of worker pods exceed threshold begin scaling.                                                                                                              | 50                     |
+| worker_autoscaling.mode                            | Worker autoscaling mode: `hpa` (CPU HPA) or `keda-hybrid` (queue depth + CPU via KEDA)                                                                                           | hpa                    |
+| worker_autoscaling.keda.queueLengthPerWorker       | Queue items per worker target for KEDA Redis triggers                                                                                                                            | 80                     |
+| worker_autoscaling.keda.activationQueueLength      | Minimum queue depth before KEDA begins scaling from idle/min state                                                                                                               | 1                      |
+| worker_autoscaling.keda.queueNames                 | Redis queue names used for KEDA triggers (rendered as `resque:queue:<name>`)                                                                                                     | [simulations,requeued] |
+| worker_autoscaling.keda.enableCpuTrigger           | Include CPU trigger alongside queue triggers in `keda-hybrid` mode                                                                                                               | false                  |
+| autoscaler.expander                                | Cluster Autoscaler expander strategy (`least-waste`, `most-pods`, `random`, `priority`)                                                                                          | least-waste            |
+| autoscaler.priorityExpander.enabled                | Render priority-expander ConfigMap for deterministic node-group selection (requires `autoscaler.expander=priority`)                                                              | false                  |
+| prepull.additionalImages                           | Additional image references pre-pulled by prepull DaemonSet on each node                                                                                                         | []                     |
+| worker.queues                                      | Comma-separated worker queues consumed by simulation workers. Include `requeued` to drain requeue backlog automatically.                                                         | simulations,requeued   |
+| worker.topologySpread.enabled                      | Enable worker `topologySpreadConstraints` to reduce single-node worker concentration during ramps.                                                                               | false                  |
+| worker.topologySpread.maxSkew                      | Max permitted worker pod skew across topology domains when topology spread is enabled.                                                                                           | 1                      |
+| worker.topologySpread.topologyKey                  | Topology label key used for worker spread domains (for example hostname).                                                                                                        | kubernetes.io/hostname |
+| worker.topologySpread.whenUnsatisfiable            | Scheduler behavior when ideal spread cannot be met (`DoNotSchedule` or `ScheduleAnyway`).                                                                                        | ScheduleAnyway         |
+| worker.topologySpread.minDomains                   | Optional minimum eligible topology domains before strict spread enforcement (`null` disables).                                                                                   | null                   |
+| worker.topologySpread.nodeAffinityPolicy           | Whether spread calculations honor pod node affinity (`Honor` or `Ignore`).                                                                                                       | Honor                  |
+| worker.topologySpread.nodeTaintsPolicy             | Whether spread calculations include tainted nodes (`Honor` or `Ignore`).                                                                                                         | Ignore                 |
+| redis.url                                          | Optional explicit Redis URI used for `REDIS_URL`; recommended when credentials contain URI-reserved characters                                                                   | ""                     |
+| redis.config.maxclients                            | Redis max client connections passed to `redis-server --maxclients` (important for large worker/background fleets)                                                                | 20000                  |
+| redis.config.tcpBacklog                            | Redis TCP backlog passed to `redis-server --tcp-backlog`                                                                                                                         | 511                    |
+| redis.config.timeoutSeconds                        | Redis idle client timeout passed to `redis-server --timeout` (`0` disables timeout)                                                                                              | 0                      |
+| load_balancer.annotations                          | Optional extra annotations map applied to the LoadBalancer Service                                                                                                               | {}                     |
+| load_balancer.sourceRanges                         | Optional `loadBalancerSourceRanges` list; some OpenStack Octavia providers ignore this setting                                                                                   | []                     |
+| web_background.replicas                            | Number of projects/analyses to run in parallel. **\*Note** Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses. | 1                      |
+| web_background.workerCount                         | Number of Resque workers (`COUNT`) launched per web-background pod                                                                                                               | 6                      |
+| web_background.container.startup.maxRetries        | Maximum retries when `start-web-background` exits during startup (for transient DB/Redis races)                                                                                  | 12                     |
+| web_background.container.startup.retryDelaySeconds | Delay between web-background startup retries                                                                                                                                     | 10                     |
+| worker.container.startup.maxRetries                | Maximum retries when `start-workers` exits during startup (for transient DB/Redis races)                                                                                         | 12                     |
+| worker.container.startup.retryDelaySeconds         | Delay between worker startup retries                                                                                                                                             | 10                     |
+| worker.container.preStop.enabled                   | Enables worker graceful drain preStop hook                                                                                                                                       | true                   |
+| worker.container.preStop.signal                    | Signal sent to resque processes during preStop drain                                                                                                                             | "3"                    |
+| worker.container.preStop.pollIntervalSeconds       | Polling interval while waiting for ruby/openstudio process drain                                                                                                                 | 30                     |
+| worker.container.preStop.maxWaitSeconds            | Upper bound for worker preStop wait loop before allowing termination                                                                                                             | 5100                   |
+| global.images.org                                  | Docker image organization/registry namespace for OpenStudio images                                                                                                               | nrel                   |
+| global.images.registry                             | Optional registry host for OpenStudio images                                                                                                                                     | ""                     |
+| global.images.repositoryPrefix                     | Optional path prefix between registry and org/repository                                                                                                                         | ""                     |
+| global.images.serverRepository                     | Repository name used by web, web-background, and worker containers                                                                                                               | openstudio-server      |
+| global.images.rserveRepository                     | Repository name used by rserve container                                                                                                                                         | openstudio-rserve      |
+| global.images.tag                                  | Shared image tag used for both server and rserve repositories                                                                                                                    | 3.10.0                 |
+| global.imagePullSecrets                            | Optional pod-level image pull secret names for chart workloads                                                                                                                   | []                     |
+| serviceAccount.create                              | Create a dedicated workload ServiceAccount for chart Deployments                                                                                                                 | true                   |
+| serviceAccount.name                                | Existing or created workload ServiceAccount name (auto-generated when create=true and empty)                                                                                     | ""                     |
+| serviceAccount.imagePullSecrets                    | Optional image pull secret names attached to chart-created ServiceAccount                                                                                                        | []                     |
+| web_background.container.image                     | Optional explicit override for web-background image. If omitted, chart uses global.images.\* defaults                                                                            | (derived)              |
+| web.container.image                                | Optional explicit override for web image. If omitted, chart uses global.images.\* defaults                                                                                       | (derived)              |
+| worker.container.image                             | Optional explicit override for worker image. If omitted, chart uses global.images.\* defaults                                                                                    | (derived)              |
+| rserve.container.image                             | Optional explicit override for rserve image. If omitted, chart uses global.images.\* defaults                                                                                    | (derived)              |
 
 **Note:** For best practices, create your own `values.yaml` from one of the template files rather than modifying configuration via `--set` flags. See the Configuration Setup section above.
 
 #### For Large Workloads
+
 Use the [large template values file](/openstudio-server/values_large.templateyaml) as your starting point:
 
 ```bash
@@ -422,6 +541,7 @@ worker-5cf4db9bbd-bvv5z                                    1/1     Running   0  
 worker-5cf4db9bbd-sm9s7                                    1/1     Running   0          4m22s
 worker-5cf4db9bbd-z92xx                                    1/1     Running   0          2m52s
 ```
+
 You can see CPU and memory utilization by running:
 
 ```bash
@@ -444,6 +564,7 @@ worker-5cf4db9bbd-bvv5z                                    1m           172Mi
 worker-5cf4db9bbd-sm9s7                                    1m           176Mi
 worker-5cf4db9bbd-z92xx                                    1m           172Mi
 ```
+
 Note that 1000m means one virtual CPU core.
 
 You can also add `watch` to the beginning of the command to see the output change over time.
@@ -557,6 +678,12 @@ Use `scripts/openstudio-reliability` to standardize triage and recovery steps:
 # Read-only reliability checks (recommended first step)
 ./scripts/openstudio-reliability --mode check
 
+# Quiet-window ceiling probe (report-only: recommends advance/hold + next maxReplicas)
+./scripts/openstudio-reliability --mode ceiling-probe \
+  --quiet-window-seconds 900 \
+  --quiet-interval-seconds 30 \
+  --probe-step-replicas 50
+
 # Capture queue/job snapshots before any mutation
 ./scripts/openstudio-reliability --mode snapshot \
   --snapshot-dir ./incident-snapshots/openstudio-server-$(date +%Y%m%d-%H%M%S)
@@ -578,6 +705,7 @@ Design notes:
 
 - Script defaults to read-only mode.
 - Mutating operations require explicit `--apply`.
+- Ceiling probe mode is read-only and emits deterministic recommendation lines (`RECOMMENDATION=advance|hold`, `SUGGESTED_NEXT_MAX_REPLICAS=<n>`).
 - Snapshot mode captures queue depths and app job status for incident auditability.
 - Scale-baseline mode captures repeated snapshots plus `scale_timeline.tsv` (HPA/deployment replicas, node readiness, and queue depths) for scale-up latency decomposition.
 
@@ -680,14 +808,14 @@ Recent stuck-state retrospective findings (used for this runbook hardening):
 
 Minimum production alerts to add in your platform monitoring:
 
-Metric | Warning | Critical | Rationale
------- | ------- | -------- | ---------
-NFS `/export` free space | `<20%` | `<10%` | Early detection before DB/asset write failures.
-NFS fill projection (time-to-full) | `<7 days` | `<2 days` | Catch rapid growth even when free space still appears high.
-Redis `resque:queue:simulations` backlog age | `>15m` | `>30m` | Detect worker throughput mismatch.
-Queue/job divergence (`Job(status='queued')` with near-empty Redis queues) | `>5 queued for 10m` | `>20 queued for 10m` | Detect scheduler enqueue drift.
-Worker HPA saturation (`current/target` CPU) | `>90% for 10m` | `>95% for 15m` | Detect sustained compute bottleneck.
-Helm release state | `failed` | `failed for >15m` | Ensure operator metadata is reconciled quickly.
+| Metric                                                                     | Warning             | Critical             | Rationale                                                   |
+| -------------------------------------------------------------------------- | ------------------- | -------------------- | ----------------------------------------------------------- |
+| NFS `/export` free space                                                   | `<20%`              | `<10%`               | Early detection before DB/asset write failures.             |
+| NFS fill projection (time-to-full)                                         | `<7 days`           | `<2 days`            | Catch rapid growth even when free space still appears high. |
+| Redis `resque:queue:simulations` backlog age                               | `>15m`              | `>30m`               | Detect worker throughput mismatch.                          |
+| Queue/job divergence (`Job(status='queued')` with near-empty Redis queues) | `>5 queued for 10m` | `>20 queued for 10m` | Detect scheduler enqueue drift.                             |
+| Worker HPA saturation (`current/target` CPU)                               | `>90% for 10m`      | `>95% for 15m`       | Detect sustained compute bottleneck.                        |
+| Helm release state                                                         | `failed`            | `failed for >15m`    | Ensure operator metadata is reconciled quickly.             |
 
 ### Reliability Drill Cadence
 
@@ -782,3 +910,123 @@ Rollback checkpoints:
 - Autoscaling rollback: set `worker_autoscaling.mode=hpa` and redeploy.
 - Node-strategy rollback: set `autoscaler.expander=least-waste` (or previous setting) and remove `priorityExpander` config.
 - Full release rollback: `helm rollback <release> <revision> -n <namespace>`.
+
+### Worker HPA scaling profiles
+
+Three named profiles cover the main operational modes. Apply whichever matches your current
+intent via `worker_hpa.behavior` in your values override. Always return to **stable** when
+a ceiling probe returns `RECOMMENDATION=hold` or when any hazard signal is observed.
+
+#### Profile comparison
+
+| Profile    | Scale-up rate              | selectPolicy | Up stabilization | Down stabilization | Intended use                                            |
+| ---------- | -------------------------- | ------------ | ---------------- | ------------------ | ------------------------------------------------------- |
+| **stable** | 20 pods / 60 s             | Min          | 120 s            | 300 s              | Default steady-state; post-hold; incident window        |
+| **ramp**   | 50 pods / 60 s             | Min          | 60 s             | 300 s              | Active ceiling discovery after `RECOMMENDATION=advance` |
+| **burst**  | 100 pods/15 s + 100%/15 s  | Max          | 10 s             | 600 s              | Known-good cluster; confirmed large batch work          |
+
+#### stable
+
+Use for all normal operation and any time a gate check returns `hold`.
+
+```yaml
+worker_hpa:
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120
+      selectPolicy: Min
+      policies:
+        - type: Pods
+          value: 20
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 15
+          periodSeconds: 60
+```
+
+#### ramp
+
+Use only after `scripts/openstudio-reliability --mode ceiling-probe` returns
+`RECOMMENDATION=advance`. Increase `worker_hpa.maxReplicas` by one step at a time and
+wait for readiness convergence before probing again. Return to **stable** immediately if
+any blocker event appears.
+
+Prerequisites:
+- Ceiling probe passed with zero blocked samples in the observation window.
+- All core services (`web`, `web-background`, `redis`, `rserve`) are Ready.
+- No `FailedCreatePodSandBox`, `failed to sync secret cache`, or node pressure events.
+
+```yaml
+worker_hpa:
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      selectPolicy: Min
+      policies:
+        - type: Pods
+          value: 50
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 15
+          periodSeconds: 60
+```
+
+#### burst
+
+Use only when the cluster ceiling has been stable across multiple consecutive probe cycles
+and a large confirmed batch requires maximum throughput. Do not use during ceiling
+discovery or when any warning signals are present. Return to **stable** after the batch
+completes or at the first sign of regression.
+
+Prerequisites:
+- Current `worker_hpa.maxReplicas` has been stable (no churn, no blockers) for at least
+  two consecutive quiet-window probe cycles.
+- No node pressure, OOM, or pod-sandbox events in recent history.
+- Prepull DaemonSet healthy (all pods Ready) before scaling begins.
+
+```yaml
+worker_hpa:
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 10
+      selectPolicy: Max
+      policies:
+        - type: Pods
+          value: 100
+          periodSeconds: 15
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+```
+
+#### Switching profiles
+
+Apply a profile by adding `worker_hpa.behavior` to your local values override and running
+`helm upgrade`:
+
+```bash
+helm upgrade openstudio-server ./openstudio-server \
+  -n openstudio-server \
+  --reuse-values \
+  -f openstudio-server/values.registry-live.yaml \
+  -f /path/to/your/profile-override.yaml
+```
+
+To revert to **stable** from any profile, apply the stable `worker_hpa.behavior` block
+above and run `helm upgrade` with `--reuse-values`. The HPA will begin enforcing the
+new policy within one polling cycle (typically under 30 seconds).
