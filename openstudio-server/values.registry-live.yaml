@@ -5,11 +5,14 @@
 global:
   provider:
     name: "openstack"
+  nodeGroups:
+    webAffinityMode: "required"
   images:
-    # Internal registry or Harbor endpoint reachable by cluster nodes.
-    registry: "registry.<ingress-base-domain>"
-    # Optional Harbor proxy-cache project path.
-    repositoryPrefix: "proxy-cache"
+    # Local registry endpoint reachable by cluster nodes.
+    # Must be host[:port], not a bare name like "zot".
+    registry: "pulp-dev.hpc.nlr.gov"
+    # Optional repository path segment between registry and org/repo.
+    repositoryPrefix: "pulp-container-aurora-179d"
     org: "nrel"
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
@@ -17,6 +20,23 @@ global:
   # Pod-level pull secret fallback.
   imagePullSecrets:
     - "registry-credentials"
+
+registryHostsPatch:
+  enabled: true
+  hostname: "pulp-dev.hpc.nlr.gov"
+  additionalHostnames:
+    - "pulp-dev.hpc.nrel.gov"
+  address: "10.60.127.127"
+  nodeSelector:
+    capi.stackhpc.com/node-group: "worker"
+
+hostAliases:
+  enabled: true
+  entries:
+    - ip: "10.60.127.127"
+      hostnames:
+        - "pulp-dev.hpc.nlr.gov"
+        - "pulp-dev.hpc.nrel.gov"
 
 # Dedicated workload ServiceAccount with registry pull credentials.
 serviceAccount:
@@ -27,21 +47,86 @@ serviceAccount:
 
 # OpenStack defaults resolve empty values to IfNotPresent.
 web:
+  nodeSelector: {}
   initContainer:
     imagePullPolicy: ""
   container:
     imagePullPolicy: ""
 web_background:
+  workerCount: 6
+  nodeSelector: {}
   container:
     imagePullPolicy: ""
+redis:
+  nodeSelector: {}
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: capi.stackhpc.com/node-group
+                operator: In
+                values:
+                  - "worker"
+  config:
+    maxclients: 50000
+    tcpBacklog: 511
+    timeoutSeconds: 0
+rserve:
+  nodeSelector:
+    capi.stackhpc.com/node-group: "worker"
 worker:
+  nodeSelector:
+    capi.stackhpc.com/node-group: "worker"
+  topologySpread:
+    enabled: false
+    maxSkew: 1
+    topologyKey: "kubernetes.io/hostname"
+    whenUnsatisfiable: "ScheduleAnyway"
+    minDomains: null
+    nodeAffinityPolicy: "Honor"
+    nodeTaintsPolicy: "Ignore"
   container:
     imagePullPolicy: ""
+  strategy:
+    maxSurge: 1
+    maxUnavailable: 0
 
-# Keep enabled for planned scale events to pre-warm node image caches.
 prepull:
-  enabled: false
+  # Keep enabled during planned warm-up windows for live registry mitigation.
+  enabled: true
   role: "worker"
-  includeRserve: true
-  includeWebInit: true
+  utilityImage: "registry.k8s.io/e2e-test-images/busybox:1.29-2"
+  utilityImagePullPolicy: "IfNotPresent"
+  spreadSeconds: 300
+  warmMode: "once"
+  intervalSeconds: 1200
+  failOnAnyPullError: false
+  includeRserve: false
+  includeWebInit: false
   additionalImages: []
+  nodeSelector:
+    capi.stackhpc.com/node-group: "worker"
+
+worker_hpa:
+  name: "openstudio-server-worker"
+  # Start from known-stable capacity; ramp above this in controlled steps.
+  minReplicas: 400
+  maxReplicas: 594
+  behavior:
+    scaleUp:
+      # Conservative ramp to reduce simultaneous registry pulls.
+      stabilizationWindowSeconds: 120
+      selectPolicy: Min
+      policies:
+        - type: Pods
+          value: 20
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 15
+          periodSeconds: 60
