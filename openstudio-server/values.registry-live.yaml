@@ -80,7 +80,7 @@ worker:
   nodeSelector:
     capi.stackhpc.com/node-group: "worker"
   topologySpread:
-    enabled: false
+    enabled: true
     maxSkew: 1
     topologyKey: "kubernetes.io/hostname"
     whenUnsatisfiable: "ScheduleAnyway"
@@ -95,7 +95,7 @@ worker:
 
 prepull:
   # Keep enabled during planned warm-up windows for live registry mitigation.
-  enabled: true
+  enabled: false
   role: "worker"
   utilityImage: "registry.k8s.io/e2e-test-images/busybox:1.29-2"
   utilityImagePullPolicy: "IfNotPresent"
@@ -113,7 +113,7 @@ worker_hpa:
   name: "openstudio-server-worker"
   # Start from known-stable capacity; ramp above this in controlled steps.
   minReplicas: 400
-  maxReplicas: 594
+  maxReplicas: 700
   behavior:
     scaleUp:
       # Conservative ramp to reduce simultaneous registry pulls.
