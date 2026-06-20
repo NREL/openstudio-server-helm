@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "openstudio.redisName" . }}-test-ping"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ include "openstudio.redisName" . }}-test
+    release: {{ .Release.Name }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  {{- include "openstudio.tolerationsForRole" (dict "root" . "role" "worker") | nindent 2 }}
+  containers:
+    - name: redis-ping
+      image: redis:7-alpine
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          REDIS_HOST="{{ include "openstudio.redisServiceName" . }}.{{ .Release.Namespace }}.svc.cluster.local"
+          REDIS_PORT="{{ default 6379 (get ((get .Values "redis_svc") | default (dict)) "port") }}"
+          echo "Testing Redis connectivity at ${REDIS_HOST}:${REDIS_PORT}..."
+          RESPONSE=$(redis-cli -h "${REDIS_HOST}" -p "${REDIS_PORT}" PING)
+          echo "Redis PING response: ${RESPONSE}"
+          if [ "${RESPONSE}" = "PONG" ]; then
+            echo "PASS: Redis is reachable and responding"
+          else
+            echo "FAIL: unexpected PING response '${RESPONSE}'"
+            exit 1
+          fi

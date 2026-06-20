@@ -428,6 +428,84 @@ helm uninstall openstudio-server -n openstudio-server
 
 The command removes all the Kubernetes components associated with the chart and deletes the release _including_ persistent volumes. See more about persistent volumes below.
 
+## Upgrade Notes
+
+### PVC size immutability
+
+PVC storage requests cannot be reduced in-place. If live DB, Redis, or NFS claims are
+already larger than your local values file, align the values file with the live size
+before running `helm upgrade`, or schedule a migration/recreate window.
+
+```yaml
+# Match these to actual live claim sizes before upgrading:
+nfs-server-provisioner.persistence.size: <live-value>
+db.persistence.size: <live-value>
+redis.persistence.size: <live-value>
+```
+
+### Preserving worker HPA cap across upgrades
+
+`worker_hpa.maxReplicas` is rendered into the HPA every `helm upgrade`. If you patched
+the cap directly on the live HPA without updating your values file, Helm will revert it
+on next upgrade. Before upgrading, confirm the value in your active overlay
+(`values.registry-live.yaml` or equivalent) matches the live HPA:
+
+```bash
+kubectl get hpa openstudio-server-worker -n openstudio-server \
+  -o jsonpath='{.spec.maxReplicas}'
+```
+
+Use `--reuse-values` to keep all previously set chart values, then pass only the
+parameters you intend to change via `-f` or `--set`.
+
+### Schema validation (added in 0.5.x)
+
+`values.schema.json` enforces types and required fields. If a `helm upgrade` fails with
+a schema validation error after a chart update, check the error message for the
+offending key and update your values override to match the required type or enum.
+
+Common causes:
+- `worker_hpa.scaleTargetRef.name` or `.apiVersion` missing (set in values or
+  `worker_hpa.scaleTargetRef` block).
+- `autoscaler` block referencing keys removed or renamed in the new schema.
+
+Run `helm lint ./openstudio-server -f your-override.yaml` locally to catch schema
+errors before applying to the cluster.
+
+### Using --reuse-values safely
+
+`helm upgrade --reuse-values` merges the previous release's values with any new `-f`
+overrides. This is safe for routine upgrades. Avoid it when the chart version introduces
+new required fields or changes defaults for existing keys — in those cases, diff your
+overlay against `values.yaml` defaults first:
+
+```bash
+helm show values ./openstudio-server > /tmp/defaults.yaml
+diff /tmp/defaults.yaml your-overlay.yaml
+```
+
+### Verifying the deployment (helm test)
+
+After `helm install` or `helm upgrade`, run the built-in chart tests to verify that the
+web and Redis services are reachable:
+
+```bash
+helm test openstudio-server -n openstudio-server
+```
+
+The tests deploy short-lived Pods that:
+- `web-test-healthcheck` — sends an HTTP request to the web service and expects a `200`
+  or `302` response.
+- `redis-test-ping` — runs `redis-cli PING` against the Redis service and expects
+  `PONG`.
+
+Both Pods are automatically deleted on success (`hook-delete-policy: hook-succeeded`).
+On failure, the Pod remains for log inspection:
+
+```bash
+kubectl logs -n openstudio-server <pod-name>
+```
+
 ## Configuration
 
 The following table lists the configurable parameters of the OpenStudio-server chart and their default values. You can override any of these values in your `values.yaml` file (see Configuration Setup section above).
