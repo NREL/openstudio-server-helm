@@ -1,5 +1,26 @@
 {{- $prepull := default (dict) .Values.prepull -}}
 {{- if (default false (get $prepull "enabled")) }}
+{{- $includeRserve := default false (get $prepull "includeRserve") -}}
+{{- $includeWebInit := default false (get $prepull "includeWebInit") -}}
+{{- $utilityImage := default "registry.k8s.io/e2e-test-images/busybox:1.29-2" (get $prepull "utilityImage") -}}
+{{- $utilityImagePullPolicy := default "IfNotPresent" (get $prepull "utilityImagePullPolicy") -}}
+{{- $spreadSeconds := default 300 (get $prepull "spreadSeconds") -}}
+{{- $warmMode := lower (default "once" (get $prepull "warmMode")) -}}
+{{- if not (has $warmMode (list "once" "continuous")) -}}
+{{- fail (printf "prepull.warmMode=%q is unsupported. Supported values: once, continuous." $warmMode) -}}
+{{- end -}}
+{{- $intervalSeconds := default 1800 (get $prepull "intervalSeconds") -}}
+{{- $failOnAnyPullError := default false (get $prepull "failOnAnyPullError") -}}
+{{- $images := list (include "openstudio.serverImage" .) -}}
+{{- if $includeRserve -}}
+{{- $images = append $images (include "openstudio.rserveImage" .) -}}
+{{- end -}}
+{{- if $includeWebInit -}}
+{{- $images = append $images (default (include "openstudio.serverImage" .) .Values.web.initContainer.image) -}}
+{{- end -}}
+{{- range $i, $img := (default (list) (get $prepull "additionalImages")) -}}
+{{- $images = append $images $img -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -21,43 +42,119 @@ spec:
       {{- $prepullRole := default "" (get $prepull "role") -}}
       {{- if or (eq $prepullRole "web") (eq $prepullRole "worker") }}
       {{- include "openstudio.affinityForRole" (dict "root" . "role" $prepullRole) | nindent 6 }}
+      {{- include "openstudio.tolerationsForRole" (dict "root" . "role" $prepullRole) | nindent 6 }}
       {{- end }}
+      hostPID: true
       {{- if eq (include "openstudio.workloadServiceAccountUse" .) "true" }}
       serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
       {{- end }}
       {{- include "openstudio.podImagePullSecrets" . | nindent 6 }}
-      initContainers:
-        - name: prepull-server
-          image: {{ default (include "openstudio.serverImage" .) (get $prepull "image") }}
-          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $prepull "imagePullPolicy") }}
-          command: ["/bin/sh", "-c", "true"]
-      {{- if (default true (get $prepull "includeRserve")) }}
-        - name: prepull-rserve
-          image: {{ include "openstudio.rserveImage" . }}
-          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $prepull "imagePullPolicy") }}
-          command: ["/bin/sh", "-c", "true"]
-      {{- end }}
-      {{- if (default true (get $prepull "includeWebInit")) }}
-        - name: prepull-web-init
-          image: {{ default (include "openstudio.serverImage" .) .Values.web.initContainer.image }}
-          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $prepull "imagePullPolicy") }}
-          command: ["/bin/sh", "-c", "true"]
-      {{- end }}
-      {{- $additionalImages := default (list) (get $prepull "additionalImages") }}
-      {{- range $i, $img := $additionalImages }}
-        - name: prepull-extra-{{ $i }}
-          image: {{ $img | quote }}
-          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" $) (get $prepull "imagePullPolicy") }}
-          command: ["/bin/sh", "-c", "true"]
-      {{- end }}
+      {{- include "openstudio.podNodeSelector" (dict "nodeSelector" (get $prepull "nodeSelector")) | nindent 6 }}
+      {{- include "openstudio.podHostAliases" . | nindent 6 }}
       containers:
-        - name: hold
-          image: {{ default (include "openstudio.serverImage" .) (get $prepull "image") }}
-          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $prepull "imagePullPolicy") }}
-          command: ["/bin/sh", "-c", "trap : TERM INT; sleep infinity & wait"]
+        - name: prepull
+          image: {{ $utilityImage }}
+          imagePullPolicy: {{ $utilityImagePullPolicy }}
+          securityContext:
+            runAsUser: 0
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: SPREAD_SECONDS
+              value: {{ $spreadSeconds | quote }}
+            - name: WARM_MODE
+              value: {{ $warmMode | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $intervalSeconds | quote }}
+            - name: FAIL_ON_ANY_PULL_ERROR
+              value: {{ $failOnAnyPullError | quote }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              set -eu
+
+              delay=0
+              if [ "${SPREAD_SECONDS:-0}" -gt 0 ]; then
+                delay="$(printf '%s' "${NODE_NAME:-}" | cksum | awk -v mod="${SPREAD_SECONDS}" '{ if (mod <= 0) { print 0 } else { print $1 % mod } }')"
+              fi
+
+              echo "prepull ${NODE_NAME:-unknown}: delaying ${delay}s before pulling images"
+              sleep "${delay}"
+
+              pull_image() {
+                image="$1"
+                echo "prepull ${NODE_NAME:-unknown}: pulling ${image}"
+                if chroot /host /usr/bin/ctr -n k8s.io images pull "${image}"; then
+                  echo "prepull ${NODE_NAME:-unknown}: pulled ${image}"
+                else
+                  echo "prepull ${NODE_NAME:-unknown}: failed ${image}" >&2
+                  return 1
+                fi
+                return 0
+              }
+
+              run_pull_cycle() {
+                failures=0
+{{- range $img := $images }}
+                pull_image {{ $img | quote }} || failures="$((failures + 1))"
+{{- end }}
+                if [ "$failures" -eq 0 ]; then
+                  date -u +"%Y-%m-%dT%H:%M:%SZ" > /tmp/prepull-ready
+                  echo "prepull ${NODE_NAME:-unknown}: cycle complete with no failures"
+                  return 0
+                fi
+                echo "prepull ${NODE_NAME:-unknown}: cycle complete with ${failures} pull failures" >&2
+                # When pull errors are tolerated, mark the warmup as attempted so the pod becomes
+                # Ready. This prevents endless Unhealthy readiness-probe events on nodes where
+                # some images are unavailable but the cluster should still treat warm-up as done.
+                if [ "${FAIL_ON_ANY_PULL_ERROR}" != "true" ]; then
+                  date -u +"%Y-%m-%dT%H:%M:%SZ" > /tmp/prepull-ready
+                fi
+                return 1
+              }
+
+              if [ "${WARM_MODE}" = "continuous" ]; then
+                while true; do
+                  if ! run_pull_cycle && [ "${FAIL_ON_ANY_PULL_ERROR}" = "true" ]; then
+                    exit 1
+                  fi
+                  sleep "${INTERVAL_SECONDS}"
+                done
+              fi
+
+              if ! run_pull_cycle && [ "${FAIL_ON_ANY_PULL_ERROR}" = "true" ]; then
+                exit 1
+              fi
+
+              echo "prepull ${NODE_NAME:-unknown}: warmup complete; holding pod"
+              trap : TERM INT
+              while true; do
+                sleep 3600
+              done
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - test -s /tmp/prepull-ready
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: "10m"
               memory: "32Mi"
+          volumeMounts:
+            - mountPath: /host
+              name: host-root
       terminationGracePeriodSeconds: 1
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory
 {{- end }}

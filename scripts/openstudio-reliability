@@ -15,6 +15,10 @@ RECOVERY_LOCK_TTL_SECONDS=1800
 RECOVERY_LOCK_KEY=""
 BASELINE_DURATION_SECONDS=1200
 BASELINE_INTERVAL_SECONDS=30
+QUIET_WINDOW_SECONDS=900
+QUIET_WINDOW_INTERVAL_SECONDS=30
+PROBE_STEP_REPLICAS=50
+PROBE_MAX_REPLICAS_LIMIT=""
 
 usage() {
   cat <<'EOF'
@@ -25,6 +29,7 @@ Modes (default: check):
   --mode check            Read-only reliability preflight checks.
   --mode snapshot         Export queue/job snapshots for incident forensics.
   --mode scale-baseline   Repeated snapshots + timeline for scale-up latency analysis.
+  --mode ceiling-probe    Report-only quiet-window gate for next worker ceiling step.
   --mode reconcile-helm   Reconcile Helm failed state (requires --apply).
   --mode recover-stuck    Recover stuck analysis state (requires --apply).
 
@@ -45,11 +50,20 @@ Options:
                           Duration for scale-baseline mode (default: 1200).
       --interval-seconds <s>
                           Sampling interval for scale-baseline mode (default: 30).
+      --quiet-window-seconds <s>
+                          Observation window for ceiling-probe mode (default: 900).
+      --quiet-interval-seconds <s>
+                          Sampling interval for ceiling-probe mode (default: 30).
+      --probe-step-replicas <n>
+                          Suggested maxReplicas increase when gates pass (default: 50).
+      --probe-max-replicas-limit <n>
+                          Optional hard upper bound for suggested maxReplicas.
   -h, --help              Show this help.
 
 Examples:
   scripts/openstudio-reliability --mode check
   scripts/openstudio-reliability --mode snapshot --snapshot-dir /tmp/os-incident
+  scripts/openstudio-reliability --mode ceiling-probe --quiet-window-seconds 900 --probe-step-replicas 50
   scripts/openstudio-reliability --mode reconcile-helm --apply --allow-chart-apply
   scripts/openstudio-reliability --mode recover-stuck --apply
 EOF
@@ -88,6 +102,22 @@ get_single_pod_by_label() {
   echo "${pods[0]}"
 }
 
+get_single_running_pod_by_label() {
+  local selector=$1
+  # The status.phase field selector is not supported by all API servers; filter client-side via jq.
+  mapfile -t pods < <(
+    kubectl -n "$NAMESPACE" get pods -l "$selector" -o json 2>/dev/null \
+    | jq -r '.items[] | select(.status.phase == "Running") | .metadata.name' || true
+  )
+  if [[ ${#pods[@]} -eq 0 ]]; then
+    die "No running pods found for selector: $selector"
+  fi
+  if [[ ${#pods[@]} -gt 1 ]]; then
+    warn "Selector matched multiple running pods (${#pods[@]}): $selector; using ${pods[0]}"
+  fi
+  echo "${pods[0]}"
+}
+
 get_single_pod_by_name_substring() {
   local pattern=$1
   mapfile -t pods < <(kubectl -n "$NAMESPACE" get pods -o name | grep "$pattern" | sed 's#pod/##' || true)
@@ -105,11 +135,42 @@ require_release_exists() {
 }
 
 get_redis_pod() {
-  get_single_pod_by_label "app=redis,release=${RELEASE}"
+  get_single_running_pod_by_label "app=redis,release=${RELEASE}"
 }
 
 get_web_pod() {
   get_single_pod_by_label "app=web,release=${RELEASE}"
+}
+
+get_worker_hpa_name() {
+  if kubectl -n "$NAMESPACE" get hpa worker >/dev/null 2>&1; then
+    echo "worker"
+    return 0
+  fi
+
+  if kubectl -n "$NAMESPACE" get hpa "${RELEASE}-worker" >/dev/null 2>&1; then
+    echo "${RELEASE}-worker"
+    return 0
+  fi
+
+  mapfile -t hpa_names < <(
+    kubectl -n "$NAMESPACE" get hpa -o json 2>/dev/null | jq -r '
+      .items[]
+      | select(.spec.scaleTargetRef.kind == "Deployment" and .spec.scaleTargetRef.name == "worker")
+      | .metadata.name
+    '
+  )
+
+  if [[ ${#hpa_names[@]} -eq 1 ]]; then
+    echo "${hpa_names[0]}"
+    return 0
+  fi
+
+  if [[ ${#hpa_names[@]} -eq 0 ]]; then
+    die "No worker HPA found in namespace ${NAMESPACE}"
+  fi
+
+  die "Multiple worker HPAs found in namespace ${NAMESPACE}: ${hpa_names[*]}"
 }
 
 reconcile_is_conflict_failure() {
@@ -120,7 +181,9 @@ reconcile_is_conflict_failure() {
 }
 
 read_worker_state() {
-  kube_probe "worker HPA read" kubectl -n "$NAMESPACE" get hpa worker -o wide
+  local worker_hpa
+  worker_hpa="$(get_worker_hpa_name)"
+  kube_probe "worker HPA read" kubectl -n "$NAMESPACE" get hpa "$worker_hpa" -o wide
   kube_probe "worker deployment read" kubectl -n "$NAMESPACE" get deploy worker -o wide
 }
 
@@ -154,6 +217,135 @@ read_redis_queues() {
   '
 }
 
+read_queue_pipeline_health() {
+  local redis_pod depths analyses analysis_wrappers simulations
+  redis_pod="$(get_redis_pod)"
+
+  if ! depths="$(
+    kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+      PW="${REDIS_PASSWORD:-}"
+      AUTH=""
+      if [ -n "$PW" ]; then AUTH="-a $PW --no-auth-warning"; fi
+      for q in analyses analysis_wrappers simulations; do
+        printf "%s=" "$q"
+        redis-cli $AUTH LLEN "resque:queue:$q"
+      done
+    ' | tr -d '\r'
+  )"; then
+    if [[ "$STRICT" == "true" ]]; then
+      die "redis queue pipeline read failed"
+    fi
+    warn "redis queue pipeline read failed"
+    return 0
+  fi
+
+  analyses="$(grep '^analyses=' <<<"$depths" | sed 's/^analyses=//' || true)"
+  analysis_wrappers="$(grep '^analysis_wrappers=' <<<"$depths" | sed 's/^analysis_wrappers=//' || true)"
+  simulations="$(grep '^simulations=' <<<"$depths" | sed 's/^simulations=//' || true)"
+
+  if [[ "$analysis_wrappers" =~ ^[0-9]+$ && "$simulations" =~ ^[0-9]+$ ]] && (( analysis_wrappers > 0 && simulations == 0 )); then
+    warn "Queue pipeline warning: analysis_wrappers=${analysis_wrappers} while simulations=${simulations}. Workers will not scale until web/web-background enqueue simulation jobs."
+  fi
+
+  if [[ "$analyses" =~ ^[0-9]+$ && "$analysis_wrappers" =~ ^[0-9]+$ ]] && (( analyses > 0 && analysis_wrappers == 0 )); then
+    warn "Queue pipeline warning: analyses=${analyses} with analysis_wrappers=${analysis_wrappers}. web-background may not be consuming analyses."
+  fi
+}
+
+read_web_auth_signals() {
+  local web_logs
+  web_logs="$(kubectl -n "$NAMESPACE" logs deploy/web --tail=200 2>/dev/null || true)"
+  if grep -Eq "Mongo::Auth::Unauthorized|Authentication failed|UserNotFound" <<<"$web_logs"; then
+    warn "Detected Mongo auth failures in recent web logs; analyses may stall before simulation enqueue."
+    grep -E "Mongo::Auth::Unauthorized|Authentication failed|UserNotFound" <<<"$web_logs" | tail -n 20
+  fi
+}
+
+read_node_memory_pressure_state() {
+  local node_rows memory_pressure_nodes
+  log "Node health and pressure summary"
+  node_rows="$(
+    kubectl get nodes \
+      -o 'custom-columns=NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,MEMORY:.status.conditions[?(@.type=="MemoryPressure")].status,DISK:.status.conditions[?(@.type=="DiskPressure")].status,PID:.status.conditions[?(@.type=="PIDPressure")].status' \
+      --no-headers 2>/dev/null || true
+  )"
+
+  if [[ -z "$node_rows" ]]; then
+    warn "Unable to read node pressure state"
+    return 0
+  fi
+
+  local not_ready_nodes disk_pressure_nodes pid_pressure_nodes
+  not_ready_nodes="$(awk '$2 != "True" {c++} END {print c+0}' <<<"$node_rows")"
+  disk_pressure_nodes="$(awk '$4 == "True" {c++} END {print c+0}' <<<"$node_rows")"
+  pid_pressure_nodes="$(awk '$5 == "True" {c++} END {print c+0}' <<<"$node_rows")"
+  memory_pressure_nodes="$(awk '$3 == "True" {c++} END {print c+0}' <<<"$node_rows")"
+  if [[ "$not_ready_nodes" =~ ^[0-9]+$ ]] && (( not_ready_nodes > 0 )); then
+    warn "NotReady/Unknown detected on ${not_ready_nodes} node(s); keep the worker ceiling unchanged"
+  fi
+  if [[ "$memory_pressure_nodes" =~ ^[0-9]+$ ]] && (( memory_pressure_nodes > 0 )); then
+    warn "MemoryPressure detected on ${memory_pressure_nodes} node(s); keep the worker ceiling at the stable ready count"
+  fi
+  if [[ "$disk_pressure_nodes" =~ ^[0-9]+$ ]] && (( disk_pressure_nodes > 0 )); then
+    warn "DiskPressure detected on ${disk_pressure_nodes} node(s); keep the worker ceiling unchanged"
+  fi
+  if [[ "$pid_pressure_nodes" =~ ^[0-9]+$ ]] && (( pid_pressure_nodes > 0 )); then
+    warn "PIDPressure detected on ${pid_pressure_nodes} node(s); keep the worker ceiling unchanged"
+  fi
+
+  echo "$node_rows"
+}
+
+count_node_health_blockers() {
+  local node_rows not_ready_nodes memory_pressure_nodes disk_pressure_nodes pid_pressure_nodes
+  node_rows="$(
+    kubectl get nodes \
+      -o 'custom-columns=NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,MEMORY:.status.conditions[?(@.type=="MemoryPressure")].status,DISK:.status.conditions[?(@.type=="DiskPressure")].status,PID:.status.conditions[?(@.type=="PIDPressure")].status' \
+      --no-headers 2>/dev/null || true
+  )"
+
+  if [[ -z "$node_rows" ]]; then
+    echo 0
+    return 0
+  fi
+
+  not_ready_nodes="$(awk '$2 != "True" {c++} END {print c+0}' <<<"$node_rows")"
+  memory_pressure_nodes="$(awk '$3 == "True" {c++} END {print c+0}' <<<"$node_rows")"
+  disk_pressure_nodes="$(awk '$4 == "True" {c++} END {print c+0}' <<<"$node_rows")"
+  pid_pressure_nodes="$(awk '$5 == "True" {c++} END {print c+0}' <<<"$node_rows")"
+
+  echo "$(( not_ready_nodes + memory_pressure_nodes + disk_pressure_nodes + pid_pressure_nodes ))"
+}
+
+count_problem_pods() {
+  kubectl -n "$NAMESPACE" get pods --no-headers 2>/dev/null | awk '
+    $3 ~ /^(Pending|ContainerCreating|PodInitializing|CrashLoopBackOff|CreateContainerError|ImagePullBackOff|ErrImagePull|Terminating)$/ || $3 ~ /^Init:/ {c++}
+    END {print c+0}
+  ' || echo 0
+}
+
+read_pvc_storage_classes() {
+  kube_probe "pvc storage classes read" kubectl -n "$NAMESPACE" get pvc db redis nfs-pvc nfs-pvc-data \
+    -o custom-columns='NAME:.metadata.name,SC:.spec.storageClassName,PHASE:.status.phase'
+}
+
+read_web_background_state() {
+  log "Web-background deployment and pod state"
+  kube_probe "web-background deployment read" kubectl -n "$NAMESPACE" get deploy web-background -o wide
+  kube_probe "web-background pod read" kubectl -n "$NAMESPACE" get pods -l "app=web-background,release=${RELEASE}" -o wide
+}
+
+read_keda_state() {
+  if kubectl -n "$NAMESPACE" get scaledobject worker >/dev/null 2>&1; then
+    log "KEDA state for worker autoscaling"
+    kube_probe "worker scaledobject read" kubectl -n "$NAMESPACE" get scaledobject worker -o wide
+    kube_probe "worker triggerauthentication read" kubectl -n "$NAMESPACE" get triggerauthentication worker-keda-redis-auth -o wide
+    kube_probe "keda operator pod read" bash -lc "kubectl get pods -A | grep -E 'keda-operator|keda-admission-webhooks'"
+  else
+    log "No worker ScaledObject detected; skipping KEDA-specific checks"
+  fi
+}
+
 read_app_job_counts() {
   local web_pod
   web_pod="$(get_web_pod)"
@@ -184,6 +376,206 @@ read_divergence_signals() {
       puts %(stale_started_jobs=#{stale_jobs} stale_started_datapoints_active=#{stale_dp_active} stale_started_datapoints_orphan=#{stale_dp_orphan} stale_started_analyses=#{stale_started_analyses} started_analyses=#{started_analyses})
     '
   "
+}
+
+read_recent_warning_event_signals() {
+  local events
+  log "Recent warning-event signals"
+  events="$(get_recent_warning_events)"
+
+  if [[ -z "$events" ]]; then
+    warn "No recent warning events returned"
+    return 0
+  fi
+
+  local patterns=(
+    "NodeNotReady"
+    "NetworkNotReady"
+    "FailedCreatePodSandBox"
+    "failed to sync secret cache"
+    "SystemOOM"
+    "ImagePullBackOff"
+    "ErrImagePull"
+    "503 Service Unavailable"
+    "SyncLoadBalancerFailed"
+  )
+
+  local pattern count
+  for pattern in "${patterns[@]}"; do
+    count="$(grep -ciF "$pattern" <<<"$events" || true)"
+    if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then
+      warn "Recent warning events matching '${pattern}': ${count}"
+    fi
+  done
+
+  echo "$events" | tail -20
+}
+
+read_loadbalancer_event_signals() {
+  local service_events sync_failures octavia_503
+  log "Ingress load balancer event signals"
+  service_events="$(
+    kubectl -n "$NAMESPACE" get events \
+      --field-selector involvedObject.kind=Service,involvedObject.name=ingress-load-balancer \
+      --sort-by=.lastTimestamp \
+      -o custom-columns=LAST:.lastTimestamp,REASON:.reason,MSG:.message \
+      2>/dev/null | tail -100 || true
+  )"
+
+  if [[ -z "$service_events" ]]; then
+    warn "No ingress-load-balancer service events returned"
+    return 0
+  fi
+
+  sync_failures="$(grep -ciE 'SyncLoadBalancerFailed|UpdateLoadBalancerFailed' <<<"$service_events" || true)"
+  octavia_503="$(grep -ciF '503 Service Unavailable' <<<"$service_events" || true)"
+
+  if [[ "$sync_failures" =~ ^[0-9]+$ ]] && (( sync_failures > 0 )); then
+    warn "Ingress load balancer sync failures observed: ${sync_failures}"
+  fi
+  if [[ "$octavia_503" =~ ^[0-9]+$ ]] && (( octavia_503 > 0 )); then
+    warn "Ingress load balancer Octavia 503 events observed: ${octavia_503}"
+  fi
+  if [[ "$sync_failures" =~ ^[0-9]+$ ]] && (( sync_failures >= 3 )); then
+    warn "Ingress load balancer failures look sustained; escalate to the platform team if they continue"
+  fi
+
+  echo "$service_events" | tail -20
+}
+
+get_recent_warning_events() {
+  kubectl get events -A \
+    --field-selector type=Warning \
+    --sort-by=.lastTimestamp \
+    -o custom-columns=LAST:.lastTimestamp,NS:.metadata.namespace,OBJ:.involvedObject.kind,NAME:.involvedObject.name,REASON:.reason,MSG:.message \
+    2>/dev/null | tail -200 || true
+}
+
+count_queue_pipeline_blockers() {
+  local redis_pod depths analyses analysis_wrappers simulations blockers
+  redis_pod="$(get_redis_pod)"
+  blockers=0
+
+  if ! depths="$(
+    kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+      PW="${REDIS_PASSWORD:-}"
+      AUTH=""
+      if [ -n "$PW" ]; then AUTH="-a $PW --no-auth-warning"; fi
+      for q in analyses analysis_wrappers simulations; do
+        printf "%s=" "$q"
+        redis-cli $AUTH LLEN "resque:queue:$q"
+      done
+    ' | tr -d '\r'
+  )"; then
+    warn "Queue pipeline blocker: unable to read redis queue depths"
+    echo 1
+    return 0
+  fi
+
+  analyses="$(grep '^analyses=' <<<"$depths" | sed 's/^analyses=//' || true)"
+  analysis_wrappers="$(grep '^analysis_wrappers=' <<<"$depths" | sed 's/^analysis_wrappers=//' || true)"
+  simulations="$(grep '^simulations=' <<<"$depths" | sed 's/^simulations=//' || true)"
+
+  if [[ "$analysis_wrappers" =~ ^[0-9]+$ && "$simulations" =~ ^[0-9]+$ ]] && (( analysis_wrappers > 0 && simulations == 0 )); then
+    warn "Queue pipeline blocker: analysis_wrappers=${analysis_wrappers} while simulations=${simulations}"
+    blockers=$((blockers + 1))
+  fi
+
+  if [[ "$analyses" =~ ^[0-9]+$ && "$analysis_wrappers" =~ ^[0-9]+$ ]] && (( analyses > 0 && analysis_wrappers == 0 )); then
+    warn "Queue pipeline blocker: analyses=${analyses} while analysis_wrappers=${analysis_wrappers}"
+    blockers=$((blockers + 1))
+  fi
+
+  echo "$blockers"
+}
+
+count_core_service_readiness_blockers() {
+  local app blockers ready_count
+  blockers=0
+  for app in web web-background redis rserve; do
+    # The status.phase field selector is not supported by all API servers; filter via jq.
+    ready_count="$(
+      kubectl -n "$NAMESPACE" get pods \
+        -l "app=${app},release=${RELEASE}" \
+        -o json 2>/dev/null \
+      | jq '[.items[] | select(.status.phase == "Running") | .status.conditions[]? | select(.type == "Ready" and .status == "True")] | length' \
+      || echo 0
+    )"
+    if ! [[ "$ready_count" =~ ^[0-9]+$ ]] || (( ready_count == 0 )); then
+      warn "Core service blocker: no Ready Running pod found for app=${app}"
+      blockers=$((blockers + 1))
+    fi
+  done
+  echo "$blockers"
+}
+
+get_worker_hpa_spec_max_replicas() {
+  local worker_hpa
+  worker_hpa="$(get_worker_hpa_name)"
+  kubectl -n "$NAMESPACE" get hpa "$worker_hpa" -o jsonpath='{.spec.maxReplicas}'
+}
+
+check_scale_up_blockers() {
+  local events blocker_patterns warning_patterns pattern count blockers memory_pressure_nodes node_blockers pod_blockers
+  events="$(get_recent_warning_events)"
+
+  if [[ -z "$events" ]]; then
+    node_blockers="$(count_node_health_blockers)"
+    pod_blockers="$(count_problem_pods)"
+    [[ "$node_blockers" =~ ^[0-9]+$ ]] || node_blockers=0
+    [[ "$pod_blockers" =~ ^[0-9]+$ ]] || pod_blockers=0
+    (( node_blockers == 0 && pod_blockers == 0 ))
+    return $?
+  fi
+
+  blocker_patterns=(
+    "FailedCreatePodSandBox"
+    "failed to sync secret cache"
+    "SystemOOM"
+    "OOMKilled"
+    "OOMKilling"
+    "failed liveness probe"
+    "liveness probe failed"
+  )
+  warning_patterns=(
+    "NodeNotReady"
+    "NetworkNotReady"
+    "ImagePullBackOff"
+    "ErrImagePull"
+    "503 Service Unavailable"
+    "SyncLoadBalancerFailed"
+  )
+
+  blockers=0
+  node_blockers="$(count_node_health_blockers)"
+  pod_blockers="$(count_problem_pods)"
+  [[ "$node_blockers" =~ ^[0-9]+$ ]] || node_blockers=0
+  [[ "$pod_blockers" =~ ^[0-9]+$ ]] || pod_blockers=0
+  if (( node_blockers > 0 )); then
+    warn "Node health blockers detected: ${node_blockers}; pausing scale-up"
+    blockers=$((blockers + node_blockers))
+  fi
+  if (( pod_blockers > 0 )); then
+    warn "Problem pods detected in ${NAMESPACE}: ${pod_blockers}; pausing scale-up"
+    blockers=$((blockers + pod_blockers))
+  fi
+
+  for pattern in "${blocker_patterns[@]}"; do
+    count="$(grep -ciF "$pattern" <<<"$events" || true)"
+    if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then
+      warn "Scale-up blocker '${pattern}' seen in recent warning events: ${count}"
+      blockers=$((blockers + count))
+    fi
+  done
+
+  for pattern in "${warning_patterns[@]}"; do
+    count="$(grep -ciF "$pattern" <<<"$events" || true)"
+    if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then
+      warn "Recent warning events matching '${pattern}': ${count}"
+    fi
+  done
+
+  (( blockers == 0 ))
 }
 
 merge_queue_csv() {
@@ -312,29 +704,46 @@ run_check_mode() {
   echo "---"
   read_nfs_usage
   echo "---"
+  read_pvc_storage_classes
+  echo "---"
   read_redis_queues
+  echo "---"
+  read_queue_pipeline_health
   echo "---"
   read_app_job_counts
   echo "---"
+  read_web_auth_signals
+  echo "---"
   read_divergence_signals
+  echo "---"
+  read_recent_warning_event_signals
+  echo "---"
+  read_loadbalancer_event_signals
+  echo "---"
+  read_node_memory_pressure_state
+  echo "---"
+  read_web_background_state
+  echo "---"
+  read_keda_state
   echo "---"
   read_worker_state
 }
 
 run_snapshot_mode() {
-  local out_dir redis_pod web_pod ts
+  local out_dir redis_pod web_pod ts worker_hpa
   ts="$(date +%Y%m%d-%H%M%S)"
   out_dir="${SNAPSHOT_DIR:-./incident-snapshots/${RELEASE}-${ts}}"
   mkdir -p "$out_dir"
 
   redis_pod="$(get_redis_pod)"
   web_pod="$(get_web_pod)"
+  worker_hpa="$(get_worker_hpa_name)"
 
   log "Writing snapshots into ${out_dir}"
   kubectl config current-context > "${out_dir}/kube_context.txt"
   helm status "$RELEASE" -n "$NAMESPACE" > "${out_dir}/helm_status.txt"
   helm history "$RELEASE" -n "$NAMESPACE" > "${out_dir}/helm_history.txt"
-  kubectl -n "$NAMESPACE" get hpa worker -o wide > "${out_dir}/worker_hpa.txt"
+  kubectl -n "$NAMESPACE" get hpa "$worker_hpa" -o wide > "${out_dir}/worker_hpa.txt"
   kubectl -n "$NAMESPACE" get deploy worker -o wide > "${out_dir}/worker_deploy.txt"
 
   kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
@@ -384,12 +793,13 @@ run_snapshot_mode() {
 collect_scale_metrics_line() {
   local timeline_file="$1"
   local iso ts hpa_current hpa_desired deploy_desired deploy_current deploy_available node_total node_ready
-  local redis_pod queue_simulations queue_requeued
+  local redis_pod queue_simulations queue_requeued worker_hpa
   iso="$(date -Iseconds)"
   ts="$(date +%s)"
+  worker_hpa="$(get_worker_hpa_name)"
 
-  hpa_current="$(kubectl -n "$NAMESPACE" get hpa worker -o jsonpath='{.status.currentReplicas}' 2>/dev/null || true)"
-  hpa_desired="$(kubectl -n "$NAMESPACE" get hpa worker -o jsonpath='{.status.desiredReplicas}' 2>/dev/null || true)"
+  hpa_current="$(kubectl -n "$NAMESPACE" get hpa "$worker_hpa" -o jsonpath='{.status.currentReplicas}' 2>/dev/null || true)"
+  hpa_desired="$(kubectl -n "$NAMESPACE" get hpa "$worker_hpa" -o jsonpath='{.status.desiredReplicas}' 2>/dev/null || true)"
   deploy_desired="$(kubectl -n "$NAMESPACE" get deploy worker -o jsonpath='{.spec.replicas}' 2>/dev/null || true)"
   deploy_current="$(kubectl -n "$NAMESPACE" get deploy worker -o jsonpath='{.status.replicas}' 2>/dev/null || true)"
   deploy_available="$(kubectl -n "$NAMESPACE" get deploy worker -o jsonpath='{.status.availableReplicas}' 2>/dev/null || true)"
@@ -457,6 +867,11 @@ run_scale_baseline_mode() {
     SNAPSHOT_DIR="$sample_dir"
     run_snapshot_mode
     collect_scale_metrics_line "$timeline_file"
+    if ! check_scale_up_blockers; then
+      printf "blocked_at=%s\nreason=%s\n" "$(date -Iseconds)" "node health, pod regressions, or recent cluster churn" > "${root_dir}/scale_blocked.txt"
+      log "Scale baseline halted: node health, pod regressions, or recent cluster churn were detected"
+      return 1
+    fi
     sample_idx=$((sample_idx + 1))
     sleep "$BASELINE_INTERVAL_SECONDS"
   done
@@ -464,6 +879,96 @@ run_scale_baseline_mode() {
 
   log "Scale baseline complete: ${root_dir}"
   log "Timeline: ${timeline_file}"
+}
+
+run_ceiling_probe_mode() {
+  local start_epoch now elapsed samples_total samples_pass samples_blocked
+  local hard_blocker_samples queue_blockers_total core_blockers_total
+  local queue_blockers core_blockers sample_blockers current_max suggested_next_max recommendation reason
+
+  [[ "$QUIET_WINDOW_SECONDS" =~ ^[0-9]+$ ]] || die "--quiet-window-seconds must be an integer"
+  [[ "$QUIET_WINDOW_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || die "--quiet-interval-seconds must be an integer"
+  [[ "$PROBE_STEP_REPLICAS" =~ ^[0-9]+$ ]] || die "--probe-step-replicas must be an integer"
+  (( QUIET_WINDOW_SECONDS >= QUIET_WINDOW_INTERVAL_SECONDS )) || die "--quiet-window-seconds must be >= --quiet-interval-seconds"
+  (( QUIET_WINDOW_INTERVAL_SECONDS >= 5 )) || die "--quiet-interval-seconds must be >= 5"
+  (( PROBE_STEP_REPLICAS >= 1 )) || die "--probe-step-replicas must be >= 1"
+  if [[ -n "$PROBE_MAX_REPLICAS_LIMIT" ]]; then
+    [[ "$PROBE_MAX_REPLICAS_LIMIT" =~ ^[0-9]+$ ]] || die "--probe-max-replicas-limit must be an integer"
+    (( PROBE_MAX_REPLICAS_LIMIT >= 1 )) || die "--probe-max-replicas-limit must be >= 1"
+  fi
+
+  current_max="$(get_worker_hpa_spec_max_replicas)"
+  [[ "$current_max" =~ ^[0-9]+$ ]] || die "Could not read worker HPA spec.maxReplicas"
+  suggested_next_max=$((current_max + PROBE_STEP_REPLICAS))
+  if [[ -n "$PROBE_MAX_REPLICAS_LIMIT" ]] && (( suggested_next_max > PROBE_MAX_REPLICAS_LIMIT )); then
+    suggested_next_max="$PROBE_MAX_REPLICAS_LIMIT"
+  fi
+
+  samples_total=0
+  samples_pass=0
+  samples_blocked=0
+  hard_blocker_samples=0
+  queue_blockers_total=0
+  core_blockers_total=0
+  start_epoch="$(date +%s)"
+
+  while true; do
+    now="$(date +%s)"
+    elapsed="$((now - start_epoch))"
+    if (( elapsed > QUIET_WINDOW_SECONDS )); then
+      break
+    fi
+
+    sample_blockers=0
+    if ! check_scale_up_blockers; then
+      hard_blocker_samples=$((hard_blocker_samples + 1))
+      sample_blockers=$((sample_blockers + 1))
+    fi
+
+    queue_blockers="$(count_queue_pipeline_blockers)"
+    core_blockers="$(count_core_service_readiness_blockers)"
+    [[ "$queue_blockers" =~ ^[0-9]+$ ]] || queue_blockers=1
+    [[ "$core_blockers" =~ ^[0-9]+$ ]] || core_blockers=1
+
+    queue_blockers_total=$((queue_blockers_total + queue_blockers))
+    core_blockers_total=$((core_blockers_total + core_blockers))
+    sample_blockers=$((sample_blockers + queue_blockers + core_blockers))
+
+    if (( sample_blockers == 0 )); then
+      samples_pass=$((samples_pass + 1))
+    else
+      samples_blocked=$((samples_blocked + 1))
+    fi
+    samples_total=$((samples_total + 1))
+
+    sleep "$QUIET_WINDOW_INTERVAL_SECONDS"
+  done
+
+  recommendation="advance"
+  reason="quiet-window gates passed"
+  if [[ -n "$PROBE_MAX_REPLICAS_LIMIT" ]] && (( current_max >= PROBE_MAX_REPLICAS_LIMIT )); then
+    recommendation="hold"
+    reason="current maxReplicas already at probe limit"
+  elif (( samples_blocked > 0 )) || (( hard_blocker_samples > 0 )) || (( queue_blockers_total > 0 )) || (( core_blockers_total > 0 )); then
+    recommendation="hold"
+    reason="one or more quiet-window samples contained blockers"
+  fi
+
+  log "Ceiling probe summary (report-only): recommendation=${recommendation}"
+  echo "PROBE_MODE=report-only"
+  echo "RECOMMENDATION=${recommendation}"
+  echo "REASON=${reason}"
+  echo "CURRENT_MAX_REPLICAS=${current_max}"
+  echo "STEP_REPLICAS=${PROBE_STEP_REPLICAS}"
+  echo "SUGGESTED_NEXT_MAX_REPLICAS=${suggested_next_max}"
+  echo "QUIET_WINDOW_SECONDS=${QUIET_WINDOW_SECONDS}"
+  echo "QUIET_INTERVAL_SECONDS=${QUIET_WINDOW_INTERVAL_SECONDS}"
+  echo "SAMPLES_TOTAL=${samples_total}"
+  echo "SAMPLES_PASS=${samples_pass}"
+  echo "SAMPLES_BLOCKED=${samples_blocked}"
+  echo "HARD_BLOCKER_SAMPLES=${hard_blocker_samples}"
+  echo "QUEUE_BLOCKERS_TOTAL=${queue_blockers_total}"
+  echo "CORE_SERVICE_BLOCKERS_TOTAL=${core_blockers_total}"
 }
 
 run_reconcile_mode() {
@@ -520,6 +1025,14 @@ while [[ $# -gt 0 ]]; do
       BASELINE_DURATION_SECONDS="$2"; shift 2 ;;
     --interval-seconds)
       BASELINE_INTERVAL_SECONDS="$2"; shift 2 ;;
+    --quiet-window-seconds)
+      QUIET_WINDOW_SECONDS="$2"; shift 2 ;;
+    --quiet-interval-seconds)
+      QUIET_WINDOW_INTERVAL_SECONDS="$2"; shift 2 ;;
+    --probe-step-replicas)
+      PROBE_STEP_REPLICAS="$2"; shift 2 ;;
+    --probe-max-replicas-limit)
+      PROBE_MAX_REPLICAS_LIMIT="$2"; shift 2 ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -534,6 +1047,7 @@ case "$MODE" in
   check) run_check_mode ;;
   snapshot) run_snapshot_mode ;;
   scale-baseline) run_scale_baseline_mode ;;
+  ceiling-probe) run_ceiling_probe_mode ;;
   reconcile-helm) run_reconcile_mode ;;
   recover-stuck) recover_stuck_state ;;
   *) die "Unsupported mode: $MODE" ;;

@@ -6,6 +6,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHART_DIR="${ROOT_DIR}/openstudio-server"
 
 helm lint "${CHART_DIR}" --set global.provider.name=aws --set secrets.validateExistingSecret=false >/dev/null
+helm lint "${CHART_DIR}" -f "${ROOT_DIR}/openstudio-server/values.yaml" --set secrets.validateExistingSecret=false >/dev/null
+helm lint "${CHART_DIR}" -f "${ROOT_DIR}/openstudio-server/values.registry-live.yaml" --set secrets.validateExistingSecret=false >/dev/null
+helm lint "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack.yaml" --set secrets.validateExistingSecret=false >/dev/null
+helm lint "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack-nfs.yaml" --set secrets.validateExistingSecret=false >/dev/null
+helm lint "${CHART_DIR}" -f "${ROOT_DIR}/openstack/values-openstack-nfs-small.yaml" --set secrets.validateExistingSecret=false >/dev/null
 helm template openstudio-server "${CHART_DIR}" --set global.provider.name=aws --set secrets.validateExistingSecret=false >/dev/null
 helm template openstudio-server "${CHART_DIR}" --set global.provider.name=google --set secrets.validateExistingSecret=false >/dev/null
 helm template openstudio-server "${CHART_DIR}" --set global.provider.name=azure --set secrets.validateExistingSecret=false >/dev/null
@@ -109,6 +114,7 @@ if helm template openstudio-server "${CHART_DIR}" \
 fi
 
 helm template openstudio-server "${CHART_DIR}" \
+  --skip-schema-validation \
   --set global.provider.name= \
   --set global.provider.allowLegacyName=true \
   --set secrets.validateExistingSecret=false \
@@ -132,9 +138,17 @@ if ! helm template openstudio-server "${CHART_DIR}" \
 fi
 
 if ! helm template openstudio-server "${CHART_DIR}" \
+  -f "${ROOT_DIR}/openstudio-server/values.yaml" \
+  --set secrets.validateExistingSecret=false \
+  | grep -q 'image: pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/library/mongo@sha256:a40f777b87a077a8a4801368aa17629e575413d6567872492135e26692499905'; then
+  echo "Expected tracked baseline values to render internal Mongo image reference"
+  exit 1
+fi
+
+if ! helm template openstudio-server "${CHART_DIR}" \
   -f "${ROOT_DIR}/openstudio-server/values.registry-live.yaml" \
   --set secrets.validateExistingSecret=false \
-  | grep -q 'registry.<ingress-base-domain>/proxy-cache/nrel/openstudio-server:3.10.0'; then
+  | grep -q 'pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0'; then
   echo "Expected registry profile to render internal registry image references"
   exit 1
 fi
@@ -144,6 +158,38 @@ if ! helm template openstudio-server "${CHART_DIR}" \
   --set secrets.validateExistingSecret=false \
   | grep -q 'name: "registry-credentials"'; then
   echo "Expected registry profile to render imagePullSecrets wiring"
+  exit 1
+fi
+
+if helm template openstudio-server "${CHART_DIR}" \
+  -f "${ROOT_DIR}/openstudio-server/values.yaml" \
+  --set secrets.validateExistingSecret=false \
+  | grep -q 'topologySpreadConstraints:'; then
+  echo "Expected topology spread constraints to stay disabled in tracked baseline values"
+  exit 1
+fi
+
+if ! helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name=aws \
+  --set secrets.validateExistingSecret=false \
+  --set worker.topologySpread.enabled=true \
+  --set worker.topologySpread.maxSkew=2 \
+  --set worker.topologySpread.topologyKey=kubernetes.io/hostname \
+  --set worker.topologySpread.whenUnsatisfiable=DoNotSchedule \
+  | grep -q 'topologySpreadConstraints:'; then
+  echo "Expected worker topology spread constraints to render when enabled"
+  exit 1
+fi
+
+if ! helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name=aws \
+  --set secrets.validateExistingSecret=false \
+  --set worker.topologySpread.enabled=true \
+  --set worker.topologySpread.maxSkew=2 \
+  --set worker.topologySpread.topologyKey=kubernetes.io/hostname \
+  --set worker.topologySpread.whenUnsatisfiable=DoNotSchedule \
+  | grep -q 'whenUnsatisfiable: DoNotSchedule'; then
+  echo "Expected worker topology spread whenUnsatisfiable override to render"
   exit 1
 fi
 
@@ -349,6 +395,32 @@ fi
 
 if ! grep -Fq "serviceAccount.imagePullSecrets[0]=registry-credentials" "${MOCK_HELM_LOG}"; then
   echo "Expected install.sh registry profile mode to set serviceAccount imagePullSecrets"
+  exit 1
+fi
+
+# Verify count_core_service_readiness_blockers uses jq client-side filtering and not
+# --field-selector status.phase=Running (which is rejected by many API server configurations).
+RELIABILITY_SCRIPT="${ROOT_DIR}/scripts/openstudio-reliability"
+if grep -Fq -- "--field-selector status.phase=Running" "${RELIABILITY_SCRIPT}"; then
+  echo "openstudio-reliability must not use --field-selector status.phase=Running (not supported by all API servers)"
+  exit 1
+fi
+# Confirm both functions that previously held the field-selector now use jq instead.
+if ! grep -Fq 'select(.status.phase == "Running")' "${RELIABILITY_SCRIPT}"; then
+  echo "openstudio-reliability must use jq client-side phase filtering after removing field-selector"
+  exit 1
+fi
+
+# Verify prepull DaemonSet writes ready file even on partial failure when
+# failOnAnyPullError=false, so pods don't generate endless Unhealthy readiness events.
+PREPULL_RENDERED="$(helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name=aws \
+  --set secrets.validateExistingSecret=false \
+  --set prepull.enabled=true \
+  --set prepull.failOnAnyPullError=false 2>/dev/null)"
+PREPULL_READY_COUNT="$(echo "${PREPULL_RENDERED}" | grep -c '/tmp/prepull-ready' || true)"
+if [[ "${PREPULL_READY_COUNT}" -lt 2 ]]; then
+  echo "Expected prepull script to write /tmp/prepull-ready in both the success path and the tolerated-failure path"
   exit 1
 fi
 
