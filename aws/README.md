@@ -1,5 +1,7 @@
 Below is a guide to help setup a AWS Elastic Kubernetes Cluster (EKS) cluster using the AWS eksclt cli utility. This guide is meant to provide steps to setup the EKS cluster. Please refer to the [helm chart](/README.md) to install openstudio-server chart once the EKS cluster is up and running.
 
+For a focused setup with on-demand nodes for essential services and spot nodes for worker capacity, see [AWS EKS Setup: Spot Workers and On-Demand Essential Pods](./EKS_SPOT_WORKERS_ONDEMAND_ESSENTIAL.md).
+
 ## Prerequisites
 
 - AWS Account with EKS privileges
