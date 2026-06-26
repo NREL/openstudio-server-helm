@@ -1,0 +1,345 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "global": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["provider"],
+      "properties": {
+        "provider": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": ["aws", "google", "azure", "openstack"]
+            },
+            "allowLegacyName": { "type": "boolean" }
+          }
+        },
+        "nodeGroups": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "labelKey": { "type": "string", "minLength": 1 },
+            "web": { "type": "string", "minLength": 1 },
+            "worker": { "type": "string", "minLength": 1 },
+            "affinityMode": { "$ref": "#/definitions/affinityMode" },
+            "webAffinityMode": { "$ref": "#/definitions/affinityMode" },
+            "workerAffinityMode": { "$ref": "#/definitions/affinityMode" }
+          }
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "images": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "registry": { "type": "string" },
+            "repositoryPrefix": { "type": "string" },
+            "org": { "type": "string", "minLength": 1 },
+            "serverRepository": { "type": "string", "minLength": 1 },
+            "rserveRepository": { "type": "string", "minLength": 1 },
+            "tag": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "validateExistingSecret": { "type": "boolean" },
+        "create": { "type": "boolean" },
+        "nameOverride": { "type": "string" },
+        "keys": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "dbUsername": { "type": "string", "minLength": 1 },
+            "dbPassword": { "type": "string", "minLength": 1 },
+            "redisPassword": { "type": "string", "minLength": 1 },
+            "webSecret": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "db": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "username": { "type": "string" },
+        "password": { "type": "string" }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "password": { "type": "string" },
+        "url": { "type": "string" },
+        "nodeSelector": { "$ref": "#/definitions/stringMap" },
+        "affinity": { "type": "object", "additionalProperties": true },
+        "config": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "maxclients": { "type": "integer", "minimum": 1 },
+            "tcpBacklog": { "type": "integer", "minimum": 1 },
+            "timeoutSeconds": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "web": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "secret_key_value": { "type": "string" },
+        "nodeSelector": { "$ref": "#/definitions/stringMap" },
+        "passenger_memory_per_process": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "web_background": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 1 },
+        "workerCount": { "type": "integer", "minimum": 1 },
+        "nodeSelector": { "$ref": "#/definitions/stringMap" }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "queues": { "type": "string", "minLength": 1 },
+        "nodeSelector": { "$ref": "#/definitions/stringMap" },
+        "topologySpread": { "$ref": "#/definitions/topologySpreadConfig" },
+        "strategy": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "maxSurge": { "type": "integer", "minimum": 0 },
+            "maxUnavailable": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "worker_hpa": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["minReplicas", "maxReplicas", "targetCPUUtilizationPercentage"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "minReplicas": { "type": "integer", "minimum": 0 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "targetCPUUtilizationPercentage": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "stabilizationWindowSeconds": { "type": "integer", "minimum": 0 },
+        "behavior": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "scaleUp": { "$ref": "#/definitions/scalingRule" },
+            "scaleDown": { "$ref": "#/definitions/scalingRule" }
+          }
+        }
+      }
+    },
+    "worker_autoscaling": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "mode": { "type": "string", "enum": ["hpa", "keda-hybrid"] },
+        "keda": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "queueLengthPerWorker": { "type": ["integer", "string"], "minLength": 1 },
+            "activationQueueLength": { "type": ["integer", "string"], "minLength": 1 },
+            "queueNames": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1
+            },
+            "enableCpuTrigger": { "type": "boolean" },
+            "redisAddress": { "type": "string", "minLength": 1 },
+            "pollingIntervalSeconds": { "type": "integer", "minimum": 1 },
+            "cooldownPeriodSeconds": { "type": "integer", "minimum": 0 },
+            "fallback": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "failureThreshold": { "type": "integer", "minimum": 1 },
+                "replicas": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "advanced": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "restoreToOriginalReplicaCount": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "prepull": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "role": { "type": "string", "enum": ["", "web", "worker"] },
+        "spreadSeconds": { "type": "integer", "minimum": 0 },
+        "warmMode": { "type": "string", "enum": ["once", "continuous"] },
+        "intervalSeconds": { "type": "integer", "minimum": 1 },
+        "failOnAnyPullError": { "type": "boolean" },
+        "includeRserve": { "type": "boolean" },
+        "includeWebInit": { "type": "boolean" },
+        "additionalImages": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "nodeSelector": { "$ref": "#/definitions/stringMap" }
+      }
+    },
+    "registryHostsPatch": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "hostname": { "type": "string", "minLength": 1 },
+        "additionalHostnames": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "address": { "type": "string", "minLength": 1 },
+        "nodeSelector": { "$ref": "#/definitions/stringMap" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "secrets": {
+            "properties": {
+              "create": { "const": true }
+            }
+          }
+        },
+        "required": ["secrets"]
+      },
+      "then": {
+        "required": ["db", "redis", "web"],
+        "properties": {
+          "db": {
+            "required": ["username", "password"],
+            "properties": {
+              "username": { "type": "string", "minLength": 1 },
+              "password": { "type": "string", "minLength": 1 }
+            }
+          },
+          "redis": {
+            "required": ["password"],
+            "properties": {
+              "password": { "type": "string", "minLength": 1 }
+            }
+          },
+          "web": {
+            "required": ["secret_key_value"],
+            "properties": {
+              "secret_key_value": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "affinityMode": {
+      "type": "string",
+      "enum": ["required", "preferred", "disabled"]
+    },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "hpaPolicy": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["type", "value", "periodSeconds"],
+      "properties": {
+        "type": { "type": "string", "enum": ["Pods", "Percent"] },
+        "value": { "type": "integer", "minimum": 1 },
+        "periodSeconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "scalingRule": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "stabilizationWindowSeconds": { "type": "integer", "minimum": 0 },
+        "selectPolicy": { "type": "string", "enum": ["Max", "Min", "Disabled"] },
+        "policies": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/hpaPolicy" }
+        }
+      }
+    },
+    "topologySpreadConfig": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "maxSkew": { "type": "integer", "minimum": 1 },
+        "topologyKey": { "type": "string", "minLength": 1 },
+        "whenUnsatisfiable": { "type": "string", "enum": ["DoNotSchedule", "ScheduleAnyway"] },
+        "minDomains": { "type": ["integer", "null"], "minimum": 1 },
+        "nodeAffinityPolicy": { "type": "string", "enum": ["Honor", "Ignore"] },
+        "nodeTaintsPolicy": { "type": "string", "enum": ["Honor", "Ignore"] }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": { "const": true }
+            },
+            "required": ["enabled"]
+          },
+          "then": {
+            "required": ["maxSkew", "topologyKey", "whenUnsatisfiable"]
+          }
+        }
+      ]
+    }
+  }
+}

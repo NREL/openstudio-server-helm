@@ -11,7 +11,7 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
-      maxUnavailable: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
@@ -21,14 +21,18 @@ spec:
     {{ $dbContainerPorts := (get $dbContainer "ports") | default (dict) }}
     {{ $webContainer := (get .Values.web "container") | default (dict) }}
     {{ $webContainerPorts := (get $webContainer "port") | default (dict) }}
+    {{ $webRuntimeOverrides := default (dict) (get .Values.web "runtimeOverrides") }}
     {{ $redis := default (dict) .Values.redis }}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
+      {{- include "openstudio.tolerationsForRole" (dict "root" . "role" "web") | nindent 6 }}
       {{- if eq (include "openstudio.workloadServiceAccountUse" .) "true" }}
       serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
       {{- end }}
       {{- include "openstudio.podImagePullSecrets" . | nindent 6 }}
+      {{- include "openstudio.podNodeSelector" (dict "nodeSelector" .Values.web.nodeSelector) | nindent 6 }}
+      {{- include "openstudio.podHostAliases" . | nindent 6 }}
       {{- if (default true (get $priorityClasses "enabled")) }}
       priorityClassName: {{ default "high-priority" (get $priorityClasses "highName") }}
       {{- end }}
@@ -58,6 +62,12 @@ spec:
           volumeMounts:
             - name: nfs
               mountPath: "/mnt/openstudio"
+            {{- if (default false (get $webRuntimeOverrides "enabled")) }}
+            - name: web-runtime-overrides
+              mountPath: "/opt/openstudio/server/config/initializers/99_resque_requeue_fix.rb"
+              subPath: 99_resque_requeue_fix.rb
+              readOnly: true
+            {{- end }}
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
               value: {{ .Values.rserve.number_of_workers | quote }}
@@ -95,12 +105,12 @@ spec:
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
           readinessProbe:
             httpGet:
-              path: /
+              path: /resque
               port: 80
-            initialDelaySeconds: 60
-            periodSeconds: 200
-            timeoutSeconds: 120
-            failureThreshold: 10
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           livenessProbe:
             exec:
               command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
@@ -112,3 +122,8 @@ spec:
         - name: nfs
           persistentVolumeClaim:
             claimName: {{ include "openstudio.nfsPvcName" . }}
+        {{- if (default false (get $webRuntimeOverrides "enabled")) }}
+        - name: web-runtime-overrides
+          configMap:
+            name: {{ include "openstudio.webName" . }}-runtime-overrides
+        {{- end }}

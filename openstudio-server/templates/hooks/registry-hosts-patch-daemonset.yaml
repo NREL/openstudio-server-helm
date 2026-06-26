@@ -1,0 +1,83 @@
+{{- $registryHostsPatch := default (dict) .Values.registryHostsPatch -}}
+{{- if (default false (get $registryHostsPatch "enabled")) }}
+{{- $priorityClasses := default (dict) .Values.priorityClasses -}}
+{{- $registryHostname := default "" (get $registryHostsPatch "hostname") -}}
+{{- $registryAddress := default "" (get $registryHostsPatch "address") -}}
+{{- if eq $registryHostname "" -}}
+{{- fail "registryHostsPatch.enabled=true requires registryHostsPatch.hostname" -}}
+{{- end -}}
+{{- if eq $registryAddress "" -}}
+{{- fail "registryHostsPatch.enabled=true requires registryHostsPatch.address" -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: registry-hosts-patch
+  labels:
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app: registry-hosts-patch
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 100%
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: registry-hosts-patch
+    spec:
+      hostPID: true
+      {{- include "openstudio.podNodeSelector" (dict "nodeSelector" (get $registryHostsPatch "nodeSelector")) | nindent 6 }}
+      {{- if (default true (get $priorityClasses "enabled")) }}
+      priorityClassName: {{ default "high-priority" (get $priorityClasses "highName") }}
+      {{- end }}
+      tolerations:
+        - operator: Exists
+      initContainers:
+        - name: patch-hosts
+          image: {{ default "registry.k8s.io/e2e-test-images/busybox:1.29-2" (get $registryHostsPatch "initImage") }}
+          imagePullPolicy: {{ default "IfNotPresent" (get $registryHostsPatch "initImagePullPolicy") }}
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              HOSTS=/host/etc/hosts
+              IP='{{ $registryAddress }}'
+              HOSTNAMES='{{ $registryHostname }}{{- with (get $registryHostsPatch "additionalHostnames") }} {{ join " " . }}{{- end }}'
+              for host in $HOSTNAMES; do
+                if grep -q "$host" "$HOSTS"; then
+                  sed -i "s#.*$host#${IP} $host#" "$HOSTS"
+                else
+                  echo "${IP} ${host}" >> "$HOSTS"
+                fi
+              done
+              if ! grep -q "{{ $registryHostname }}" "$HOSTS"; then
+                echo "registry-hosts-patch failed to write the primary registry hostname" >&2
+                exit 1
+              fi
+          volumeMounts:
+            - mountPath: /host
+              name: host-root
+      containers:
+        - name: pause
+          image: {{ default "registry.k8s.io/pause:3.10.1" (get $registryHostsPatch "pauseImage") }}
+          imagePullPolicy: {{ default "IfNotPresent" (get $registryHostsPatch "pauseImagePullPolicy") }}
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "16Mi"
+            limits:
+              memory: "64Mi"
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory
+{{- end }}

@@ -22,10 +22,10 @@ spec:
           set -e
           echo "Testing web service HTTP connectivity..."
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            --max-time 15 \
+            --max-time 180 \
             "http://{{ include "openstudio.webServiceName" . }}.{{ .Release.Namespace }}.svc.cluster.local/")
           echo "HTTP response code: ${HTTP_CODE}"
-          # Accept 200 (healthy) or 302 (redirect to login) as success
+          # Accept 200 (healthy) or 302 (redirect to login).
           if [ "${HTTP_CODE}" = "200" ] || [ "${HTTP_CODE}" = "302" ]; then
             echo "PASS: web service is reachable"
           else

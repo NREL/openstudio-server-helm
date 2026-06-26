@@ -18,6 +18,7 @@ spec:
         app: {{ default "redis" .Values.redis.label }}
         release: {{ .Release.Name }}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
+    {{ $redisConfig := default (dict) .Values.redis.config }}
     spec:
       {{- if .Values.redis.affinity }}
       affinity:
@@ -35,12 +36,14 @@ spec:
       serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
       {{- end }}
       {{- include "openstudio.podImagePullSecrets" . | nindent 6 }}
+      {{- include "openstudio.podNodeSelector" (dict "nodeSelector" .Values.redis.nodeSelector) | nindent 6 }}
+      {{- include "openstudio.podHostAliases" . | nindent 6 }}
       {{- if (default true (get $priorityClasses "enabled")) }}
       priorityClassName: {{ default "high-priority" (get $priorityClasses "highName") }}
       {{- end }}
       containers:
         - name: {{ default "redis" .Values.redis.container.name  }}
-          image: {{ .Values.redis.container.image  }}
+          image: {{ include "openstudio.imageWithRegistry" (dict "root" . "image" .Values.redis.container.image) }}
           imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) .Values.redis.container.imagePullPolicy }}
           resources:
             requests:
@@ -59,7 +62,11 @@ spec:
                   key: {{ include "openstudio.secretKeyRedisPassword" . }}
           command: ["/bin/sh", "-c"]
           args:
-            - exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"
+            - >-
+              exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"
+              {{- if (get $redisConfig "maxclients") }} --maxclients {{ get $redisConfig "maxclients" }}{{- end }}
+              {{- if (get $redisConfig "tcpBacklog") }} --tcp-backlog {{ get $redisConfig "tcpBacklog" }}{{- end }}
+              {{- if (get $redisConfig "timeoutSeconds") }} --timeout {{ get $redisConfig "timeoutSeconds" }}{{- end }}
       volumes:
         - name: redis
           persistentVolumeClaim:

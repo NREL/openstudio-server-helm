@@ -210,6 +210,7 @@ spec:
         prometheus.io/port: '8085'
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
+      {{- include "openstudio.tolerationsForRole" (dict "root" . "role" "web") | nindent 6 }}
       serviceAccountName: cluster-autoscaler
       containers:
         - image: {{ printf "%s:%s" $autoscalerImageRepo $autoscalerImageTag }}

@@ -124,6 +124,17 @@ affinity:
 {{- end -}}
 {{- end -}}
 
+{{- define "openstudio.tolerationsForRole" -}}
+{{- $mode := include "openstudio.nodeGroupAffinityModeForRole" . -}}
+{{- if ne $mode "disabled" -}}
+tolerations:
+  - key: {{ include "openstudio.nodeGroupLabelKey" .root | quote }}
+    operator: Equal
+    value: {{ include "openstudio.nodeGroupValueForRole" . | quote }}
+    effect: NoSchedule
+{{- end -}}
+{{- end -}}
+
 {{- define "openstudio.defaultAppPersistenceStorageClass" -}}
 {{- if eq (include "openstudio.providerName" .) "openstack" -}}
 {{- "nfs" -}}
@@ -250,7 +261,7 @@ affinity:
 
 {{- define "openstudio.serverImage" -}}
 {{- $images := (get .Values.global "images") | default (dict) -}}
-{{- $registry := trimSuffix "/" (default "" (get $images "registry")) -}}
+{{- $registry := include "openstudio.validatedRegistryHost" . -}}
 {{- $repositoryPrefix := trimAll "/" (default "" (get $images "repositoryPrefix")) -}}
 {{- $org := default "nrel" (get $images "org") -}}
 {{- $repo := default "openstudio-server" (get $images "serverRepository") -}}
@@ -273,7 +284,7 @@ affinity:
 
 {{- define "openstudio.rserveImage" -}}
 {{- $images := (get .Values.global "images") | default (dict) -}}
-{{- $registry := trimSuffix "/" (default "" (get $images "registry")) -}}
+{{- $registry := include "openstudio.validatedRegistryHost" . -}}
 {{- $repositoryPrefix := trimAll "/" (default "" (get $images "repositoryPrefix")) -}}
 {{- $org := default "nrel" (get $images "org") -}}
 {{- $repo := default "openstudio-rserve" (get $images "rserveRepository") -}}
@@ -299,6 +310,33 @@ affinity:
 {{- default (printf "%s-workload" .Release.Name) (get $serviceAccount "name") -}}
 {{- end -}}
 
+{{- define "openstudio.validatedRegistryHost" -}}
+{{- $images := (get .Values.global "images") | default (dict) -}}
+{{- $registry := trimSuffix "/" (default "" (get $images "registry")) -}}
+{{- if and (ne $registry "") (not (regexMatch ".*[.:].*" $registry)) -}}
+{{- fail (printf "global.images.registry=%q is invalid. Use a registry host[:port] (for example 172.29.166.222:5000), not a bare namespace like 'zot'." $registry) -}}
+{{- end -}}
+{{- $registry -}}
+{{- end -}}
+
+{{- define "openstudio.imageWithRegistry" -}}
+{{- $root := .root -}}
+{{- $image := default "" .image -}}
+{{- $images := (get $root.Values.global "images") | default (dict) -}}
+{{- $registry := include "openstudio.validatedRegistryHost" $root -}}
+{{- $repositoryPrefix := trimAll "/" (default "" (get $images "repositoryPrefix")) -}}
+{{- if or (regexMatch "^(localhost|[^/]+[.:][^/]+)/.+" $image) (eq $registry "") -}}
+{{- $image -}}
+{{- else -}}
+{{- $pathParts := list -}}
+{{- if ne $repositoryPrefix "" -}}
+{{- $pathParts = append $pathParts $repositoryPrefix -}}
+{{- end -}}
+{{- $pathParts = append $pathParts $image -}}
+{{- printf "%s/%s" $registry (join "/" $pathParts) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "openstudio.workloadServiceAccountUse" -}}
 {{- $serviceAccount := default (dict) .Values.serviceAccount -}}
 {{- if or (default false (get $serviceAccount "create")) (ne (default "" (get $serviceAccount "name")) "") -}}
@@ -316,6 +354,30 @@ imagePullSecrets:
 {{- range $secretName := $imagePullSecrets }}
   - name: {{ $secretName | quote }}
 {{- end }}
+{{- end -}}
+{{- end -}}
+
+{{- define "openstudio.podHostAliases" -}}
+{{- $hostAliases := default (dict) .Values.hostAliases -}}
+{{- $enabled := default false (get $hostAliases "enabled") -}}
+{{- $entries := default (list) (get $hostAliases "entries") -}}
+{{- if and $enabled (gt (len $entries) 0) -}}
+hostAliases:
+{{- range $entry := $entries }}
+  - ip: {{ default "" (get $entry "ip") | quote }}
+    hostnames:
+{{- range $hostname := default (list) (get $entry "hostnames") }}
+      - {{ $hostname | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+{{- end -}}
+
+{{- define "openstudio.podNodeSelector" -}}
+{{- $nodeSelector := default (dict) .nodeSelector -}}
+{{- if gt (len $nodeSelector) 0 -}}
+nodeSelector:
+{{ toYaml $nodeSelector | nindent 2 }}
 {{- end -}}
 {{- end -}}
 

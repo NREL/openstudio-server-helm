@@ -24,10 +24,13 @@ spec:
     {{ $webBackgroundStartup := default (dict) (get $webBackgroundContainer "startup") }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
+      {{- include "openstudio.tolerationsForRole" (dict "root" . "role" "web") | nindent 6 }}
       {{- if eq (include "openstudio.workloadServiceAccountUse" .) "true" }}
       serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
       {{- end }}
       {{- include "openstudio.podImagePullSecrets" . | nindent 6 }}
+      {{- include "openstudio.podNodeSelector" (dict "nodeSelector" .Values.web_background.nodeSelector) | nindent 6 }}
+      {{- include "openstudio.podHostAliases" . | nindent 6 }}
       {{- if (default true (get $priorityClasses "enabled")) }}
       priorityClassName: {{ default "high-priority" (get $priorityClasses "highName") }}
       {{- end }}
@@ -45,6 +48,8 @@ spec:
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
               value: {{ .Values.rserve.number_of_workers | quote }}
+            - name: COUNT
+              value: {{ default 6 .Values.web_background.workerCount | quote }}
             - name: QUEUES
               value: background,analyses
             - name: SECRET_KEY_BASE

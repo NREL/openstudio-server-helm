@@ -1,0 +1,123 @@
+{{- $runtimeOverrides := default (dict) (get (default (dict) .Values.web) "runtimeOverrides") -}}
+{{- if (default false (get $runtimeOverrides "enabled")) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openstudio.webName" . }}-runtime-overrides
+data:
+  99_resque_requeue_fix.rb: |
+    # frozen_string_literal: true
+
+    module OpenStudioResqueRequeueFix
+      module Shared
+        private
+
+        def enqueue_without_hooks(queue, job_class, *job_args)
+          Resque::Job.create(queue, job_class, *job_args)
+        end
+      end
+
+      module AdminControllerPatch
+        include Shared
+
+        def requeue_failed
+          Rails.logger.warn "Requeueing Failed Jobs to 'requeued' Queue"
+
+          requeued_count = 0
+          skipped_count = 0
+
+          failed_jobs = []
+          Resque::Failure.each do |id, failed_job|
+            failed_jobs << [id, failed_job]
+          end
+
+          failed_jobs.reverse_each do |id, failed_job|
+            payload = failed_job['payload'] || {}
+            job_class_name = payload['class']
+            job_args = Array(payload['args'])
+
+            if job_class_name.blank?
+              skipped_count += 1
+              Rails.logger.warn "Skipping failed job #{id}: missing payload class"
+              next
+            end
+
+            begin
+              enqueue_without_hooks('requeued', job_class_name.constantize, *job_args)
+              Resque::Failure.remove(id)
+              requeued_count += 1
+            rescue StandardError => e
+              skipped_count += 1
+              Rails.logger.error "Could not requeue failed job #{id}: #{e.class} #{e.message}"
+            end
+          end
+
+          Rails.logger.info "#{requeued_count} jobs successfully requeued to 'requeued' queue by requeue_failed"
+
+          respond_to do |format|
+            format.html do
+              notice = "#{requeued_count} Resque jobs requeued."
+              notice += " #{skipped_count} failed jobs were skipped." if skipped_count.positive?
+              redirect_to admin_index_path, notice: notice
+            end
+            format.json do
+              render json: {
+                message: "#{requeued_count} jobs requeued to 'requeued' queue",
+                skipped: skipped_count
+              }, status: :ok
+            end
+          end
+        end
+      end
+
+      module DataPointsControllerPatch
+        include Shared
+
+        def requeue
+          Rails.logger.warn 'data_points_controller.REQUEUE'
+          @data_point = DataPoint.find(params[:id])
+          analysis_id = @data_point.analysis
+          Rails.logger.warn "data_points_contoller.REQUEUEing #{@data_point.id}"
+          Rails.logger.debug "data_points_controller.id: #{@data_point.id}"
+          Rails.logger.debug "data_points_controller.job_id: #{@data_point.job_id}"
+
+          Resque::Job.destroy(:requeue, 'ResqueJobs::RunSimulateDataPoint', @data_point.job_id)
+          Resque::Job.destroy(:simulations, 'ResqueJobs::RunSimulateDataPoint', @data_point.job_id)
+          enqueue_without_hooks(:requeued, ResqueJobs::RunSimulateDataPoint, @data_point.job_id)
+          @data_point.set_queued_state
+
+          respond_to do |format|
+            format.html { redirect_to analysis_path(analysis_id), notice: 'DataPoint was successfully requeued.' }
+            format.json { head :no_content }
+          end
+        end
+
+        def requeue_started
+          @analysis = Analysis.find(params[:id])
+          Rails.logger.warn "Requeueing all NOT completed normal simulations for analysis #{@analysis.id}"
+          data_points_to_requeue = @analysis.data_points.where.not(status_message: 'completed normal')
+
+          data_points_to_requeue.each do |dp|
+            Rails.logger.warn "Requeueing DataPoint #{dp.id}"
+            enqueue_without_hooks(:requeued, ResqueJobs::RunSimulateDataPoint, dp.job_id)
+            dp.set_queued_state
+          end
+
+          respond_to do |format|
+            format.html { redirect_to analysis_path(@analysis), notice: 'Simulations were successfully requeued.' }
+            format.json { head :no_content }
+          end
+        end
+      end
+    end
+
+    Rails.application.config.to_prepare do
+      unless AdminController < OpenStudioResqueRequeueFix::AdminControllerPatch
+        AdminController.prepend(OpenStudioResqueRequeueFix::AdminControllerPatch)
+      end
+
+      unless DataPointsController < OpenStudioResqueRequeueFix::DataPointsControllerPatch
+        DataPointsController.prepend(OpenStudioResqueRequeueFix::DataPointsControllerPatch)
+      end
+    end
+{{- end }}

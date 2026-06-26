@@ -3,6 +3,11 @@
 global:
   provider:
     name: "openstack"
+  nodeGroups:
+    labelKey: "nodegroup"
+    web: "web-group"
+    worker: "worker-group"
+    affinityMode: "preferred"
 
 nfs-server-provisioner:
   enabled: false
@@ -14,6 +19,11 @@ nfs-server-provisioner:
     mountOptions:
       - vers=4
       - sync
+  tolerations:
+    - key: "nodegroup"
+      operator: "Equal"
+      value: "web-group"
+      effect: "NoSchedule"
 
 db:
   persistence:

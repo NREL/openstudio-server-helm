@@ -428,6 +428,18 @@ helm uninstall openstudio-server -n openstudio-server
 
 The command removes all the Kubernetes components associated with the chart and deletes the release _including_ persistent volumes. See more about persistent volumes below.
 
+For a **manual full reset to a fresh start** (remove old data then reinstall), use:
+
+```bash
+PROVIDER=openstack ./scripts/reset-fresh-start.sh --yes
+```
+
+This script:
+- Uninstalls the release
+- Deletes data PVCs (`db`, `redis`, `nfs-pvc`, `nfs-pvc-data`)
+- Attempts best-effort cleanup of matching PVs when reclaim policy is `Retain`
+- Reinstalls with `scripts/install.sh` (pass `--no-reinstall` to skip)
+
 ## Upgrade Notes
 
 ### PVC size immutability

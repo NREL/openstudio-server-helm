@@ -22,6 +22,9 @@ spec:
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
+      {{- include "openstudio.tolerationsForRole" (dict "root" . "role" "web") | nindent 6 }}
+      nodeSelector:
+        {{ include "openstudio.nodeGroupLabelKey" . }}: {{ include "openstudio.webNodeGroupValue" . }}
       {{- if eq (include "openstudio.workloadServiceAccountUse" .) "true" }}
       serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
       {{- end }}
@@ -31,7 +34,7 @@ spec:
       {{- end }}
       containers:
         - name: {{ default "mongo-db" .Values.db.container.name }}
-          image: {{ .Values.db.container.image }}
+          image: {{ include "openstudio.imageWithRegistry" (dict "root" . "image" .Values.db.container.image) }}
           imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) .Values.db.container.imagePullPolicy }}
           ports:
             - containerPort:  {{ default 27017 (get $dbContainerPorts "db_port") }}
@@ -57,4 +60,4 @@ spec:
         - name: db
           persistentVolumeClaim:
             claimName: {{ include "openstudio.dbName" . }}
-          
+

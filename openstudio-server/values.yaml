@@ -20,7 +20,7 @@ global:
   # affinityMode: required | preferred | disabled
   # webAffinityMode / workerAffinityMode can override affinityMode per role.
   # defaults by provider: openstack => preferred, others => required
-  nodeGroups:
+  nodeGroups: {}
     # labelKey: ""
     # web: ""
     # worker: ""
@@ -28,12 +28,11 @@ global:
     # webAffinityMode: ""
     # workerAffinityMode: ""
   # Optional pod-level image pull secrets applied to chart workloads.
-  # Use this for private registries when pull secrets should be attached directly to Pods.
-  imagePullSecrets:
-    - name: docker-hub-secret
+  # Leave empty for public Docker Hub images; set only when using a private registry.
+  imagePullSecrets: []
   images:
-    # Optional registry host (for example registry.example.org).
-    # When unset, image references keep existing docker-style names (for example nrel/openstudio-server:tag).
+    # Optional registry host[:port] (for example registry.example.org).
+    # Keep empty to use public registries.
     registry: ""
     # Optional repository prefix path between registry and org/repo
     # (for example "proxy-cache" -> registry.example.org/proxy-cache/nrel/openstudio-server:tag).
@@ -51,8 +50,7 @@ serviceAccount:
   create: true
   name: openstudio-workload
   annotations: {}
-  imagePullSecrets:
-    - name: docker-hub-secret
+  imagePullSecrets: []
 
 cluster:
   name: "openstudio-179d"
@@ -114,11 +112,11 @@ autoscaler:
   #       - .*worker-spot.*
   extraArgs:
     - "--scale-down-enabled=false"           # Skip scale-down during high-load periods
-    - "--scale-down-delay-after-add=10m"     # Wait 10 min after scale-up before scale-down
-    - "--max-node-provision-time=15m"        # Allow 15 min for node bootstrap
-    - "--max-total-unready-percentage=45"    # Allow 45% unready nodes during scaling
-    - "--ok-total-unready-count=20"          # Alternative: up to 20 unready nodes
-    - "--new-pod-scale-up-delay=2m"          # Wait 2 min before scaling for newly created pods
+    - "--scale-down-delay-after-add=30m"     # Avoid churn while large batches are still arriving
+    - "--max-node-provision-time=20m"        # Allow slower cloud boots without stalling scale-up logic
+    - "--max-total-unready-percentage=70"    # Tolerate high bootstrap concurrency
+    - "--ok-total-unready-count=60"          # Absolute unready allowance during burst scale
+    - "--new-pod-scale-up-delay=10s"         # React quickly to newly pending worker pods
 
 priorityClasses:
   enabled: true
@@ -152,13 +150,14 @@ nfs-server-provisioner:
     # Keep nfs_pvc.storage below this value to avoid NFS provisioning failures.
     # OpenStack preflight (required): ensure this + db.persistence.size +
     # redis.persistence.size + existing Cinder usage remains below your quota.
-    size: 200Gi
+    # Targeting ~5.3 TiB total Cinder allocation across DB/Redis/NFS backend.
+    # 5100Gi (this) + 192Gi (db) + 96Gi (redis) = 5388Gi total.
+    size: 5100Gi
     # Explicitly pin OpenStack backend class to avoid drift on upgrades.
     storageClass: "csi-cinder"
-  # 179D managed cluster uses an auth-gated DockerHub mirror path; this image is
-  # pulled from quay to avoid 401 Unauthorized on docker.io/erezsh2.
+  # Pull from the local zot mirror endpoint instead of Docker Hub.
   image:
-    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
+    repository: "erezsh2/nfs-provisioner"
     tag: "v2.3.0"
   storageClass:
     allowVolumeExpansion: true  # Enable expansion for future growth
@@ -167,23 +166,23 @@ nfs-server-provisioner:
 
 # Database - Enhanced for production
 db:
+  strategy:
+    maxSurge: 1
+    maxUnavailable: 0
   # Required when secrets.create=true.
   username: ""
   password: ""
   container:
-    image: "bitnami/mongodb:4.0"  # Changed from mongo:6.0.7 to bitnami/mongodb which is available on Quay
-    # Set to Always to ensure fresh pull (bitnami images should work through Quay mirror)
-    imagePullPolicy: "Always"
+    image: "library/mongo@sha256:a40f777b87a077a8a4801368aa17629e575413d6567872492135e26692499905"
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 0.5        # Reduced from 2 for resource-constrained cluster
-        memory: "1Gi"   # Reduced from 8Gi significantly
+        cpu: 4          # Large-template sizing for high job throughput
+        memory: "22Gi"  # Large-template sizing for larger queue/concurrency spikes
   persistence:
-    # Use NFS for simplicity and to avoid WaitForFirstConsumer circular dependency
-    # with CSI Cinder provisioner
-    storageClass: "nfs"
-    # NFS size can be smaller since it's shared; adjust based on DB growth needs
-    size: 50Gi
+    # Keep MongoDB on block storage. NFS is unsafe for WiredTiger in this cluster.
+    storageClass: "csi-cinder"
+    size: 192Gi
 
 load_balancer:
   # Keep provider defaults unless explicitly required.
@@ -197,7 +196,7 @@ nfs_pvc:
   storageClass: "nfs"
   # Frontend shared RWX claim consumed by web/rserve/background pods.
   # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
-  storage: "180Gi"
+  storage: "4700Gi"
 
 # Redis - Enhanced for production
 redis:
@@ -206,41 +205,35 @@ redis:
   # Optional explicit Redis URI. When set, templates use this value for REDIS_URL.
   # Use this if credentials include URI-reserved characters.
   url: ""
+  # Optional explicit node selector override for Redis pods.
+  nodeSelector: {}
+  config:
+    # Increase this when running very large worker/background fleets to avoid
+    # Redis::CommandError ERR max number of clients reached.
+    maxclients: 20000
+    tcpBacklog: 511
+    timeoutSeconds: 0
   container:
-    image: "bitnami/redis:6.0"  # Changed from redis:6.0.9 to bitnami/redis which is available on Quay
-    # Optional explicit pull policy override. If empty, uses provider-aware default
-    # (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: "Always"
+    image: "library/redis@sha256:94fb31b765189935ffd5f0503ce496bee4404499cbcfa7f8d67020bfbed2a345"
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 0.5        # Reduced from 1 for resource-constrained cluster
-        memory: "500Mi" # Reduced significantly
+        cpu: 3
+        memory: "4Gi"
   persistence:
-    # Use NFS to avoid WaitForFirstConsumer circular dependency with CSI Cinder
-    storageClass: "nfs"
-    # NFS size; adjust based on queue growth needs
-    size: 50Gi
-  # Node affinity to avoid nodes with Quay mirror (containerd config drift)
-  # Prefer nodes where other workloads successfully pull images
-  # Avoid node with Quay mirror configured (web-pw89w-rb9nn)
-  affinity:
-    nodeAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          preference:
-            matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: NotIn
-                values:
-                  - openstudio-179d-web-pw89w-rb9nn
+    # Keep Redis on block storage; reserve NFS for shared artifacts only.
+    storageClass: "csi-cinder"
+    size: 96Gi
 
 # RServe - Enhanced for production
 rserve:
   number_of_workers: "2"  # Increased from 1 for better R processing
+  # Optional explicit node selector override for Rserve pods.
+  nodeSelector: {}
   container:
     # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: "Always"
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 2          # Increased from 1 for better R performance
@@ -252,14 +245,18 @@ rserve_svc:
 # Web Background - Enhanced for production
 web_background:
   replicas: 2           # Increased from 1 for redundancy
+  # Number of Resque child workers per web-background pod (COUNT env).
+  workerCount: 6
+  # Optional explicit node selector override for web-background pods.
+  nodeSelector: {}
   container:
     # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: "Always"
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 0.5        # Increased from 0.25 for better background processing
-        memory: "1Gi"   # Increased from 512Mi
+        cpu: 2
+        memory: "4Gi"
     startup:
       maxRetries: 12
       retryDelaySeconds: 10
@@ -270,19 +267,25 @@ web:
   secret_key_value: ""
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
   passenger_memory_per_process: 250          # Keep existing optimized value
+  # Optional explicit node selector override for web pods.
+  nodeSelector: {}
   initContainer:
     # Optional override for init-wait-for-db image. Defaults to openstudio server image.
     image: ""
     # Optional override. If empty, uses provider-aware default (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: "Always"
+    imagePullPolicy: "IfNotPresent"
+  runtimeOverrides:
+    # Optional runtime monkey-patch initializer for requeue behavior.
+    # Keep disabled unless this override is explicitly required.
+    enabled: false
   container:
     # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: "Always"
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 2          # Increased from 1 for better web performance
-        memory: "8Gi"   # Increased from 2Gi for production load
+        cpu: 6
+        memory: "50Gi"
 
 # Web HPA - Configured for production scaling
 # web_hpa:
@@ -307,10 +310,24 @@ web_hpa:
 # Worker - Enhanced for production
 worker:
   queues: "simulations,requeued"
+  # Optional explicit node selector override for worker pods.
+  nodeSelector: {}
+  # Optional worker pod topology spread controls.
+  # Enable to reduce concentration on a single node during scale ramps.
+  topologySpread:
+    enabled: false
+    maxSkew: 1
+    topologyKey: "kubernetes.io/hostname"
+    whenUnsatisfiable: "ScheduleAnyway"
+    # Optional: minimum number of eligible domains required for spreading.
+    minDomains: null
+    # Optional policies for honoring node affinity and taints during spread.
+    nodeAffinityPolicy: "Honor"
+    nodeTaintsPolicy: "Ignore"
   container:
     # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
-    imagePullPolicy: "Always"
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 600m
@@ -327,38 +344,35 @@ worker:
 
 # Worker HPA - Optimized for production workloads with aggressive scale-up
 worker_hpa:
-  minReplicas: 2        # Keep >1 to reduce throughput collapse from a single stuck worker
-  # Ceiling for burst scaling; effective scale still depends on schedulable cluster capacity.
-  maxReplicas: 1443
-  targetCPUUtilizationPercentage: 60  # Slightly higher for stability
-  stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
-  # Scale-up behavior: 32 pods + 200% every 15s (conservative 4 pods → aggressive)
-  # This enables reaching 400+ pods in ~3-4 minutes vs. 10+ minutes previously.
+  minReplicas: 2
+  maxReplicas: 7900
+  targetCPUUtilizationPercentage: 50
+  stabilizationWindowSeconds: 600
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 10
+      selectPolicy: Max
+      # Default remains aggressive for backward compatibility.
+      policies:
+        - type: Pods
+          value: 32
+          periodSeconds: 15
+        - type: Percent
+          value: 200
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
 
 # Worker autoscaling mode:
 # - hpa: Kubernetes HPA on CPU only (default)
 # - keda-hybrid: KEDA ScaledObject using queue depth + CPU
 worker_autoscaling:
-  mode: "keda-hybrid"
-  keda:
-    # Faster queue polling reduces time-to-first-scale and improves burst reaction.
-    pollingIntervalSeconds: 5
-    cooldownPeriodSeconds: 300
-    redisAddress: ""              # Empty => "<redis-service>:6379"
-    queueNames:
-      - simulations
-      - requeued
-    # Faster burst scale-out: target fewer queue items per worker so KEDA requests
-    # higher replica counts earlier while backlog is growing.
-    queueLengthPerWorker: 10       # Target queue items per worker replica
-    activationQueueLength: 1      # Queue depth before scaler activates
-    enableCpuTrigger: true
-    advanced:
-      restoreToOriginalReplicaCount: false
-    # Optional fallback if scaler metrics fail repeatedly
-    # fallback:
-    #   failureThreshold: 3
-    #   replicas: 2
+  mode: "hpa"
 
 hooks:
   preDeleteCleanup:
@@ -375,13 +389,54 @@ prepull:
   # Enable temporarily, wait until all prepull pods are Running, then disable if desired.
   enabled: false
   # Optional role affinity for prepull DaemonSet: "", "web", or "worker".
-  role: "worker"
+  # Leave empty so the warmup pod runs on every node.
+  role: ""
   # Optional explicit pull policy override. If empty, uses provider-aware default
   # (openstack=IfNotPresent, others=Always).
-  imagePullPolicy: "Always"
-  # Optional image override for the prepull DaemonSet primary container.
-  image: ""
+  imagePullPolicy: "IfNotPresent"
+  # Tiny bootstrap image used by the warmup DaemonSet itself.
+  # The pod then pre-pulls the target workload images from the node host runtime.
+  utilityImage: "registry.k8s.io/e2e-test-images/busybox:1.29-2"
+  utilityImagePullPolicy: "IfNotPresent"
+  # Spread node warm-up pulls across time to avoid a registry stampede.
+  spreadSeconds: 300
+  # Warm mode:
+  # - once: perform one pull cycle, then hold pod in Running state.
+  # - continuous: run pull cycles continuously with intervalSeconds pauses.
+  warmMode: "once"
+  # Pull cycle interval used only when warmMode=continuous.
+  intervalSeconds: 1800
+  # If true, pod exits non-zero when any pull in a cycle fails.
+  # This makes failures obvious via CrashLoopBackOff/NotReady state.
+  failOnAnyPullError: false
   includeRserve: false
   includeWebInit: false
   # Optional additional images to warm on each node (for example sidecars or infra tools)
   additionalImages: []
+  # Optional explicit node selector override for prepull pods.
+  nodeSelector: {}
+
+hostAliases:
+  # Optional pod-level /etc/hosts fallbacks for registry hostnames.
+  # Useful when node-level host patching is partially healthy or DNS is flaky.
+  enabled: false
+  entries: []
+  # - ip: "10.60.127.127"
+  #   hostnames:
+  #     - "pulp-dev.hpc.nlr.gov"
+  #     - "pulp-dev.hpc.nrel.gov"
+
+registryHostsPatch:
+  # Optional node-level /etc/hosts patch for private registry DNS workarounds.
+  # Keep disabled by default; enable only for environments that require it.
+  enabled: false
+  hostname: "registry.example.org"
+  additionalHostnames: []
+  address: "10.0.0.10"
+  # Keep this image on a registry that is reachable without private DNS overrides.
+  initImage: "registry.k8s.io/e2e-test-images/busybox:1.29-2"
+  initImagePullPolicy: "IfNotPresent"
+  pauseImage: "registry.k8s.io/pause:3.10.1"
+  pauseImagePullPolicy: "IfNotPresent"
+  # Optional explicit node selector for the patch DaemonSet.
+  nodeSelector: {}

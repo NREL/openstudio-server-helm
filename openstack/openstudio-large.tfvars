@@ -12,7 +12,10 @@ web_flavor = "CE.2XMedium" # 32 vCPUs, 154GB RAM (enterprise flavor)
 
 # Worker node group - for computation
 worker_count  = 1
+# Keep a broadly available baseline flavor here for portability.
 worker_flavor = "CE.XLarge" # 32 vCPUs, 300GB RAM (compute enterprise)
+# Optional site-specific high-density flavor:
+# worker_flavor = "CM.192Core.256G" # 192 vCPUs, 256GB RAM (request from OpenStack admin)
 
 # Storage configuration
 volume_size = 550 # GB for web nodes (matches EKS config)

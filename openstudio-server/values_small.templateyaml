@@ -10,6 +10,7 @@ global:
     # that still set provider.name instead of global.provider.name.
     allowLegacyName: false
   images:
+    registry: ""
     org: "nrel"
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
@@ -61,10 +62,9 @@ nfs-server-provisioner:
     # OpenStack preflight (required): ensure this + db.persistence.size +
     # redis.persistence.size + existing Cinder usage remains below your quota.
     size: 550Gi
-  # Some managed OpenStack clusters mirror docker.io via auth-gated paths.
-  # Use the Quay-hosted image to avoid docker.io mirror 401 pull failures.
+  # Pull from the local zot mirror endpoint instead of Docker Hub.
   image:
-    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
+    repository: "erezsh2/nfs-provisioner"
     tag: "v2.3.0"
   storageClass:
     allowVolumeExpansion: false
@@ -75,7 +75,8 @@ db:
   username: ""
   password: ""
   container:
-    image: "mongo:6.0.7"
+    image: "library/mongo@sha256:a40f777b87a077a8a4801368aa17629e575413d6567872492135e26692499905"
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 1
@@ -96,7 +97,8 @@ redis:
   # Use this when credentials include URI-reserved characters.
   url: ""
   container:
-    image: "redis:6.0.9"
+    image: "library/redis@sha256:94fb31b765189935ffd5f0503ce496bee4404499cbcfa7f8d67020bfbed2a345"
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 0.25
@@ -107,6 +109,7 @@ redis:
 rserve:
   number_of_workers: "1"
   container:
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 1
@@ -118,6 +121,7 @@ rserve_svc:
 web_background:
   replicas: 1
   container:
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 0.25
@@ -132,6 +136,7 @@ web:
   # This value is typically between 150 and 400, find this by ssh into web pod and doing `passenger-status`
   passenger_memory_per_process: 250
   container:
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 1
@@ -151,6 +156,7 @@ web_svc:
 worker:
   queues: "simulations,requeued"
   container:
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 700m

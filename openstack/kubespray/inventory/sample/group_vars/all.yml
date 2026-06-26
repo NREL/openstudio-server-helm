@@ -18,7 +18,7 @@ container_manager: containerd
 # Use wrapper script if corporate firewall is detected
 use_corporate_firewall_wrapper: "{{ lookup('env', 'CORPORATE_FIREWALL_DETECTED') | default('false') | bool }}"
 
-# Download configuration - adjusted for corporate environments  
+# Download configuration - adjusted for corporate environments
 download_run_once: true
 download_localhost: false
 download_cache_dir: /tmp/kubespray_cache
@@ -67,6 +67,11 @@ kube_apiserver_enable_admission_plugins:
   - PodSecurityPolicy
 
 # Kubelet configuration
+# kubelet_max_pods: raised from the Kubernetes default of 110 to support high pod density
+# on large-core worker nodes. A 192-vCPU worker node running OpenStudio simulation pods
+# (600m CPU / 700Mi RAM each) can fit ~250 pods before hitting RAM limits at 256Gi RAM.
+# pods_per_core=10 yields 1920 theoretical max on 192-vCPU nodes; max_pods=250 is the
+# binding cap and aligns with the RAM capacity of the recommended CM.192Core.256G flavor.
 kubelet_max_pods: 250
 kubelet_pods_per_core: 10
 
@@ -95,7 +100,7 @@ containerd_registries:
   "docker.io":
     - "https://registry-1.docker.io"
   "quay.io":
-    - "https://quay.io"  
+    - "https://quay.io"
   "registry.k8s.io":
     - "https://registry.k8s.io"
   "ghcr.io":

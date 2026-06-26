@@ -139,7 +139,7 @@ get_redis_pod() {
 }
 
 get_web_pod() {
-  get_single_pod_by_label "app=web,release=${RELEASE}"
+  get_single_running_pod_by_label "app=web,release=${RELEASE}"
 }
 
 get_worker_hpa_name() {

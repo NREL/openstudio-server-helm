@@ -2,6 +2,14 @@
 {{- $root := . -}}
 {{- $workerAutoscaling := default (dict) .Values.worker_autoscaling -}}
 {{- $keda := default (dict) (get $workerAutoscaling "keda") -}}
+{{- $workerHpa := default (dict) .Values.worker_hpa -}}
+{{- $behavior := default (dict) (get $workerHpa "behavior") -}}
+{{- $scaleUp := default (dict) (get $behavior "scaleUp") -}}
+{{- $scaleDown := default (dict) (get $behavior "scaleDown") -}}
+{{- $defaultScaleUpPolicies := list (dict "type" "Pods" "value" 32 "periodSeconds" 15) (dict "type" "Percent" "value" 200 "periodSeconds" 15) -}}
+{{- $defaultScaleDownPolicies := list (dict "type" "Percent" "value" 25 "periodSeconds" 60) -}}
+{{- $scaleUpPolicies := default $defaultScaleUpPolicies (get $scaleUp "policies") -}}
+{{- $scaleDownPolicies := default $defaultScaleDownPolicies (get $scaleDown "policies") -}}
 {{- $enableCpuTrigger := true -}}
 {{- if hasKey $keda "enableCpuTrigger" -}}
 {{- $enableCpuTrigger = (get $keda "enableCpuTrigger") -}}
@@ -38,21 +46,15 @@ spec:
       name: {{ include "openstudio.workerHpaName" . }}
       behavior:
         scaleUp:
-          stabilizationWindowSeconds: 10
+          stabilizationWindowSeconds: {{ default 10 (get $scaleUp "stabilizationWindowSeconds") }}
           policies:
-          - type: Pods
-            value: 32
-            periodSeconds: 15
-          - type: Percent
-            value: 200
-            periodSeconds: 15
-          selectPolicy: Max
+{{ toYaml $scaleUpPolicies | nindent 10 }}
+          selectPolicy: {{ default "Max" (get $scaleUp "selectPolicy") }}
         scaleDown:
-          stabilizationWindowSeconds: {{ .Values.worker_hpa.stabilizationWindowSeconds }}
+          stabilizationWindowSeconds: {{ default .Values.worker_hpa.stabilizationWindowSeconds (get $scaleDown "stabilizationWindowSeconds") }}
           policies:
-          - type: Percent
-            value: 25
-            periodSeconds: 60
+{{ toYaml $scaleDownPolicies | nindent 10 }}
+          selectPolicy: {{ default "Max" (get $scaleDown "selectPolicy") }}
   {{- $fallback := default (dict) (get $keda "fallback") }}
   {{- if and (hasKey $fallback "failureThreshold") (hasKey $fallback "replicas") }}
   fallback:

@@ -78,9 +78,9 @@ variable "worker_count" {
 }
 
 variable "worker_flavor" {
-  description = "The OpenStack flavor for worker nodes (should be compute-optimized for simulations)."
+  description = "The OpenStack flavor for worker nodes (compute-optimized is recommended for simulation throughput). Override this in tfvars for site-specific optimized flavors."
   type        = string
-  default     = "CM.XLarge" # 64 vCPUs, 128GB RAM, compute-optimized
+  default     = "CE.XLarge" # 32 vCPUs, 300GB RAM (portable baseline)
 }
 
 variable "image_name" {

@@ -15,30 +15,34 @@ write_files:
       #!/bin/bash
       # Corporate Firewall Detection Script
       set -euo pipefail
-      
+
       LOGFILE="/var/log/corporate-firewall-detection.log"
-      
+
       log() {
           echo "[$(date)] $*" | tee -a "$LOGFILE"
       }
-      
+
+      # Central local registry endpoint for all mirror + pre-pull references.
+      LOCAL_REGISTRY="${LOCAL_REGISTRY:-172.29.166.222:5000}"
+      LOCAL_REGISTRY_URL="http://${LOCAL_REGISTRY}"
+
       log "Starting corporate firewall detection..."
-      
+
       # Test registry access by checking certificates
       test_registry_access() {
           local registry="$1"
           local expected_cn="$2"
-          
+
           log "Testing access to $registry..."
-          
+
           # Get the actual certificate subject
           actual_cert=$(echo | timeout 10 openssl s_client -connect "$registry:443" -servername "$registry" 2>/dev/null | openssl x509 -noout -subject 2>/dev/null || echo "FAILED")
-          
+
           if [[ "$actual_cert" == "FAILED" ]]; then
               log "ERROR: Cannot connect to $registry"
               return 1
           fi
-          
+
           # Check if certificate matches expected
           if [[ "$actual_cert" =~ "$expected_cn" ]]; then
               log "SUCCESS: $registry certificate is valid"
@@ -48,40 +52,45 @@ write_files:
               return 1
           fi
       }
-      
+
       # Detect corporate firewall by testing key registries
       CORPORATE_FIREWALL_DETECTED=false
-      
+
       if ! test_registry_access "registry-1.docker.io" "registry-1.docker.io"; then
           CORPORATE_FIREWALL_DETECTED=true
       fi
-      
+
       if ! test_registry_access "ghcr.io" "ghcr.io"; then
           CORPORATE_FIREWALL_DETECTED=true
       fi
-      
+
       # Test if registry.k8s.io is accessible (our fallback)
       REGISTRY_K8S_ACCESSIBLE=false
       if test_registry_access "registry.k8s.io" "registry.k8s.io"; then
           REGISTRY_K8S_ACCESSIBLE=true
       fi
-      
+
       # Write detection results
       cat > /etc/corporate-firewall-status << EOF
       CORPORATE_FIREWALL_DETECTED=$CORPORATE_FIREWALL_DETECTED
       REGISTRY_K8S_ACCESSIBLE=$REGISTRY_K8S_ACCESSIBLE
       DETECTION_TIMESTAMP=$(date -Iseconds)
       EOF
-      
+
       log "Corporate firewall detection complete:"
       log "  CORPORATE_FIREWALL_DETECTED=$CORPORATE_FIREWALL_DETECTED"
       log "  REGISTRY_K8S_ACCESSIBLE=$REGISTRY_K8S_ACCESSIBLE"
-      
-      # Apply workarounds if corporate firewall detected
+
+      # Always apply the local-registry bootstrap so OpenStudio images can pull
+      # on every node. Corporate firewall detection still records whether the
+      # node needs the extra proxy/TLS handling path, but the registry cache
+      # setup is required regardless of the firewall state.
       if [[ "$CORPORATE_FIREWALL_DETECTED" == "true" ]]; then
           log "Applying corporate firewall workarounds..."
-          /usr/local/bin/setup-corporate-firewall-workarounds.sh
+      else
+          log "Applying local registry bootstrap on a non-firewall node..."
       fi
+      /usr/local/bin/setup-corporate-firewall-workarounds.sh
 
   - path: /usr/local/bin/setup-corporate-firewall-workarounds.sh
     permissions: '0755'
@@ -89,23 +98,27 @@ write_files:
       #!/bin/bash
       # Corporate Firewall Workarounds Setup
       set -euo pipefail
-      
+
       LOGFILE="/var/log/corporate-firewall-workarounds.log"
-      
+
       log() {
           echo "[$(date)] $*" | tee -a "$LOGFILE"
       }
-      
+
+      # Keep this in sync with detect-corporate-firewall.sh.
+      LOCAL_REGISTRY="${LOCAL_REGISTRY:-172.29.166.222:5000}"
+      LOCAL_REGISTRY_URL="http://${LOCAL_REGISTRY}"
+
       log "Setting up corporate firewall workarounds..."
-      
-      # 1. Configure containerd with TLS skip verification
+
+      # 1. Configure containerd with local registry mirror + TLS controls
       setup_containerd_config() {
           log "Configuring containerd for corporate firewall..."
-          
+
           mkdir -p /etc/containerd
-          cat > /etc/containerd/config.toml << 'EOF'
+          cat > /etc/containerd/config.toml << EOF
       version = 2
-      
+
       [plugins]
         [plugins."io.containerd.grpc.v1.cri"]
           sandbox_image = "registry.k8s.io/pause:3.9"
@@ -124,16 +137,15 @@ write_files:
                   systemdCgroup = true
                   binaryName = "/usr/local/bin/runc"
           [plugins."io.containerd.grpc.v1.cri".registry]
-            # REMOVED: Registry mirrors (docker.io → quay.io redirects)
-            # Using direct registry access instead to avoid quay.io auth issues
-            # Registry mirrors section intentionally deleted:
-            # - [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
-            # - [plugins."io.containerd.grpc.v1.cri".registry.mirrors."quay.io"]
-            # - [plugins."io.containerd.grpc.v1.cri".registry.mirrors."ghcr.io"]
-            # - [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry.k8s.io"]
-            #
-            # TLS config: direct access only, no mirror interception
+            # Route Docker Hub pulls through local zot cache to avoid 429s.
+            [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+                endpoint = ["${LOCAL_REGISTRY_URL}"]
+              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry-1.docker.io"]
+                endpoint = ["${LOCAL_REGISTRY_URL}"]
             [plugins."io.containerd.grpc.v1.cri".registry.configs]
+              [plugins."io.containerd.grpc.v1.cri".registry.configs."${LOCAL_REGISTRY}".tls]
+                insecure_skip_verify = true
               [plugins."io.containerd.grpc.v1.cri".registry.configs."registry-1.docker.io".tls]
                 insecure_skip_verify = true
               [plugins."io.containerd.grpc.v1.cri".registry.configs."docker.io".tls]
@@ -145,40 +157,50 @@ write_files:
               [plugins."io.containerd.grpc.v1.cri".registry.configs."quay.io".tls]
                 insecure_skip_verify = true
       EOF
-           
-         log "Containerd configuration updated for corporate firewall"
+
+         # Also define explicit hosts.toml for direct pulls from local zot endpoint.
+         mkdir -p "/etc/containerd/certs.d/${LOCAL_REGISTRY}"
+         cat > "/etc/containerd/certs.d/${LOCAL_REGISTRY}/hosts.toml" << EOF
+      server = "${LOCAL_REGISTRY_URL}"
+      [host."${LOCAL_REGISTRY_URL}"]
+        capabilities = ["pull", "resolve"]
+        skip_verify = true
+      EOF
+         log "Containerd configuration updated for corporate firewall and local zot cache"
       }
-      
+
       # Pre-cache container images in containerd before kubelet starts
       # This ensures pods schedule immediately without ImagePullBackOff
       prepull_container_images() {
          log "Pre-pulling container images into local cache..."
-          
+
          # Start containerd if not already running
          systemctl is-active --quiet containerd || systemctl start containerd
          sleep 2
-          
+
          # List of critical images for OpenStudio Server
          IMAGES=(
              # OpenStudio application
-             "nrel/openstudio-server:3.10.0"
-             "nrel/openstudio-rserve:3.10.0"
-             "erezsh2/nfs-provisioner:v2.3.0"
-             "mongo:6.0.7"
-             "redis:6.0.9"
-              
+             "${LOCAL_REGISTRY}/nrel/openstudio-server:3.10.0"
+             "${LOCAL_REGISTRY}/nrel/openstudio-rserve:3.10.0"
+             "${LOCAL_REGISTRY}/erezsh2/nfs-provisioner:v2.3.0"
+             "${LOCAL_REGISTRY}/library/mongo:6.0.7"
+             "${LOCAL_REGISTRY}/library/redis:6.0.9"
+
              # Kubernetes system
              "registry.k8s.io/pause:3.10.1"
              "registry.k8s.io/coredns/coredns:v1.12.0"
              "registry.k8s.io/kube-proxy:v1.33.1"
-              
+
              # Networking
-             "docker.io/calico/node:v3.29.3"
-             "docker.io/calico/kube-controllers:v3.29.3"
-             "docker.io/calico/typha:v3.29.3"
-             "busybox:1.36"
+             "${LOCAL_REGISTRY}/calico/node:v3.29.3"
+             "${LOCAL_REGISTRY}/calico/kube-controllers:v3.29.3"
+             "${LOCAL_REGISTRY}/calico/typha:v3.29.3"
+             "${LOCAL_REGISTRY}/calico/csi:v3.29.3"
+             "${LOCAL_REGISTRY}/sig-storage/csi-node-driver-registrar:v2.13.0"
+             "${LOCAL_REGISTRY}/library/busybox:1.36"
          )
-          
+
          # Pull images in background (non-blocking)
          for image in "${IMAGES[@]}"; do
              (
@@ -190,18 +212,34 @@ write_files:
                  fi
              ) &
          done
-          
+
          # Wait for all pulls to complete (max 5 minutes)
          log "Waiting for image pulls to complete (timeout: 5 min)..."
          wait
-          
+
          log "Image pre-pull complete"
       }
-      
+
+      # Pre-create Calico's on-host state directory so kubelet/CNI don't race
+      # the first calico-node startup on freshly provisioned nodes.
+      setup_calico_host_state() {
+         log "Preparing Calico host state directory..."
+
+         mkdir -p /var/lib/calico
+         if [[ ! -f /var/lib/calico/nodename ]]; then
+             hostname > /var/lib/calico/nodename
+         fi
+         chown -R root:root /var/lib/calico
+         chmod 755 /var/lib/calico
+         chmod 644 /var/lib/calico/nodename
+
+         log "Calico host state prepared"
+      }
+
       # 2. Pre-create CNI bridge configuration
       # setup_bridge_cni() {
       #     log "Setting up fallback bridge CNI configuration..."
-      #     
+      #
       #     mkdir -p /etc/cni/net.d
       #     cat > /etc/cni/net.d/10-bridge.conf << 'EOF'
       # {
@@ -220,14 +258,14 @@ write_files:
       #   }
       # }
       # EOF
-      #     
+      #
       #     log "Bridge CNI configuration created"
       # }
-      
+
       # 3. Create kubeadm configuration for external etcd with proper certificates
       setup_kubeadm_config() {
           log "Creating kubeadm configuration for external etcd..."
-          
+
           mkdir -p /etc/kubernetes
           cat > /etc/kubernetes/kubeadm-config.yaml << 'EOF'
       apiVersion: kubeadm.k8s.io/v1beta3
@@ -251,81 +289,82 @@ write_files:
         advertiseAddress: MASTER_IP
         bindPort: 6443
       EOF
-          
+
           log "Kubeadm configuration template created"
       }
-      
+
       # 4. Create etcd certificate setup script
       setup_etcd_certificates() {
           log "Creating etcd certificate setup script..."
-          
+
           cat > /usr/local/bin/setup-etcd-certificates.sh << 'EOF'
       #!/bin/bash
       # Setup etcd client certificates for kube-apiserver
       set -euo pipefail
-      
+
       if [[ -d /etc/ssl/etcd/ssl ]]; then
           echo "Setting up etcd client certificates..."
           mkdir -p /etc/kubernetes/pki
-          
+
           # Copy etcd CA and client certificates
           cp /etc/ssl/etcd/ssl/ca.pem /etc/kubernetes/pki/etcd-ca.crt
           cp /etc/ssl/etcd/ssl/node-$(hostname).pem /etc/kubernetes/pki/apiserver-etcd-client.crt
           cp /etc/ssl/etcd/ssl/node-$(hostname)-key.pem /etc/kubernetes/pki/apiserver-etcd-client.key
-          
+
           # Fix permissions
           chmod 600 /etc/kubernetes/pki/apiserver-etcd-client.key
           chmod 644 /etc/kubernetes/pki/apiserver-etcd-client.crt
           chmod 644 /etc/kubernetes/pki/etcd-ca.crt
-          
+
           echo "etcd certificates configured successfully"
       else
           echo "etcd certificates not found, skipping..."
       fi
       EOF
-          
+
           chmod +x /usr/local/bin/setup-etcd-certificates.sh
           log "etcd certificate setup script created"
       }
-      
+
       # 5. Create corporate firewall kubespray script
       setup_kubespray_workarounds() {
           log "Creating kubespray corporate firewall wrapper..."
-          
+
           cat > /usr/local/bin/kubespray-corporate-firewall.sh << 'EOF'
       #!/bin/bash
       # Kubespray with Corporate Firewall Workarounds
       set -euo pipefail
-      
+
       echo "Running kubespray with corporate firewall workarounds..."
-      
+
       # Source firewall detection results
       if [[ -f /etc/corporate-firewall-status ]]; then
           source /etc/corporate-firewall-status
           echo "Corporate firewall detected: $CORPORATE_FIREWALL_DETECTED"
           echo "registry.k8s.io accessible: $REGISTRY_K8S_ACCESSIBLE"
       fi
-      
+
       # Set environment variables for corporate firewall
       export DOWNLOAD_VALIDATE_CERTS=false
       export DOWNLOAD_RETRIES=10
       export DOWNLOAD_TIMEOUT=900
-      
+
       # Run the actual kubespray command with additional flags
       exec "$@"
       EOF
-          
+
           chmod +x /usr/local/bin/kubespray-corporate-firewall.sh
           log "Kubespray corporate firewall wrapper created"
       }
-      
+
       # Execute all setup functions
       setup_containerd_config
       prepull_container_images
+      setup_calico_host_state
       setup_kubeadm_config
       setup_etcd_certificates
       setup_kubespray_workarounds
-      
+
       log "Corporate firewall workarounds setup complete"
 
   - path: /etc/systemd/system/corporate-firewall-detection.service
@@ -334,14 +373,14 @@ write_files:
       Description=Corporate Firewall Detection and Workaround Setup
       After=network-online.target
       Wants=network-online.target
-      
+
       [Service]
       Type=oneshot
       ExecStart=/usr/local/bin/detect-corporate-firewall.sh
       RemainAfterExit=yes
       StandardOutput=journal
       StandardError=journal
-      
+
       [Install]
       WantedBy=multi-user.target
 
@@ -364,7 +403,7 @@ runcmd:
   - systemctl daemon-reload
   - systemctl enable corporate-firewall-detection.service
   - systemctl start corporate-firewall-detection.service
-  
+
 # Configure SSH
 ssh_authorized_keys:
   - ${public_key}

@@ -1,0 +1,35 @@
+name: Chart Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.31.0
+
+      - name: Run chart lint/render dry-run matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./scripts/install-dry-run.sh
+          ./scripts/install-dry-run.sh

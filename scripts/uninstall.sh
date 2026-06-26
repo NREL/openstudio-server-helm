@@ -3,4 +3,4 @@
 
 kubectl delete deployment web web-background rserve
 sleep 5
-helm uninstall openstudio-server --debug
+helm uninstall openstudio-server -n openstudio-server --debug

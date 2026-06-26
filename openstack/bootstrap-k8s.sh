@@ -128,37 +128,65 @@ ensure_openstack_cloud_secret() {
     fi
 }
 
+# Reconcile kube-proxy bootstrap artifacts when Kubespray or addon ordering skips them.
+ensure_kube_proxy_bootstrap() {
+    print_status "Ensuring kube-proxy bootstrap artifacts exist"
+
+    if ! kubectl -n kube-system get serviceaccount kube-proxy >/dev/null 2>&1; then
+        kubectl -n kube-system create serviceaccount kube-proxy >/dev/null
+        print_warning "Created missing kube-proxy ServiceAccount"
+    fi
+
+    if ! kubectl get clusterrolebinding system:kube-proxy >/dev/null 2>&1; then
+        kubectl apply -f - >/dev/null <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:kube-proxy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:node-proxier
+subjects:
+  - kind: ServiceAccount
+    name: kube-proxy
+    namespace: kube-system
+EOF
+        print_warning "Created missing kube-proxy ClusterRoleBinding"
+    fi
+}
+
 # Check prerequisites
 check_prerequisites() {
     print_status "Checking prerequisites..."
-    
+
     if ! command -v tofu &> /dev/null; then
         print_error "OpenTofu (tofu) is not installed or not in PATH"
         exit 1
     fi
-    
+
     if ! command -v kubectl &> /dev/null; then
         print_error "kubectl is not installed or not in PATH"
         exit 1
     fi
-    
+
     if ! command -v ssh &> /dev/null; then
         print_error "ssh is not installed or not in PATH"
         exit 1
     fi
-    
+
     if [[ ! -f "main.tf" ]]; then
         print_error "main.tf not found. Please run this script from the openstack/ directory."
         exit 1
     fi
-    
+
     print_success "Prerequisites check passed"
 }
 
 # Get cluster information from Terraform
 get_cluster_info() {
     print_status "Retrieving cluster information from Terraform..."
-    
+
     # Use the tofu-with-env.sh script if available
     if [[ -f "./tofu-with-env.sh" ]]; then
         TOFU_CMD="./tofu-with-env.sh"
@@ -166,21 +194,21 @@ get_cluster_info() {
         TOFU_CMD="tofu"
         print_warning "tofu-with-env.sh not found, using tofu directly"
     fi
-    
+
     # Get cluster endpoints
     MASTER_FLOATING_IP=$(${TOFU_CMD} output -raw master_floating_ip 2>/dev/null | tail -n 1)
     MASTER_PRIVATE_IP=$(${TOFU_CMD} output -raw master_ip 2>/dev/null | tail -n 1)
-    
+
     if [[ -z "$MASTER_FLOATING_IP" ]]; then
         print_error "Could not retrieve master_floating_ip from Terraform output"
         exit 1
     fi
-    
+
     if [[ -z "$MASTER_PRIVATE_IP" ]]; then
         print_error "Could not retrieve master_ip from Terraform output"
         exit 1
     fi
-    
+
     print_success "Master floating IP: $MASTER_FLOATING_IP"
     print_success "Master private IP: $MASTER_PRIVATE_IP"
 }
@@ -189,25 +217,25 @@ get_cluster_info() {
 monitor_cluster_init() {
     print_status "Monitoring Kubernetes cluster initialization..."
     print_status "This may take 10-15 minutes for the complete process..."
-    
+
     local max_attempts=15  # 60 minutes max
     local attempt=1
-    
+
     while [[ $attempt -le $max_attempts ]]; do
         print_progress "Attempt $attempt/$max_attempts: Checking cluster status..."
-        
+
         # Check if we can SSH to master
         if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@$MASTER_FLOATING_IP "echo 'SSH connection successful'" &>/dev/null; then
             print_success "SSH connection to master node established"
-            
+
             # Check if master initialization is complete
             if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@$MASTER_FLOATING_IP "test -f /opt/master-initialized" &>/dev/null; then
                 print_success "Master node initialization complete"
-                
+
                 # Check if all nodes are ready
                 local nodes_ready=$(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@$MASTER_FLOATING_IP "kubectl get nodes --no-headers 2>/dev/null | wc -l" 2>/dev/null || echo "0")
                 local nodes_not_ready=$(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@$MASTER_FLOATING_IP "kubectl get nodes --no-headers 2>/dev/null | grep -v Ready | wc -l" 2>/dev/null || echo "1")
-                
+
                 if [[ "$nodes_ready" -ge 3 && "$nodes_not_ready" -eq 0 ]]; then
                     print_success "All nodes are Ready!"
                     return 0
@@ -220,11 +248,11 @@ monitor_cluster_init() {
         else
             print_progress "Waiting for master node to become accessible..."
         fi
-        
+
         sleep 30
         ((attempt++))
     done
-    
+
     print_error "Cluster initialization timed out after $max_attempts attempts"
     print_error "Check the cloud-init logs on the instances:"
     print_error "  ssh ubuntu@$MASTER_FLOATING_IP 'sudo tail -f /var/log/cloud-init-output.log'"
@@ -234,36 +262,36 @@ monitor_cluster_init() {
 # Copy kubeconfig from master
 setup_local_kubectl() {
     print_status "Setting up local kubectl access..."
-    
+
     # Create backup of existing kubeconfig
     if [[ -f "$HOME/.kube/config" ]]; then
         BACKUP_PATH="$HOME/.kube/config.backup.$(date +%Y%m%d-%H%M%S)"
         print_status "Backing up existing kubeconfig to $BACKUP_PATH"
         cp "$HOME/.kube/config" "$BACKUP_PATH"
     fi
-    
+
     # Create .kube directory if it doesn't exist
     mkdir -p "$HOME/.kube"
-    
+
     # Copy kubeconfig from master
     print_status "Copying kubeconfig from master node..."
     scp -o StrictHostKeyChecking=no ubuntu@$MASTER_FLOATING_IP:/home/ubuntu/.kube/config "$HOME/.kube/config.new"
-    
+
     # Update the server endpoint to use floating IP
     sed -i.bak "s|server: https://$MASTER_PRIVATE_IP:6443|server: https://$MASTER_FLOATING_IP:6443|g" "$HOME/.kube/config.new"
-    
+
     # Move the updated config into place
     mv "$HOME/.kube/config.new" "$HOME/.kube/config"
-    
+
     configure_kubectl_tls
-    
+
     print_success "Local kubectl configured successfully"
 }
 
 # Test kubectl connectivity
 test_kubectl() {
     print_status "Testing kubectl connectivity..."
-    
+
     if kubectl cluster-info &>/dev/null; then
         print_success "kubectl is working!"
         kubectl get nodes
@@ -276,7 +304,7 @@ test_kubectl() {
 # Setup NFS storage for the cluster
 setup_nfs_storage() {
     print_status "Setting up NFS storage for the cluster..."
-    
+
     # First, setup NFS server on master node
     print_status "Configuring NFS server on master node..."
     ssh -o StrictHostKeyChecking=no ubuntu@$MASTER_FLOATING_IP '
@@ -290,19 +318,19 @@ setup_nfs_storage() {
         sudo systemctl restart nfs-server
         sudo exportfs -ra
     '
-    
+
     # Check if helm is available
     if ! command -v helm &> /dev/null; then
         print_error "Helm is required for NFS provisioner installation"
         return 1
     fi
-    
+
     print_status "Installing NFS subdir external provisioner..."
-    
+
     # Add the NFS provisioner Helm repository
     helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
     helm repo update
-    
+
     # Install the NFS provisioner with hostNetwork enabled to work around pod networking issues
     helm install nfs-subdir-external-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
         --set nfs.server=$MASTER_PRIVATE_IP \
@@ -310,14 +338,14 @@ setup_nfs_storage() {
         --set storageClass.defaultClass=true \
         --namespace kube-system \
         --wait --timeout=300s
-    
+
     # Patch the deployment to use hostNetwork (required due to pod network isolation in OpenStack)
     print_status "Applying hostNetwork patch for NFS provisioner..."
     kubectl patch deployment nfs-subdir-external-provisioner -n kube-system -p '{"spec":{"template":{"spec":{"hostNetwork":true}}}}'
-    
+
     # Wait for the provisioner to be ready
     kubectl rollout status deployment/nfs-subdir-external-provisioner -n kube-system --timeout=300s
-    
+
     print_success "NFS storage setup complete!"
     print_status "Default storage class 'nfs-client' is now available"
 }
@@ -325,7 +353,7 @@ setup_nfs_storage() {
 # Verify cluster readiness
 verify_cluster_readiness() {
     print_status "Verifying cluster readiness for OpenStudio Server..."
-    
+
     # Check nodes
     # Post-bootstrap networking healthcheck and quick remediation
     post_bootstrap_network_healthcheck() {
@@ -370,23 +398,23 @@ verify_cluster_readiness() {
     else
         print_warning "Cluster only has $nodes_count nodes, minimum 3 recommended"
     fi
-    
+
     # Check node labels
     local web_nodes=$(kubectl get nodes -l nodegroup=web --no-headers | wc -l)
     local worker_nodes=$(kubectl get nodes -l nodegroup=worker --no-headers | wc -l)
-    
+
     if [[ $web_nodes -gt 0 ]]; then
         print_success "Found $web_nodes web nodes with proper labels"
     else
         print_warning "No web nodes with nodegroup=web-group labels found"
     fi
-    
+
     if [[ $worker_nodes -gt 0 ]]; then
-        print_success "Found $worker_nodes worker nodes with proper labels" 
+        print_success "Found $worker_nodes worker nodes with proper labels"
     else
         print_warning "No worker nodes with nodegroup=worker-group labels found"
     fi
-    
+
     # Check storage classes
     local storage_classes=$(kubectl get storageclass --no-headers | wc -l)
     if [[ $storage_classes -gt 0 ]]; then
@@ -395,13 +423,13 @@ verify_cluster_readiness() {
     else
         print_warning "No storage classes found - you may need to configure Cinder CSI"
     fi
-    
+
     # Check system pods
     local system_pods_ready=$(kubectl get pods -n kube-system --no-headers | grep Running | wc -l)
     local system_pods_total=$(kubectl get pods -n kube-system --no-headers | wc -l)
-    
+
     print_status "System pods: $system_pods_ready/$system_pods_total running"
-    
+
     if [[ $system_pods_ready -eq $system_pods_total ]]; then
         print_success "All system pods are running"
     else
@@ -416,36 +444,37 @@ main() {
     echo "Kubernetes Bootstrap Script"
     echo "=================================="
     echo
-    
+
     check_prerequisites
     get_cluster_info
-    
+
     echo
     print_status "Starting cluster initialization monitoring..."
-    
+
     if monitor_cluster_init; then
         echo
         print_success "Cluster initialization complete!"
-        
+
         setup_local_kubectl
         test_kubectl
 
         # Ensure CCM has cloud-config secret (required for Octavia LB)
         ensure_openstack_cloud_secret || true
-        
+        ensure_kube_proxy_bootstrap || true
+
         echo
         setup_nfs_storage
 
         ensure_default_storageclass "nfs-client"
         label_and_taint_nodegroups
-        
-    echo  
+
+    echo
         verify_cluster_readiness
 
     # Networking healthcheck (best-effort)
     echo
     post_bootstrap_network_healthcheck || true
-        
+
         echo
         echo "=================================="
         print_success "Kubernetes cluster is ready!"

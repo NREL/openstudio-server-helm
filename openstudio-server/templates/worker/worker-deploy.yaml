@@ -10,8 +10,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 1
+      maxSurge: {{ default 1 (get (default (dict) .Values.worker.strategy) "maxSurge") }}
+      maxUnavailable: {{ default 0 (get (default (dict) .Values.worker.strategy) "maxUnavailable") }}
   template:
     metadata:
       labels:
@@ -19,15 +19,39 @@ spec:
         release: {{ .Release.Name }}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     {{ $redis := default (dict) .Values.redis }}
+    {{ $worker := default (dict) .Values.worker }}
     {{ $workerContainer := default (dict) .Values.worker.container }}
     {{ $workerStartup := default (dict) (get $workerContainer "startup") }}
     {{ $workerPreStop := default (dict) (get $workerContainer "preStop") }}
+    {{ $workerTopologySpread := default (dict) (get $worker "topologySpread") }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "worker") | nindent 6 }}
+      {{- include "openstudio.tolerationsForRole" (dict "root" . "role" "worker") | nindent 6 }}
       {{- if eq (include "openstudio.workloadServiceAccountUse" .) "true" }}
       serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
       {{- end }}
       {{- include "openstudio.podImagePullSecrets" . | nindent 6 }}
+      {{- include "openstudio.podNodeSelector" (dict "nodeSelector" .Values.worker.nodeSelector) | nindent 6 }}
+      {{- if (default false (get $workerTopologySpread "enabled")) }}
+      topologySpreadConstraints:
+        - maxSkew: {{ default 1 (get $workerTopologySpread "maxSkew") }}
+          topologyKey: {{ default "kubernetes.io/hostname" (get $workerTopologySpread "topologyKey") | quote }}
+          whenUnsatisfiable: {{ default "ScheduleAnyway" (get $workerTopologySpread "whenUnsatisfiable") }}
+          labelSelector:
+            matchLabels:
+              app: {{ default "worker" .Values.worker.label }}
+              release: {{ .Release.Name }}
+          {{- with (get $workerTopologySpread "minDomains") }}
+          minDomains: {{ . }}
+          {{- end }}
+          {{- with (get $workerTopologySpread "nodeAffinityPolicy") }}
+          nodeAffinityPolicy: {{ . }}
+          {{- end }}
+          {{- with (get $workerTopologySpread "nodeTaintsPolicy") }}
+          nodeTaintsPolicy: {{ . }}
+          {{- end }}
+      {{- end }}
+      {{- include "openstudio.podHostAliases" . | nindent 6 }}
       {{- if (default true (get $priorityClasses "enabled")) }}
       priorityClassName: {{ default "low-priority" (get $priorityClasses "lowName") }}
       {{- end }}

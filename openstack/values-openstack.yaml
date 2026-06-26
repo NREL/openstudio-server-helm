@@ -4,12 +4,22 @@
 global:
   provider:
     name: "openstack"
+  nodeGroups:
+    labelKey: "nodegroup"
+    web: "web-group"
+    worker: "worker-group"
+    affinityMode: "preferred"
 
 nfs-server-provisioner:
   storageClass:
     mountOptions:
       - vers=4
       - sync
+  tolerations:
+    - key: "nodegroup"
+      operator: "Equal"
+      value: "web-group"
+      effect: "NoSchedule"
 
 db:
   persistence:
@@ -18,3 +28,6 @@ db:
 redis:
   persistence:
     storageClass: "csi-cinder"
+
+worker_hpa:
+  maxReplicas: 1443

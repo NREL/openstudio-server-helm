@@ -15,6 +15,12 @@ spec:
   containers:
     - name: redis-ping
       image: redis:7-alpine
+      env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "openstudio.secretName" . }}
+              key: {{ include "openstudio.secretKeyRedisPassword" . }}
       command:
         - sh
         - -c
@@ -23,7 +29,7 @@ spec:
           REDIS_HOST="{{ include "openstudio.redisServiceName" . }}.{{ .Release.Namespace }}.svc.cluster.local"
           REDIS_PORT="{{ default 6379 (get ((get .Values "redis_svc") | default (dict)) "port") }}"
           echo "Testing Redis connectivity at ${REDIS_HOST}:${REDIS_PORT}..."
-          RESPONSE=$(redis-cli -h "${REDIS_HOST}" -p "${REDIS_PORT}" PING)
+          RESPONSE=$(redis-cli -a "${REDIS_PASSWORD}" --no-auth-warning -h "${REDIS_HOST}" -p "${REDIS_PORT}" PING)
           echo "Redis PING response: ${RESPONSE}"
           if [ "${RESPONSE}" = "PONG" ]; then
             echo "PASS: Redis is reachable and responding"

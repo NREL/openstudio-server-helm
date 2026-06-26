@@ -9,6 +9,7 @@ global:
     # that still set provider.name instead of global.provider.name.
     allowLegacyName: false
   images:
+    registry: ""
     org: "nrel"
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
@@ -61,10 +62,9 @@ nfs-server-provisioner:
     # OpenStack preflight (required): ensure this + db.persistence.size +
     # redis.persistence.size + existing Cinder usage remains below your quota.
     size: 1Ti  # Sized for no-pruning retention and high worker throughput
-  # Some managed OpenStack clusters mirror docker.io via auth-gated paths.
-  # Use the Quay-hosted image to avoid docker.io mirror 401 pull failures.
+  # Pull from the local zot mirror endpoint instead of Docker Hub.
   image:
-    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
+    repository: "erezsh2/nfs-provisioner"
     tag: "v2.3.0"
   storageClass:
     allowVolumeExpansion: true  # Enable expansion for future growth
@@ -77,7 +77,8 @@ db:
   username: ""
   password: ""
   container:
-    image: "mongo:6.0.7"
+    image: "library/mongo:6.0.7"
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 2          # Increased from 1 for better performance
@@ -102,7 +103,8 @@ redis:
   # Use this when credentials include URI-reserved characters.
   url: ""
   container:
-    image: "redis:6.0.9"
+    image: "library/redis:6.0.9"
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 0.5        # Increased from 0.25 for better queue performance
@@ -116,6 +118,7 @@ redis:
 rserve:
   number_of_workers: "2"  # Increased from 1 for better R processing
   container:
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 2          # Increased from 1 for better R performance
@@ -128,6 +131,7 @@ rserve_svc:
 web_background:
   replicas: 2           # Increased from 1 for redundancy
   container:
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 0.5        # Increased from 0.25 for better background processing
@@ -140,6 +144,7 @@ web:
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
   passenger_memory_per_process: 250          # Keep existing optimized value
   container:
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 2          # Increased from 1 for better web performance
@@ -159,6 +164,7 @@ web_svc:
 worker:
   queues: "simulations,requeued"
   container:
+    imagePullPolicy: "IfNotPresent"
     resources:
       requests:
         cpu: 1          # Increased from 700m for better performance
@@ -168,7 +174,7 @@ worker:
 # Worker HPA - Optimized for production workloads
 worker_hpa:
   minReplicas: 5        # Increased from 2 for baseline production capacity
-  maxReplicas: 50       # Increased from 20 for larger simulation batches
+  maxReplicas: 1443     # Increased from 20 for larger simulation batches
   targetCPUUtilizationPercentage: 60  # Slightly higher for stability
   stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
 

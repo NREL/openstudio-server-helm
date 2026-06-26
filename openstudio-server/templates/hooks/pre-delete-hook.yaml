@@ -2,7 +2,8 @@
 {{- if default true (get $preDeleteHook "enabled") }}
 {{- $cleanupName := printf "%s-nfs-client-cleanup" .Release.Name | trunc 63 | trimSuffix "-" -}}
 {{- $cleanupServiceAccount := printf "%s-sa" $cleanupName | trunc 63 | trimSuffix "-" -}}
-{{- $cleanupImage := default "bitnami/kubectl:1.31" (get $preDeleteHook "image") -}}
+{{- $cleanupImageRaw := default "bitnami/kubectl:1.31" (get $preDeleteHook "image") -}}
+{{- $cleanupImage := include "openstudio.imageWithRegistry" (dict "root" . "image" $cleanupImageRaw) -}}
 {{- $cleanupImagePullPolicy := default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $preDeleteHook "imagePullPolicy") -}}
 ---
 apiVersion: v1
@@ -13,7 +14,7 @@ metadata:
   annotations:
     "helm.sh/hook": pre-delete
     "helm.sh/hook-weight": "1"
-    "helm.sh/hook-delete-policy": hook-succeeded
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -23,10 +24,10 @@ metadata:
   annotations:
     "helm.sh/hook": pre-delete
     "helm.sh/hook-weight": "1"
-    "helm.sh/hook-delete-policy": hook-succeeded
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
 rules:
   - apiGroups: ["apps"]
-    resources: ["deployments"]
+    resources: ["deployments", "daemonsets"]
     verbs: ["get", "list", "delete", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -37,7 +38,7 @@ metadata:
   annotations:
     "helm.sh/hook": pre-delete
     "helm.sh/hook-weight": "2"
-    "helm.sh/hook-delete-policy": hook-succeeded
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
 subjects:
   - kind: ServiceAccount
     name: {{ $cleanupServiceAccount }}
@@ -55,9 +56,11 @@ metadata:
   annotations:
     "helm.sh/hook": pre-delete
     "helm.sh/hook-weight": "3"
-    "helm.sh/hook-delete-policy": hook-succeeded
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
 spec:
   backoffLimit: 1
+  activeDeadlineSeconds: 180
+  ttlSecondsAfterFinished: 120
   template:
     metadata:
       name: nfs-client-cleanup
@@ -78,9 +81,15 @@ spec:
           command:
           - /bin/sh
           - -c
-          - >
-              kubectl -n {{ .Release.Namespace }} delete deployment {{ include "openstudio.webName" . }} --ignore-not-found=true --wait=true --timeout=180s;
-              kubectl -n {{ .Release.Namespace }} delete deployment {{ include "openstudio.webBackgroundName" . }} --ignore-not-found=true --wait=true --timeout=180s;
-              kubectl -n {{ .Release.Namespace }} delete deployment {{ include "openstudio.rserveName" . }} --ignore-not-found=true --wait=true --timeout=180s;
+          - |
+              set -eu
+              for deployment in \
+                {{ include "openstudio.webName" . }} \
+                {{ include "openstudio.webBackgroundName" . }} \
+                {{ include "openstudio.workerName" . }} \
+                {{ include "openstudio.rserveName" . }}; do
+                kubectl -n {{ .Release.Namespace }} delete deployment "${deployment}" --ignore-not-found=true --wait=false
+              done
+              kubectl -n {{ .Release.Namespace }} delete daemonset {{ .Release.Name }}-image-prepull --ignore-not-found=true --wait=false
       restartPolicy: Never
 {{- end }}

@@ -42,12 +42,12 @@ nfs-server-provisioner.persistence.size
 
 If over quota, reduce requested sizes first. Otherwise `nfs-pvc-data` can fail with `413 VolumeSizeExceedsAvailableQuota`, which cascades into pending `nfs-pvc`, then pending `web`, `web-background`, and `rserve`.
 
-If your managed cluster mirror blocks `docker.io/erezsh2/nfs-provisioner` with `401`, pin the NFS provisioner image to Quay in values:
+Use the local zot registry endpoint for NFS provisioner pulls:
 
 ```yaml
 nfs-server-provisioner:
   image:
-    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
+    repository: "erezsh2/nfs-provisioner"
     tag: "v2.3.0"
 ```
 
@@ -57,7 +57,7 @@ For private registries/mirrors, add overrides in your values file:
 global:
   images:
     registry: "registry.<your-domain>"
-    repositoryPrefix: "proxy-cache"  # optional
+    repositoryPrefix: "proxy-cache" # optional
     org: "nrel"
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
@@ -65,6 +65,8 @@ global:
   imagePullSecrets:
     - "registry-credentials"
 ```
+
+`global.images.registry` is the central registry host and must include a valid host (for example `172.29.166.222:5000`), not a bare token such as `zot`.
 
 `secrets.validateExistingSecret` is strict by default when using `secrets.existingSecret`. For offline render-only checks, use `--set secrets.validateExistingSecret=false`.
 
@@ -145,6 +147,7 @@ helm upgrade --install openstudio-server ./openstudio-server
 ## Verify Deployment
 
 Check cluster status:
+
 ```bash
 kubectl get nodes
 kubectl get pods --all-namespaces
@@ -197,7 +200,7 @@ worker:
   container:
     imagePullPolicy: ""
 prepull:
-  enabled: false      # set true temporarily for image warmup
+  enabled: false # set true temporarily for image warmup
   role: ""
   includeRserve: true
   includeWebInit: true
@@ -210,23 +213,27 @@ Provider-aware default for empty pull policy is `IfNotPresent` on OpenStack.
 If the automated deployment encounters connectivity issues:
 
 1. **Check network connectivity:**
+
    ```bash
    ping <master-floating-ip>
    ssh ubuntu@<master-floating-ip>
    ```
 
 2. **Monitor bootstrap process manually:**
+
    ```bash
    ./bootstrap-k8s.sh
    ```
 
 3. **Setup kubectl manually:**
+
    ```bash
    ./setup-kubectl.sh
    ```
 
    TLS defaults are CA-first. The setup scripts now keep TLS verification enabled and set `tls-server-name` (default `kubernetes`).
    Override behavior with:
+
    ```bash
    KUBE_TLS_SERVER_NAME=<server-name-in-apiserver-cert> ./setup-kubectl.sh
    OPENSTACK_ALLOW_INSECURE_KUBECTL=true ./setup-kubectl.sh   # opt-in only
@@ -235,14 +242,17 @@ If the automated deployment encounters connectivity issues:
 ## Common Issues
 
 ### SSH Connection Timeouts
+
 - **Cause:** Network policies blocking floating IP ranges (10.60.x.x)
 - **Solution:** Check with network administrator or try from different network
 
 ### DNS Resolution Issues
+
 - **Cause:** Instances can't reach DNS servers (10.60.10.240, 10.20.49.97)
-- **Solution:** Check OpenStack network configuration
+- **Solution:** Check the Azimuth-managed cluster's node DNS or CoreDNS upstream configuration
 
 ### Cloud-init Bootstrap Failures
+
 - **Cause:** Package download failures, network issues
 - **Solution:** Check console logs:
   ```bash
@@ -254,7 +264,7 @@ If the automated deployment encounters connectivity issues:
 The automated deployment creates:
 
 - **Master Node (1x):** Kubernetes control plane + CSI driver
-- **Worker Node (1x):** Kubernetes worker for general workloads  
+- **Worker Node (1x):** Kubernetes worker for general workloads
 - **Web Node (1x):** Labeled for web frontend workloads
 - **Storage:** Cinder CSI driver for persistent volumes
 - **Networking:** Private network with router and floating IPs

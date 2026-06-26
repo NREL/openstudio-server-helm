@@ -52,6 +52,10 @@ web:
     imagePullPolicy: ""
   container:
     imagePullPolicy: ""
+web_hpa:
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 50
 web_background:
   workerCount: 6
   nodeSelector: {}
@@ -111,9 +115,9 @@ prepull:
 
 worker_hpa:
   name: "openstudio-server-worker"
-  # Start from known-stable capacity; ramp above this in controlled steps.
+  # Keep a wide ceiling above the steady-state ramp so CPU-bound growth is not capped early.
   minReplicas: 400
-  maxReplicas: 700
+  maxReplicas: 6200
   behavior:
     scaleUp:
       # Conservative ramp to reduce simultaneous registry pulls.

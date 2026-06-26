@@ -71,9 +71,14 @@ By default, `deploy-openstudio-cluster.sh` deploys with:
 - **🌐 LoadBalancer Support**: Octavia integration for external service exposure
 - **🔧 EKS Compatibility**: Matches AWS EKS configuration patterns for consistency
 
+The legacy self-managed OpenStack overlays (`values-openstack*.yaml`) pin
+`global.nodeGroups` to `nodegroup=web-group|worker-group` and add the matching
+`NoSchedule` tolerations so workloads can land on Kubespray-tainted nodes.
+
 ## 📋 Prerequisites
 
 ### Required Tools
+
 - [OpenTofu](https://opentofu.org/) (Terraform alternative)
 - [Ansible](https://ansible.com/)
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
@@ -81,6 +86,7 @@ By default, `deploy-openstudio-cluster.sh` deploys with:
 - SSH access with key-based authentication
 
 ### OpenStack Environment Variables
+
 ```bash
 export TF_VAR_openstack_user_name="your-username"
 export TF_VAR_openstack_password="your-password"
@@ -105,8 +111,14 @@ required for Helm-only upgrades to an already-accessible Kubernetes cluster.
 
 ### Internal Registry / Mirror Configuration
 
+Use the path that matches how the cluster was created:
+
+1. **Azimuth-managed OpenStack Kubernetes**: use the chart registry profile plus production overrides.
+2. **Bare OpenStack / legacy self-managed Kubernetes**: use the node bootstrap path in `openstack/k8s-cloud-init.yaml` and `openstack/values-openstack.yaml`.
+
 For managed Azimuth clusters, the recommended pattern is to use an internal registry or Harbor
-proxy cache and point chart images at it. Start from `openstudio-server/values.registry-live.yaml`:
+proxy cache and point chart images at it. Start from `openstudio-server/values.registry-live.yaml`
+and pair it with `openstudio-server/values_production.templateyaml` or a local production override:
 
 ```bash
 cp openstudio-server/values.registry-live.yaml openstudio-server/values.local.yaml
@@ -126,6 +138,8 @@ global:
   imagePullSecrets:
     - "registry-credentials"
 ```
+
+`global.images.registry` must be a registry host/FQDN (optionally with port). Avoid bare names like `zot`, which are interpreted as Docker Hub namespaces by container runtimes.
 
 You can also use a dedicated workload ServiceAccount with image pull secrets:
 
@@ -160,7 +174,7 @@ For planned scale events/upgrades, optionally pre-warm node caches:
 ```yaml
 prepull:
   enabled: true
-  role: ""            # "", "web", or "worker"
+  role: "" # "", "web", or "worker"
   includeRserve: true
   includeWebInit: true
 ```
@@ -177,9 +191,13 @@ REGISTRY_PULL_SECRET_NAME=registry-credentials \
 ./scripts/install.sh
 ```
 
+For Azimuth production workloads, use `worker_hpa.maxReplicas: 1443` only if the cluster
+capacity and node density can support it.
+
 ## 🏗️ Cluster Configurations
 
 ### Small Cluster (Development/Testing)
+
 - **Master**: 1x CS.Wee (8 vCPU, 32GB RAM)
 - **Web Nodes**: 2x CS.Medium (16 vCPU, 64GB RAM each)
 - **Worker Nodes**: 1x CM.Large (32 vCPU, 64GB RAM)
@@ -190,6 +208,7 @@ REGISTRY_PULL_SECRET_NAME=registry-credentials \
 ```
 
 ### Large Cluster (Production)
+
 - **Master**: 1x CS.Large (16 vCPU, 64GB RAM)
 - **Web Nodes**: 1x CS.2XMedium (32 vCPU, 128GB RAM)
 - **Worker Nodes**: 1x CM.2XLarge (64 vCPU, 256GB RAM)
@@ -200,6 +219,7 @@ REGISTRY_PULL_SECRET_NAME=registry-credentials \
 ```
 
 ### Test Cluster (Single Node)
+
 - **Master**: 1x CS.Wee (8 vCPU, 32GB RAM)
 - **Storage**: 100GB
 
@@ -210,6 +230,7 @@ REGISTRY_PULL_SECRET_NAME=registry-credentials \
 ## 🎯 Usage Examples
 
 ### Basic Deployment
+
 ```bash
 # Deploy small cluster
 ./deploy-openstudio-cluster.sh small
@@ -226,6 +247,7 @@ HELM_VALUES_FILE=./values-openstack-nfs.yaml APP_SECRET_NAME=openstudio-app-secr
 ```
 
 ### Advanced Options
+
 ```bash
 # Skip Terraform (use existing infrastructure)
 ./deploy-openstudio-cluster.sh small --skip-terraform
@@ -242,6 +264,7 @@ HELM_VALUES_FILE=./values-openstack-nfs.yaml APP_SECRET_NAME=openstudio-app-secr
 If you prefer manual control, you can run each step individually:
 
 ### 1. Infrastructure Deployment
+
 ```bash
 # Initialize Terraform
 tofu init
@@ -252,6 +275,7 @@ tofu apply tfplan
 ```
 
 ### 2. Kubernetes Deployment
+
 ```bash
 # Generate inventory (automatically detects Terraform outputs)
 # Copy custom group_vars
@@ -264,6 +288,7 @@ ansible-playbook -i ../openstudio-server-helm/openstack/inventory/inventory.ini 
 ```
 
 ### 3. Configure Storage and Services
+
 ```bash
 # Get kubeconfig
 scp ubuntu@<master-ip>:/etc/kubernetes/admin.conf ./kubeconfig
@@ -506,9 +531,72 @@ Only if required, you can opt into insecure mode:
 OPENSTACK_ALLOW_INSECURE_KUBECTL=true ./setup-kubectl.sh
 ```
 
-## 🏭 Architecture
+## 🖥️ Required OpenStack Flavors
+
+This section documents the VM flavors required to run OpenStudio Server optimally.
+Request flavors that do not yet exist from your OpenStack admin.
+
+### Flavor Analysis
+
+The cluster runs up to **7,900 worker pods** (HPA max), each requesting **600m CPU / 700 Mi RAM**.
+Overhead (daemonset/system) pods run on every node regardless of size. Larger nodes =
+fewer nodes = lower overhead pod percentage.
+
+| Flavor size | Pods/node | Nodes @ max | Overhead pods | Overhead % |
+|---|---|---|---|---|
+| 32 vCPU / 300 Gi (old `CE.XLarge`) | 48 | 165 | ~1,975 | **20%** |
+| 64 vCPU / 256 Gi | 96 | 82 | ~990 | 11% |
+| 96 vCPU / 256 Gi | 144 | 55 | ~660 | 8% |
+| **192 vCPU / 256 Gi** (`CM.192Core.256G`) | **250** | **32** | **~384** | **4.6%** |
+
+`kubelet_max_pods: 250` is already set in `kubespray/inventory/sample/group_vars/all.yml`, making
+250 pods/node the binding cap regardless of core count. This aligns perfectly with 192-vCPU nodes.
+
+### Worker Nodes — `CM.192Core.256G` *(must be requested from admin)*
+
+```
+Name:    CM.192Core.256G   (or preferred naming convention)
+vCPUs:   192              (1:1 mapping to 192-core physical hosts — no NUMA crossover)
+RAM:     256 GB           (minimum; 512 GB preferred if physically available)
+Disk:    0 GB             (nodes use Cinder boot volumes via Terraform)
+```
+
+**Why 192 vCPUs?**
+- Matches physical core count 1:1; avoids cross-NUMA vCPU mapping overhead
+- 250 pods × 700 Mi = 175 Gi RAM consumed; 256 Gi = 69% utilization (healthy)
+- Reduces overhead pod rate from 20% → 4.6% — a **4.3× improvement**
+- Drops node count at max scale from ~165 → ~32 nodes
+
+**Request command for OpenStack admin:**
+```bash
+openstack flavor create CM.192Core.256G \
+  --vcpus 192 \
+  --ram 262144 \
+  --disk 0 \
+  --description "Compute worker: 192 vCPUs 256GB RAM for OpenStudio simulation pods"
+```
+
+### Web Nodes — `CS.2XMedium` *(existing)*
+
+```
+Name:    CS.2XMedium   (existing flavor)
+vCPUs:   32
+RAM:     128 GB
+```
+
+Web node workload profile: web (6 CPU / 50 Gi) + MongoDB (4 CPU / 22 Gi) +
+Redis (3 CPU / 4 Gi) + web-background ×2 (4 CPU / 8 Gi) + rserve (2 CPU / 4 Gi)
+= **19 vCPUs / 88 Gi total**. `CS.2XMedium` (32 vCPU / 128 Gi) provides adequate headroom.
+
+### Master / Control Plane — `CS.2XMedium` *(existing)*
+
+No change from current default. Control-plane workloads are not worker-pod-dense
+and do not benefit from 192-vCPU sizing.
+
+
 
 ### Network Architecture
+
 ```
                     ┌─────────────────┐
                     │   External      │
@@ -531,12 +619,14 @@ OPENSTACK_ALLOW_INSECURE_KUBECTL=true ./setup-kubectl.sh
 ```
 
 ### Storage Architecture
+
 - **Cinder CSI**: Dynamic persistent volume provisioning
 - **SSD Storage Class**: Default for databases and critical data
 - **NFS Storage Class**: Shared storage for multi-pod applications
 - **Standard Storage Class**: Cost-effective storage for logs/temp data
 
 ### Node Workload Separation
+
 - **Web Nodes**: Handle HTTP requests, API calls, and user interface
 - **Worker Nodes**: Execute compute-intensive OpenStudio simulations
 - **Master Node**: Kubernetes control plane (can be made highly available)
@@ -546,17 +636,20 @@ OPENSTACK_ALLOW_INSECURE_KUBECTL=true ./setup-kubectl.sh
 The deployment automatically detects and handles corporate firewall restrictions:
 
 ### Automatic Detection
+
 - Tests connectivity to major container registries
 - Detects certificate interception (common in corporate environments)
 - Creates firewall status file: `/etc/corporate-firewall-status`
 
 ### Automatic Workarounds
+
 - **Containerd Configuration**: Selective TLS verification bypassing
 - **Download Settings**: Extended timeouts and retry mechanisms
 - **Registry Mirrors**: Fallback registry configurations
 - **CNI Configuration**: Pre-configured bridge CNI for reliability
 
 ### Manual Override
+
 ```bash
 # Check firewall detection on nodes
 kubectl get nodes -o wide
@@ -569,6 +662,7 @@ ssh ubuntu@<node-ip> "cat /etc/containerd/config.toml"
 ## 📊 Monitoring and Troubleshooting
 
 ### Check Deployment Status
+
 ```bash
 # Export kubeconfig
 export KUBECONFIG=$(pwd)/kubeconfig
@@ -583,6 +677,7 @@ kubectl get services -n openstudio-server
 ```
 
 ### Access OpenStudio Server
+
 ```bash
 # Port forward to access web interface
 kubectl port-forward -n openstudio-server service/web 8080:80
@@ -593,6 +688,7 @@ kubectl port-forward -n openstudio-server service/web 8080:80
 ### Common Issues
 
 #### Corporate Firewall Issues
+
 ```bash
 # Check firewall detection logs
 ssh ubuntu@<master-ip> "sudo journalctl -u corporate-firewall-detection"
@@ -602,6 +698,7 @@ ssh ubuntu@<master-ip> "sudo cat /etc/containerd/config.toml"
 ```
 
 #### Storage Issues
+
 ```bash
 # Check storage classes
 kubectl get storageclasses
@@ -612,6 +709,7 @@ kubectl get pvc -n openstudio-server
 ```
 
 #### LoadBalancer Issues
+
 ```bash
 # Check cloud provider configuration
 kubectl get configmap -n kube-system cloud-config -o yaml
@@ -640,6 +738,8 @@ Temporary mitigation for incident response:
 
 Permanent fix is registry/mirror auth correction at the platform/runtime layer.
 
+For large analysis batches, enable the chart prepull DaemonSet temporarily and keep worker autoscaling on `keda-hybrid` with a higher `worker_hpa.minReplicas` floor so queue drain starts immediately once the warm nodes are ready.
+
 #### Node Access (Bastion/Floating IP) Troubles
 
 If direct SSH to node IPs fails, verify the OpenStack network path before troubleshooting Kubernetes:
@@ -655,6 +755,7 @@ Common causes are unreachable external network selection, missing/incorrect keyp
 ## 🔄 Updates and Maintenance
 
 ### Scaling Workers
+
 ```bash
 # Scale worker replicas
 kubectl scale deployment worker -n openstudio-server --replicas=5
@@ -666,6 +767,7 @@ tofu apply
 ```
 
 ### Upgrading Kubernetes
+
 ```bash
 # Update Kubespray version in group_vars
 # Re-run Kubespray upgrade playbook
@@ -687,6 +789,7 @@ tofu destroy -var-file="openstudio-small.tfvars" -auto-approve
 ## 🤝 Contributing
 
 This solution bridges the gap between AWS EKS and OpenStack deployments, providing:
+
 - Consistent deployment patterns
 - Corporate environment compatibility
 - Production-ready configurations
