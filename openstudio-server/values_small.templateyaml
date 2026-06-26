@@ -5,12 +5,14 @@
 
 # Set to google, aws or azure
 provider:
-  name: ""
+  name: "aws"
 
 cluster:
   name: "openstudio-server"
 
 nfs-server-provisioner:
+  service:
+    clusterIP: "10.100.148.127"
   persistence:
     enabled: true
     storageClass: "ssd"
@@ -19,7 +21,7 @@ nfs-server-provisioner:
     allowVolumeExpansion: false
     mountOptions:
       - vers=4
-      - sync
+      - addr=10.100.148.127
 db:
   name:  "db"
   label: "db"
@@ -172,6 +174,5 @@ worker_hpa:
   maxReplicas: 20
   targetCPUUtilizationPercentage: 50
   stabilizationWindowSeconds: 3600
-
 
 
