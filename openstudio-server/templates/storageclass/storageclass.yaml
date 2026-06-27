@@ -31,7 +31,7 @@ allowVolumeExpansion: true
 reclaimPolicy: Delete
 mountOptions:
   - debug
-volumeBindingMode: Immediate
+volumeBindingMode: WaitForFirstConsumer
 allowedTopologies:
 - matchLabelExpressions:
   - key: nodegroup

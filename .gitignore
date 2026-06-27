@@ -1,1 +1,16 @@
 .idea
+.venv/
+.venv-1/
+venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+*.swp
+*.swo
+*~
+.terraform/
+*.tfstate
+*.tfstate.*
+.health-remediation-state/

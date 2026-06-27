@@ -1,2 +1,0 @@
-NAME     READY   UP-TO-DATE   AVAILABLE   AGE     CONTAINERS   IMAGES                          SELECTOR
-worker   28/28   28           28          3h54m   worker       nrel/openstudio-server:3.10.0   app=worker,release=openstudio-server

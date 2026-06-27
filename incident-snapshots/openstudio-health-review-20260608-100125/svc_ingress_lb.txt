@@ -1,2 +1,0 @@
-NAME                    TYPE           CLUSTER-IP     EXTERNAL-IP    PORT(S)                      AGE     SELECTOR
-ingress-load-balancer   LoadBalancer   172.24.92.42   10.60.105.93   80:31333/TCP,443:32090/TCP   2d17h   app=web,release=openstudio-server

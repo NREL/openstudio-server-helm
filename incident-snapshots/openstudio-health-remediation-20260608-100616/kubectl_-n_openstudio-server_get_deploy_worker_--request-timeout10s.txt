@@ -1,2 +1,0 @@
-NAME     READY     UP-TO-DATE   AVAILABLE   AGE
-worker   509/510   71           509         2d17h

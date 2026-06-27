@@ -37,7 +37,33 @@ helm install openstudio-server ./openstudio-server --set provider.name=aws
 helm install openstudio-server ./openstudio-server --set provider.name=azure
 ```
 
-## Uninstalling the Chart
+### For OpenStack
+
+```bash
+helm install openstudio-server ./openstudio-server --set provider.name=openstack
+```
+
+## Supported Cloud Providers
+
+The Helm chart supports deployment on the following Kubernetes cloud providers:
+
+| Provider | Status | Required Configuration | Notes |
+|----------|--------|------------------------|-------|
+| **AWS (EKS)** | ✅ Supported | See [aws/README.md](/aws/README.md) | Full support with auto-scaling, EBS volumes |
+| **Google Cloud (GKE)** | ✅ Supported | See [google/README.md](/google/README.md) | Full support with auto-scaling, persistent disks |
+| **Azure (AKS)** | ✅ Supported | `--set provider.name=azure` | Full support with managed disks |
+| **OpenStack** | ✅ Supported | `--set provider.name=openstack` | Full support with Cinder storage |
+| **Other Providers** | ⚠️ Partial | Custom configuration may be required | See "Custom Providers" section below |
+
+### Custom Providers
+
+If you are deploying to a Kubernetes cluster on a provider not listed above (e.g., Rancher, on-premises, or other cloud providers), you will need to:
+
+1. **Configure Storage Classes**: Update the `provider.name` value and ensure your cluster has appropriate storage provisioners (e.g., local storage, NFS, or vendor-specific provisioners)
+2. **Update StorageClass Parameters**: Edit `openstudio-server/templates/storageclass/storageclass.yaml` to add a new provisioner block for your infrastructure
+3. **Node Labels**: Ensure your nodes have the required labels for scheduling constraints (see node affinity requirements in deployment templates)
+
+For more information on configuring custom cloud providers, see the Helm chart values in `values.yaml`.
 
 To uninstall/delete the `openstudio-server` helm chart:
 

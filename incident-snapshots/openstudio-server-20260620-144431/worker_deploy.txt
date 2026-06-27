@@ -1,2 +1,0 @@
-NAME     READY     UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES                                                                          SELECTOR
-worker   460/460   460          460         44h   worker       pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0   app=worker,release=openstudio-server

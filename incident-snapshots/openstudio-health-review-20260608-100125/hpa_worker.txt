@@ -1,2 +1,0 @@
-NAME     REFERENCE           TARGETS                            MINPODS   MAXPODS   REPLICAS   AGE
-worker   Deployment/worker   71809m/80 (avg), 19116m/80 (avg)   2         1443      510        91m

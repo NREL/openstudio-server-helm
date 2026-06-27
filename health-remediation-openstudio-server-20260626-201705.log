@@ -213,3 +213,272 @@ The loop hit the per-cycle remediation cap (5). Remaining issues require manual 
 2026-06-27T02:49:27Z HPA objects present
 2026-06-27T02:49:27Z Health cycle complete
 2026-06-27T02:49:27Z Sleeping for 900s
+2026-06-27T03:04:28Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T03:04:28Z Checking cluster reachability
+NAME                                           STATUS   ROLES    AGE    VERSION
+ip-172-18-118-189.us-west-2.compute.internal   Ready    <none>   10m    v1.34.7-eks-40737a8
+ip-172-18-118-247.us-west-2.compute.internal   Ready    <none>   102m   v1.34.7-eks-40737a8
+ip-172-18-45-145.us-west-2.compute.internal    Ready    <none>   104m   v1.34.7-eks-40737a8
+ip-172-18-45-158.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-169.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-185.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-189.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-190.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-193.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-196.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-205.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-206.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-219.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-225.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-236.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-238.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-241.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-244.us-west-2.compute.internal    Ready    <none>   34m    v1.34.7-eks-40737a8
+ip-172-18-45-30.us-west-2.compute.internal     Ready    <none>   73m    v1.34.7-eks-40737a8
+ip-172-18-45-85.us-west-2.compute.internal     Ready    <none>   88m    v1.34.7-eks-40737a8
+Error from server (NotFound): pods "worker-7dbd4d9cb6-2p7gl" not found
+2026-06-27T03:06:52Z Unhealthy pod detected: worker-7dbd4d9cb6-2p7gl ready=1/1 status=Terminating restarts=0 app=worker-7dbd4d9cb6-2p7gl
+2026-06-27T03:06:53Z Unhealthy pod detected: worker-7f689d9d5f-24t7b ready=0/1 status=Pending restarts=0 app=worker
+2026-06-27T03:06:53Z ESCALATE: Persistent unhealthy pod for worker
+
+--- ESCALATION ---
+Subject: Persistent unhealthy pod for worker
+Pod worker-7f689d9d5f-24t7b is still unhealthy after a prior remediation attempt. Please inspect 'openstudio-server/worker'.
+2026-06-27T03:06:54Z HPA objects present
+2026-06-27T03:06:54Z Health cycle complete
+2026-06-27T03:06:54Z Sleeping for 900s
+2026-06-27T03:21:54Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T03:21:54Z Checking cluster reachability
+NAME                                           STATUS   ROLES    AGE    VERSION
+ip-172-18-118-247.us-west-2.compute.internal   Ready    <none>   119m   v1.34.7-eks-40737a8
+ip-172-18-45-145.us-west-2.compute.internal    Ready    <none>   122m   v1.34.7-eks-40737a8
+ip-172-18-45-158.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-169.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-185.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-189.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-190.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-193.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-196.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-205.us-west-2.compute.internal    Ready    <none>   51m    v1.34.7-eks-40737a8
+ip-172-18-45-206.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-219.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-225.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-236.us-west-2.compute.internal    Ready    <none>   51m    v1.34.7-eks-40737a8
+ip-172-18-45-238.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-241.us-west-2.compute.internal    Ready    <none>   52m    v1.34.7-eks-40737a8
+ip-172-18-45-244.us-west-2.compute.internal    Ready    <none>   51m    v1.34.7-eks-40737a8
+ip-172-18-45-30.us-west-2.compute.internal     Ready    <none>   90m    v1.34.7-eks-40737a8
+ip-172-18-45-85.us-west-2.compute.internal     Ready    <none>   105m   v1.34.7-eks-40737a8
+2026-06-27T03:24:20Z Unhealthy pod detected: worker-767f75bb9d-24xnj ready=0/1 status=Pending restarts=0 app=worker
+2026-06-27T03:24:20Z ESCALATE: Persistent unhealthy pod for worker
+
+--- ESCALATION ---
+Subject: Persistent unhealthy pod for worker
+Pod worker-767f75bb9d-24xnj is still unhealthy after a prior remediation attempt. Please inspect 'openstudio-server/worker'.
+2026-06-27T03:24:21Z HPA objects present
+2026-06-27T03:24:21Z Health cycle complete
+2026-06-27T03:24:21Z Sleeping for 900s
+2026-06-27T03:39:21Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T03:39:21Z Checking cluster reachability
+NAME                                           STATUS   ROLES    AGE    VERSION
+ip-172-18-118-247.us-west-2.compute.internal   Ready    <none>   137m   v1.34.7-eks-40737a8
+ip-172-18-45-145.us-west-2.compute.internal    Ready    <none>   139m   v1.34.7-eks-40737a8
+ip-172-18-45-158.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-169.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-185.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-189.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-190.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-193.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-196.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-205.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-206.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-219.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-225.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-236.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-238.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-241.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-244.us-west-2.compute.internal    Ready    <none>   69m    v1.34.7-eks-40737a8
+ip-172-18-45-30.us-west-2.compute.internal     Ready    <none>   108m   v1.34.7-eks-40737a8
+ip-172-18-45-85.us-west-2.compute.internal     Ready    <none>   123m   v1.34.7-eks-40737a8
+Error from server (NotFound): pods "worker-59b864fcbd-7xwrk" not found
+2026-06-27T03:41:51Z Unhealthy pod detected: worker-59b864fcbd-7xwrk ready=0/1 status=Pending restarts=0 app=worker-59b864fcbd-7xwrk
+2026-06-27T03:41:51Z Patching deployment/worker-59b864fcbd-7xwrk to trigger a safe rollout
+Error from server (NotFound): deployments.apps "worker-59b864fcbd-7xwrk" not found
+Error from server (NotFound): pods "worker-59b864fcbd-t48cw" not found
+2026-06-27T03:41:53Z Unhealthy pod detected: worker-59b864fcbd-t48cw ready=0/1 status=Pending restarts=0 app=worker-59b864fcbd-t48cw
+2026-06-27T03:41:53Z Patching deployment/worker-59b864fcbd-t48cw to trigger a safe rollout
+Error from server (NotFound): deployments.apps "worker-59b864fcbd-t48cw" not found
+Error from server (NotFound): pods "worker-767f75bb9d-24xnj" not found
+2026-06-27T03:41:55Z Unhealthy pod detected: worker-767f75bb9d-24xnj ready=0/1 status=Pending restarts=0 app=worker-767f75bb9d-24xnj
+2026-06-27T03:41:55Z Patching deployment/worker-767f75bb9d-24xnj to trigger a safe rollout
+Error from server (NotFound): deployments.apps "worker-767f75bb9d-24xnj" not found
+Error from server (NotFound): pods "worker-767f75bb9d-2jv57" not found
+2026-06-27T03:42:01Z Unhealthy pod detected: worker-767f75bb9d-2jv57 ready=0/1 status=Pending restarts=0 app=worker-767f75bb9d-2jv57
+2026-06-27T03:42:01Z Patching deployment/worker-767f75bb9d-2jv57 to trigger a safe rollout
+Error from server (NotFound): deployments.apps "worker-767f75bb9d-2jv57" not found
+Error from server (NotFound): pods "worker-767f75bb9d-2lv5q" not found
+2026-06-27T03:42:03Z Unhealthy pod detected: worker-767f75bb9d-2lv5q ready=0/1 status=Pending restarts=0 app=worker-767f75bb9d-2lv5q
+2026-06-27T03:42:03Z Patching deployment/worker-767f75bb9d-2lv5q to trigger a safe rollout
+Error from server (NotFound): deployments.apps "worker-767f75bb9d-2lv5q" not found
+2026-06-27T03:42:04Z ESCALATE: Remediation cap reached
+
+--- ESCALATION ---
+Subject: Remediation cap reached
+The loop hit the per-cycle remediation cap (5). Remaining issues require manual review.
+2026-06-27T03:42:05Z HPA objects present
+2026-06-27T03:42:05Z Health cycle complete
+2026-06-27T03:42:05Z Sleeping for 900s
+2026-06-27T03:57:05Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T03:57:05Z Checking cluster reachability
+NAME                                           STATUS   ROLES    AGE    VERSION
+ip-172-18-118-247.us-west-2.compute.internal   Ready    <none>   155m   v1.34.7-eks-40737a8
+ip-172-18-45-145.us-west-2.compute.internal    Ready    <none>   157m   v1.34.7-eks-40737a8
+ip-172-18-45-158.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-169.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-185.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-189.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-190.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-193.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-196.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-205.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-206.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-219.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-225.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-236.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-238.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-241.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-244.us-west-2.compute.internal    Ready    <none>   87m    v1.34.7-eks-40737a8
+ip-172-18-45-30.us-west-2.compute.internal     Ready    <none>   125m   v1.34.7-eks-40737a8
+ip-172-18-45-85.us-west-2.compute.internal     Ready    <none>   141m   v1.34.7-eks-40737a8
+2026-06-27T03:59:36Z Unhealthy pod detected: worker-59b864fcbd-22d62 ready=0/1 status=Pending restarts=0 app=worker
+2026-06-27T03:59:36Z ESCALATE: Persistent unhealthy pod for worker
+
+--- ESCALATION ---
+Subject: Persistent unhealthy pod for worker
+Pod worker-59b864fcbd-22d62 is still unhealthy after a prior remediation attempt. Please inspect 'openstudio-server/worker'.
+2026-06-27T03:59:37Z HPA objects present
+2026-06-27T03:59:37Z Health cycle complete
+2026-06-27T03:59:37Z Sleeping for 900s
+2026-06-27T04:14:37Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T04:14:37Z Checking cluster reachability
+NAME                                           STATUS                     ROLES    AGE     VERSION
+ip-172-18-117-139.us-west-2.compute.internal   Ready                      <none>   10m     v1.34.9-eks-93b80c6
+ip-172-18-118-247.us-west-2.compute.internal   Ready                      <none>   172m    v1.34.7-eks-40737a8
+ip-172-18-119-76.us-west-2.compute.internal    Ready                      <none>   10m     v1.34.9-eks-93b80c6
+ip-172-18-245-123.us-west-2.compute.internal   Ready                      <none>   8m1s    v1.34.9-eks-93b80c6
+ip-172-18-255-232.us-west-2.compute.internal   Ready                      <none>   8m      v1.34.9-eks-93b80c6
+ip-172-18-45-145.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   174m    v1.34.7-eks-40737a8
+ip-172-18-45-158.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   105m    v1.34.7-eks-40737a8
+ip-172-18-45-169.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   104m    v1.34.7-eks-40737a8
+ip-172-18-45-185.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   105m    v1.34.7-eks-40737a8
+ip-172-18-45-189.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   105m    v1.34.7-eks-40737a8
+ip-172-18-45-190.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   105m    v1.34.7-eks-40737a8
+ip-172-18-45-193.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   105m    v1.34.7-eks-40737a8
+ip-172-18-45-196.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   105m    v1.34.7-eks-40737a8
+ip-172-18-45-205.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   104m    v1.34.7-eks-40737a8
+ip-172-18-45-206.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   105m    v1.34.7-eks-40737a8
+ip-172-18-45-219.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   104m    v1.34.7-eks-40737a8
+ip-172-18-45-225.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   105m    v1.34.7-eks-40737a8
+ip-172-18-45-236.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   104m    v1.34.7-eks-40737a8
+ip-172-18-45-238.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   105m    v1.34.7-eks-40737a8
+ip-172-18-45-241.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   105m    v1.34.7-eks-40737a8
+ip-172-18-45-244.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   104m    v1.34.7-eks-40737a8
+ip-172-18-45-30.us-west-2.compute.internal     Ready,SchedulingDisabled   <none>   143m    v1.34.7-eks-40737a8
+ip-172-18-45-85.us-west-2.compute.internal     Ready,SchedulingDisabled   <none>   158m    v1.34.7-eks-40737a8
+ip-172-18-50-100.us-west-2.compute.internal    Ready                      <none>   5m56s   v1.34.9-eks-93b80c6
+ip-172-18-51-62.us-west-2.compute.internal     Ready                      <none>   5m56s   v1.34.9-eks-93b80c6
+2026-06-27T04:14:51Z Unhealthy pod detected: worker-588c4946d-2cwpz ready=1/1 status=Terminating restarts=0 app=worker
+2026-06-27T04:14:57Z Unhealthy pod detected: worker-588c4946d-49fbt ready=1/1 status=Terminating restarts=0 app=worker
+Error from server (NotFound): pods "worker-588c4946d-5ks2w" not found
+2026-06-27T04:14:58Z Unhealthy pod detected: worker-588c4946d-5ks2w ready=1/1 status=Terminating restarts=0 app=worker-588c4946d-5ks2w
+2026-06-27T04:14:59Z Unhealthy pod detected: worker-588c4946d-69qvx ready=1/1 status=Terminating restarts=0 app=worker
+2026-06-27T04:15:02Z Unhealthy pod detected: worker-588c4946d-6s8hj ready=1/1 status=Terminating restarts=0 app=worker
+2026-06-27T04:15:02Z ESCALATE: Remediation cap reached
+
+--- ESCALATION ---
+Subject: Remediation cap reached
+The loop hit the per-cycle remediation cap (5). Remaining issues require manual review.
+2026-06-27T04:15:02Z HPA objects present
+2026-06-27T04:15:02Z Health cycle complete
+2026-06-27T04:15:02Z Sleeping for 900s
+2026-06-27T04:30:02Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T04:30:02Z Checking cluster reachability
+NAME                                           STATUS                     ROLES    AGE     VERSION
+ip-172-18-112-178.us-west-2.compute.internal   Ready                      <none>   94s     v1.34.9-eks-93b80c6
+ip-172-18-117-139.us-west-2.compute.internal   Ready                      <none>   26m     v1.34.9-eks-93b80c6
+ip-172-18-118-247.us-west-2.compute.internal   Ready                      <none>   3h8m    v1.34.7-eks-40737a8
+ip-172-18-119-76.us-west-2.compute.internal    Ready                      <none>   26m     v1.34.9-eks-93b80c6
+ip-172-18-224-108.us-west-2.compute.internal   Ready                      <none>   9m34s   v1.34.9-eks-93b80c6
+ip-172-18-233-80.us-west-2.compute.internal    Ready                      <none>   8m32s   v1.34.9-eks-93b80c6
+ip-172-18-234-16.us-west-2.compute.internal    Ready                      <none>   36s     v1.34.9-eks-93b80c6
+ip-172-18-240-233.us-west-2.compute.internal   Ready                      <none>   9m33s   v1.34.9-eks-93b80c6
+ip-172-18-245-123.us-west-2.compute.internal   Ready                      <none>   23m     v1.34.9-eks-93b80c6
+ip-172-18-252-185.us-west-2.compute.internal   Ready                      <none>   8m33s   v1.34.9-eks-93b80c6
+ip-172-18-253-207.us-west-2.compute.internal   Ready                      <none>   8m34s   v1.34.9-eks-93b80c6
+ip-172-18-255-179.us-west-2.compute.internal   Ready                      <none>   57s     v1.34.9-eks-93b80c6
+ip-172-18-255-21.us-west-2.compute.internal    Ready                      <none>   8m33s   v1.34.9-eks-93b80c6
+ip-172-18-255-232.us-west-2.compute.internal   Ready                      <none>   23m     v1.34.9-eks-93b80c6
+ip-172-18-45-10.us-west-2.compute.internal     Ready                      <none>   8m34s   v1.34.7-eks-40737a8
+ip-172-18-45-104.us-west-2.compute.internal    Ready                      <none>   3m4s    v1.34.7-eks-40737a8
+ip-172-18-45-107.us-west-2.compute.internal    Ready                      <none>   8m34s   v1.34.7-eks-40737a8
+ip-172-18-45-144.us-west-2.compute.internal    Ready                      <none>   102s    v1.34.7-eks-40737a8
+ip-172-18-45-145.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   3h10m   v1.34.7-eks-40737a8
+ip-172-18-45-153.us-west-2.compute.internal    Ready                      <none>   104s    v1.34.7-eks-40737a8
+ip-172-18-45-158.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   120m    v1.34.7-eks-40737a8
+ip-172-18-45-171.us-west-2.compute.internal    Ready                      <none>   3m1s    v1.34.7-eks-40737a8
+ip-172-18-45-178.us-west-2.compute.internal    Ready                      <none>   104s    v1.34.7-eks-40737a8
+ip-172-18-45-185.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   120m    v1.34.7-eks-40737a8
+ip-172-18-45-187.us-west-2.compute.internal    Ready                      <none>   102s    v1.34.7-eks-40737a8
+ip-172-18-45-189.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   120m    v1.34.7-eks-40737a8
+ip-172-18-45-193.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   120m    v1.34.7-eks-40737a8
+ip-172-18-45-196.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   120m    v1.34.7-eks-40737a8
+ip-172-18-45-200.us-west-2.compute.internal    Ready                      <none>   2m52s   v1.34.7-eks-40737a8
+ip-172-18-45-205.us-west-2.compute.internal    Ready                      <none>   3m49s   v1.34.7-eks-40737a8
+ip-172-18-45-207.us-west-2.compute.internal    Ready                      <none>   101s    v1.34.7-eks-40737a8
+ip-172-18-45-21.us-west-2.compute.internal     Ready                      <none>   7m24s   v1.34.7-eks-40737a8
+ip-172-18-45-219.us-west-2.compute.internal    Ready                      <none>   3m46s   v1.34.7-eks-40737a8
+ip-172-18-45-22.us-west-2.compute.internal     Ready                      <none>   7m24s   v1.34.7-eks-40737a8
+ip-172-18-45-229.us-west-2.compute.internal    Ready                      <none>   3m4s    v1.34.7-eks-40737a8
+ip-172-18-45-236.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   120m    v1.34.7-eks-40737a8
+ip-172-18-45-237.us-west-2.compute.internal    Ready                      <none>   104s    v1.34.7-eks-40737a8
+ip-172-18-45-241.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   120m    v1.34.7-eks-40737a8
+ip-172-18-45-243.us-west-2.compute.internal    Ready                      <none>   115s    v1.34.7-eks-40737a8
+ip-172-18-45-244.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   120m    v1.34.7-eks-40737a8
+ip-172-18-45-254.us-west-2.compute.internal    Ready                      <none>   3m1s    v1.34.7-eks-40737a8
+ip-172-18-45-68.us-west-2.compute.internal     Ready                      <none>   7m24s   v1.34.7-eks-40737a8
+ip-172-18-45-85.us-west-2.compute.internal     Ready,SchedulingDisabled   <none>   174m    v1.34.7-eks-40737a8
+ip-172-18-45-86.us-west-2.compute.internal     Ready                      <none>   8m57s   v1.34.7-eks-40737a8
+ip-172-18-45-88.us-west-2.compute.internal     Ready                      <none>   7m44s   v1.34.7-eks-40737a8
+ip-172-18-48-74.us-west-2.compute.internal     Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-49-166.us-west-2.compute.internal    Ready                      <none>   9m50s   v1.34.9-eks-93b80c6
+ip-172-18-50-100.us-west-2.compute.internal    Ready                      <none>   21m     v1.34.9-eks-93b80c6
+ip-172-18-50-234.us-west-2.compute.internal    Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-50-244.us-west-2.compute.internal    Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-50-36.us-west-2.compute.internal     Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-51-5.us-west-2.compute.internal      Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-51-62.us-west-2.compute.internal     Ready                      <none>   21m     v1.34.9-eks-93b80c6
+ip-172-18-52-140.us-west-2.compute.internal    Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-52-217.us-west-2.compute.internal    Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-53-123.us-west-2.compute.internal    Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-53-145.us-west-2.compute.internal    Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-53-166.us-west-2.compute.internal    Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-53-246.us-west-2.compute.internal    Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-53-37.us-west-2.compute.internal     Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-53-48.us-west-2.compute.internal     Ready                      <none>   9m48s   v1.34.9-eks-93b80c6
+ip-172-18-54-137.us-west-2.compute.internal    Ready                      <none>   9m50s   v1.34.9-eks-93b80c6
+ip-172-18-54-247.us-west-2.compute.internal    Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-55-12.us-west-2.compute.internal     Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+ip-172-18-55-32.us-west-2.compute.internal     Ready                      <none>   9m49s   v1.34.9-eks-93b80c6
+2026-06-27T04:30:17Z Unhealthy pod detected: worker-588c4946d-2rqx5 ready=1/1 status=Terminating restarts=0 app=worker
+2026-06-27T04:30:32Z Unhealthy pod detected: worker-588c4946d-d6c6f ready=1/1 status=Terminating restarts=0 app=worker
+2026-06-27T04:30:33Z Unhealthy pod detected: worker-588c4946d-dblpq ready=1/1 status=Terminating restarts=0 app=worker
+2026-06-27T04:30:38Z Unhealthy pod detected: worker-588c4946d-hxrv8 ready=1/1 status=Terminating restarts=0 app=worker
+2026-06-27T04:30:45Z Unhealthy pod detected: worker-588c4946d-n5nsp ready=1/1 status=Terminating restarts=0 app=worker
+2026-06-27T04:30:45Z ESCALATE: Remediation cap reached
+
+--- ESCALATION ---
+Subject: Remediation cap reached
+The loop hit the per-cycle remediation cap (5). Remaining issues require manual review.
+2026-06-27T04:30:46Z HPA objects present
+2026-06-27T04:30:46Z Health cycle complete
+2026-06-27T04:30:46Z Sleeping for 900s

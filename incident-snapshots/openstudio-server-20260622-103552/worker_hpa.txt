@@ -1,2 +1,0 @@
-NAME                       REFERENCE           TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
-openstudio-server-worker   Deployment/worker   cpu: 0%/50%   400       2499      400        3d15h

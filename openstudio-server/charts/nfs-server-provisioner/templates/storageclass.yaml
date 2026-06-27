@@ -25,4 +25,5 @@ parameters:
 mountOptions:
 {{- toYaml . | nindent 2 }}
 {{- end }}
+volumeBindingMode: WaitForFirstConsumer
 {{ end -}}

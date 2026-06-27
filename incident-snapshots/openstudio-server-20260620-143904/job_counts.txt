@@ -1,2 +1,0 @@
-[18:39:34.884377 WARN] MONGODB | Unsupported client option 'roles'. It will be ignored.
-queued=393 running=0 completed=499 failed=0
