@@ -313,10 +313,10 @@ Confirm:
 
 When scaling worker capacity during active analyses, prefer patching the worker HPA rather than running `helm upgrade` for this specific change. This avoids unnecessary deployment churn while jobs are running.
 
-Example: set worker HPA max replicas to `10000`.
+Example: set worker HPA max replicas to `200`.
 
 ```bash
-kubectl patch hpa worker -n default --type='json' -p='[{"op": "replace", "path": "/spec/maxReplicas", "value": 10000}]'
+kubectl patch hpa worker-hpa -n openstudio-server --type='json' -p='[{"op": "replace", "path": "/spec/maxReplicas", "value": 200}]'
 ```
 
 You can also update the HPA minimum if needed:

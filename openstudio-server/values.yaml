@@ -10,6 +10,12 @@ provider:
 cluster:
   name: "openstudio-server-03"
 
+cluster_autoscaler:
+  scaleDownUtilizationThreshold: "0.2"
+  scaleDownUnneededTime: "10m"
+  maxGracefulTerminationSec: "120"
+  scaleDownDelayAfterFailure: "5m"
+
 nfs-server-provisioner:
   service:
     # Fixed ClusterIP used by RWX mount option `addr=` for Bottlerocket NFS mounts.
@@ -189,17 +195,17 @@ worker:
     resources:
       requests:
         cpu: 600m
-        memory: "800Mi"
+        memory: "1Gi"
       limits:
         cpu: 800m
-        memory: "1Gi"
-    terminationGracePeriodSeconds: 300
+        memory: "2Gi"
+    terminationGracePeriodSeconds: 180
 
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 10000
-  targetCPUUtilizationPercentage: 10
-  scaleUpStabilizationWindowSeconds: 60
-  scaleDownStabilizationWindowSeconds: 300
-  scalePolicyValue: 2000
+  maxReplicas: 200
+  targetCPUUtilizationPercentage: 50
+  scaleUpStabilizationWindowSeconds: 180
+  scaleDownStabilizationWindowSeconds: 600
+  scalePolicyValue: 25

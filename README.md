@@ -101,7 +101,7 @@ nfs-server-provisioner.persistence.size | Size of the volume for storing the dat
 db.persistence.size | Size of the volume for MongoDB | 500Gi |
 cluster.name | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly | openstudio-server |
 worker_hpa.minReplicas | Worker pods that run the simulations | 2 |
-worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 10000 |
+worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 200 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
 web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
 web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
@@ -207,6 +207,6 @@ While it's possible to change the storage to use `Retain` vs `Delete`, the helm 
 
 ## Auto Scaling
 
-The worker pods are configured to auto-scale based on CPU threshold (default 12%). Once the aggregate CPU for all worker pods exceed the defined threshold (in this case 12%), the Kubernetes engine will start adding additional worker pods up to the maximum specified. This is also dependent on how the Kuebernetes cluster was configured as additional VM node instances will also be added. Please refer to the notes on [aws](/aws/README.md) and [google](/google/README.md) when setting up the cluster and note the instance type and maximum nodes specified.
+The worker pods are configured to auto-scale based on CPU threshold (default 50%). Once the aggregate CPU for all worker pods exceeds the defined threshold, Kubernetes starts adding worker pods up to the configured maximum. This behavior also depends on your cluster autoscaler/node group limits. Please refer to the notes on [aws](/aws/README.md) and [google](/google/README.md) when setting up the cluster and note the instance type and maximum nodes specified.
 
-Once the aggregate CPU of the workers drop below 12%, the Kubernetes engine will start removing worker pod instances. There is a [prestop hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/) configured in the worker pod to ensure that if a openstudio job is still active it will not terminate the pod until it is finished.
+Once aggregate worker CPU drops below threshold, Kubernetes starts removing worker pods according to HPA scale-down behavior. There is a [prestop hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/) configured in the worker pod to ensure that if an OpenStudio job is still active it will not terminate the pod until it is finished.

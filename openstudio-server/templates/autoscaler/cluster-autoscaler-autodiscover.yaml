@@ -172,13 +172,13 @@ spec:
             - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/{{ .Values.cluster.name }}
             - --balance-similar-node-groups=true
             # - --skip-nodes-with-system-pods
-            - --scale-down-utilization-threshold=0.1
-            - --scale-down-unneeded-time=1m
+            - --scale-down-utilization-threshold={{ .Values.cluster_autoscaler.scaleDownUtilizationThreshold | default "0.2" }}
+            - --scale-down-unneeded-time={{ .Values.cluster_autoscaler.scaleDownUnneededTime | default "10m" }}
             # - --max-scale-down-parallelism=15 # Number of nodes to scale down in parallel
             # - --max-drain-parallelism=15 # Number of nodes to drain in parallel
             # - --max-empty-bulk-delete=15
-            - --max-graceful-termination-sec=30
-            - --scale-down-delay-after-failure=1m
+            - --max-graceful-termination-sec={{ .Values.cluster_autoscaler.maxGracefulTerminationSec | default "120" }}
+            - --scale-down-delay-after-failure={{ .Values.cluster_autoscaler.scaleDownDelayAfterFailure | default "5m" }}
           volumeMounts:
             - name: ssl-certs
               mountPath: /etc/ssl/certs/ca-certificates.crt

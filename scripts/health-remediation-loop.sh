@@ -10,6 +10,15 @@ LOG_FILE="${LOG_FILE:-./health-remediation-${RELEASE}-$(date +%Y%m%d-%H%M%S).log
 ESCALATION_EMAIL="${ESCALATION_EMAIL:-}"
 MAX_REMEDIATIONS_PER_CYCLE="${MAX_REMEDIATIONS_PER_CYCLE:-5}"
 STATE_DIR="${STATE_DIR:-./.health-remediation-state}"
+MAX_UNCORDONS_PER_CYCLE="${MAX_UNCORDONS_PER_CYCLE:-2}"
+SAFE_WORKER_MAX_REPLICAS="${SAFE_WORKER_MAX_REPLICAS:-200}"
+SAFE_WORKER_CPU_TARGET="${SAFE_WORKER_CPU_TARGET:-50}"
+SAFE_WORKER_SCALE_POLICY="${SAFE_WORKER_SCALE_POLICY:-25}"
+SAFE_WORKER_SCALE_UP_WINDOW_SECONDS="${SAFE_WORKER_SCALE_UP_WINDOW_SECONDS:-180}"
+SAFE_WORKER_SCALE_DOWN_WINDOW_SECONDS="${SAFE_WORKER_SCALE_DOWN_WINDOW_SECONDS:-600}"
+SAFE_WORKER_MEMORY_REQUEST="${SAFE_WORKER_MEMORY_REQUEST:-1Gi}"
+SAFE_WORKER_MEMORY_LIMIT="${SAFE_WORKER_MEMORY_LIMIT:-2Gi}"
+SAFE_WORKER_TERMINATION_GRACE="${SAFE_WORKER_TERMINATION_GRACE:-180}"
 
 mkdir -p "$(dirname "$LOG_FILE")" "$STATE_DIR"
 
@@ -124,6 +133,61 @@ remediate_pod() {
   record_state "$state_key" 1
 }
 
+remediate_scheduling_disabled_nodes() {
+  local uncordoned=0
+  local nodes
+  nodes="$(kubectl get nodes --no-headers | awk '$2 ~ /Ready,SchedulingDisabled/ {print $1}' || true)"
+  [[ -z "$nodes" ]] && return 0
+
+  while IFS= read -r node_name; do
+    [[ -z "$node_name" ]] && continue
+    if [[ "$uncordoned" -ge "$MAX_UNCORDONS_PER_CYCLE" ]]; then
+      break
+    fi
+    log "Uncordoning node $node_name (Ready,SchedulingDisabled)"
+    kubectl uncordon "$node_name" >>"$LOG_FILE" 2>&1 || true
+    uncordoned=$((uncordoned + 1))
+  done <<<"$nodes"
+}
+
+remediate_worker_hpa_profile() {
+  local hpa_name="worker-hpa"
+  local max_replicas cpu_target
+  max_replicas="$(kubectl -n "$NAMESPACE" get hpa "$hpa_name" -o jsonpath='{.spec.maxReplicas}' 2>>"$LOG_FILE" || true)"
+  cpu_target="$(kubectl -n "$NAMESPACE" get hpa "$hpa_name" -o jsonpath='{.spec.metrics[0].resource.target.averageUtilization}' 2>>"$LOG_FILE" || true)"
+
+  if [[ -z "$max_replicas" || -z "$cpu_target" ]]; then
+    return 0
+  fi
+
+  if [[ "$max_replicas" -le "$SAFE_WORKER_MAX_REPLICAS" && "$cpu_target" -ge "$SAFE_WORKER_CPU_TARGET" ]]; then
+    return 0
+  fi
+
+  log "Patching hpa/$hpa_name to safe scaling profile (max=$SAFE_WORKER_MAX_REPLICAS cpu=$SAFE_WORKER_CPU_TARGET)"
+  kubectl -n "$NAMESPACE" patch hpa "$hpa_name" --type merge -p "$(cat <<EOF
+{"spec":{"minReplicas":2,"maxReplicas":$SAFE_WORKER_MAX_REPLICAS,"metrics":[{"type":"Resource","resource":{"name":"cpu","target":{"type":"Utilization","averageUtilization":$SAFE_WORKER_CPU_TARGET}}}],"behavior":{"scaleUp":{"stabilizationWindowSeconds":$SAFE_WORKER_SCALE_UP_WINDOW_SECONDS,"policies":[{"type":"Pods","value":$SAFE_WORKER_SCALE_POLICY,"periodSeconds":60}]},"scaleDown":{"stabilizationWindowSeconds":$SAFE_WORKER_SCALE_DOWN_WINDOW_SECONDS,"policies":[{"type":"Pods","value":$SAFE_WORKER_SCALE_POLICY,"periodSeconds":60}]}}}}
+EOF
+)" >>"$LOG_FILE" 2>&1
+}
+
+remediate_worker_resources() {
+  local mem_req mem_lim grace
+  mem_req="$(kubectl -n "$NAMESPACE" get deployment worker -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}' 2>>"$LOG_FILE" || true)"
+  mem_lim="$(kubectl -n "$NAMESPACE" get deployment worker -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}' 2>>"$LOG_FILE" || true)"
+  grace="$(kubectl -n "$NAMESPACE" get deployment worker -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}' 2>>"$LOG_FILE" || true)"
+
+  if [[ "$mem_req" == "$SAFE_WORKER_MEMORY_REQUEST" && "$mem_lim" == "$SAFE_WORKER_MEMORY_LIMIT" && "$grace" == "$SAFE_WORKER_TERMINATION_GRACE" ]]; then
+    return 0
+  fi
+
+  log "Patching deployment/worker resources and termination grace (request=$SAFE_WORKER_MEMORY_REQUEST limit=$SAFE_WORKER_MEMORY_LIMIT grace=${SAFE_WORKER_TERMINATION_GRACE}s)"
+  kubectl -n "$NAMESPACE" patch deployment worker --type json -p "$(cat <<EOF
+[{"op":"replace","path":"/spec/template/spec/terminationGracePeriodSeconds","value":$SAFE_WORKER_TERMINATION_GRACE},{"op":"replace","path":"/spec/template/spec/containers/0/resources/requests/memory","value":"$SAFE_WORKER_MEMORY_REQUEST"},{"op":"replace","path":"/spec/template/spec/containers/0/resources/limits/memory","value":"$SAFE_WORKER_MEMORY_LIMIT"}]
+EOF
+)" >>"$LOG_FILE" 2>&1
+}
+
 check_pods() {
   local pod_lines unhealthy_count=0 remediation_count=0
   pod_lines="$(kubectl -n "$NAMESPACE" get pods -l "release=$RELEASE" --no-headers 2>>"$LOG_FILE" || true)"
@@ -198,6 +262,9 @@ cycle() {
   log "Starting health cycle for release=$RELEASE namespace=$NAMESPACE"
   check_cluster
   check_release_objects
+  remediate_scheduling_disabled_nodes
+  remediate_worker_hpa_profile
+  remediate_worker_resources
   check_pods
   check_hpas
   log "Health cycle complete"
