@@ -57,6 +57,18 @@ spec:
             volumeMounts:
               - name: nfs
                 mountPath: "/mnt/openstudio"
+          - name: init-nginx-config
+            image: alpine
+            command:
+              - /bin/sh
+              - -c
+              - |
+                echo "Injecting Nginx configuration with gzip enabled..."
+                cp /etc/nginx-config/nginx.conf /opt/nginx/conf/nginx.conf
+                echo "Nginx configuration injected successfully"
+            volumeMounts:
+              - name: nginx-config
+                mountPath: /etc/nginx-config
       containers:
         - name:  {{  .Values.web_background.container.name  }}
           image:  {{  .Values.web_background.container.image  }}
@@ -105,3 +117,7 @@ spec:
         - name: nfs
           persistentVolumeClaim:
             claimName: nfs-pvc
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+
