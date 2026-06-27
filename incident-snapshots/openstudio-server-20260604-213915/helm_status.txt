@@ -1,0 +1,116 @@
+NAME: openstudio-server
+LAST DEPLOYED: Thu Jun  4 20:52:23 2026
+NAMESPACE: openstudio-server
+STATUS: deployed
+REVISION: 9
+DESCRIPTION: Reconcile release after SSA conflicts
+RESOURCES:
+==> v1/PersistentVolumeClaim
+NAME           STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+nfs-pvc-data   Bound    pvc-0e82a164-7817-49c9-868f-703e3a72cc63   1Ti        RWO            csi-cinder     <unset>                 3h54m
+db    Bound   pvc-b683bdc2-af96-40c1-8749-7cd5d1e77c55   20Gi   RWO   nfs   <unset>   3h54m
+nfs-pvc   Bound   pvc-d0aa7ce0-b46b-4bcf-955c-d62114321392   10Gi   RWX   nfs   <unset>   3h54m
+redis   Bound   pvc-3d5065fe-2275-4fbc-baae-adb10d714a80   5Gi   RWO   nfs   <unset>   3h54m
+
+==> v1/HorizontalPodAutoscaler
+NAME   REFERENCE        TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+web    Deployment/web   cpu: 0%/70%   1         1         1          3h54m
+
+==> v1/ServiceAccount
+NAME                                       SECRETS   AGE
+openstudio-server-nfs-server-provisioner   0         3h54m
+
+==> v1/ClusterRole
+NAME                                       CREATED AT
+openstudio-server-nfs-server-provisioner   2026-06-04T21:44:36Z
+
+==> v1/ClusterRoleBinding
+NAME                                       ROLE                                                   AGE
+openstudio-server-nfs-server-provisioner   ClusterRole/openstudio-server-nfs-server-provisioner   3h54m
+
+==> v1/Service
+NAME                                       TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                                                                                                     AGE
+openstudio-server-nfs-server-provisioner   ClusterIP   172.24.156.70   <none>        2049/TCP,2049/UDP,32803/TCP,32803/UDP,20048/TCP,20048/UDP,875/TCP,875/UDP,111/TCP,111/UDP,662/TCP,662/UDP   3h54m
+db    ClusterIP   172.27.210.156   <none>   27017/TCP   3h54m
+ingress-load-balancer   LoadBalancer   172.28.200.46   10.60.107.178   80:32664/TCP,443:30738/TCP   3h54m
+queue   ClusterIP   172.30.191.184   <none>   6379/TCP   3h54m
+rserve   ClusterIP   172.25.217.158   <none>   6311/TCP   3h54m
+web   ClusterIP   172.28.99.76   <none>   80/TCP,443/TCP   3h54m
+
+==> v1/Deployment
+NAME                                       READY   UP-TO-DATE   AVAILABLE   AGE
+openstudio-server-nfs-server-provisioner   1/1     1            1           3h54m
+db    1/1   1     1     3h54m
+redis   1/1   1     1     3h54m
+rserve   1/1   1     1     3h54m
+web-background   2/2   2     2     3h54m
+web   1/1   1     1     3h54m
+worker   28/28   28    28    3h54m
+
+==> v1/Pod(related)
+NAME                                                        READY   STATUS    RESTARTS   AGE
+openstudio-server-nfs-server-provisioner-79b49c5c8f-cgj88   1/1     Running   0          3h54m
+db-758649f869-8vb6x   1/1   Running   2 (72m ago)   73m
+redis-59b7d8cd69-zvtmx   1/1   Running   0     3h23m
+rserve-56c6dbb978-64kgp   1/1   Running   0     3h23m
+web-background-848c9d8cb5-bq8br   1/1   Running   0     73m
+web-background-848c9d8cb5-m67wb   1/1   Running   0     73m
+web-7b5979f457-mjvfr   1/1   Running   0     73m
+worker-7b66f77cdc-2sfck   1/1   Terminating   1 (107m ago)   173m
+worker-7b66f77cdc-47r4b   1/1   Terminating   1 (100m ago)   179m
+worker-7b66f77cdc-4rd4z   1/1   Running       0              41m
+worker-7b66f77cdc-6w9t2   1/1   Running       0              42m
+worker-7b66f77cdc-85f5n   1/1   Running       0              42m
+worker-7b66f77cdc-979zg   1/1   Running       0              42m
+worker-7b66f77cdc-9c9c9   1/1   Running       0              41m
+worker-7b66f77cdc-9f6g6   1/1   Running       0              43m
+worker-7b66f77cdc-9jnlc   1/1   Running       0              44m
+worker-7b66f77cdc-9wc5v   1/1   Terminating   1 (105m ago)   169m
+worker-7b66f77cdc-bd46m   1/1   Running       0              45m
+worker-7b66f77cdc-dqv5p   1/1   Terminating   1 (107m ago)   169m
+worker-7b66f77cdc-dv6gb   1/1   Terminating   1 (106m ago)   164m
+worker-7b66f77cdc-gbc4f   1/1   Running       0              41m
+worker-7b66f77cdc-ghmpq   1/1   Running       0              41m
+worker-7b66f77cdc-hbrn9   1/1   Running       0              42m
+worker-7b66f77cdc-hrxj8   1/1   Running       0              41m
+worker-7b66f77cdc-hsjsq   1/1   Running       0              42m
+worker-7b66f77cdc-jh5wh   1/1   Terminating   1 (108m ago)   170m
+worker-7b66f77cdc-jkskf   1/1   Running       0              41m
+worker-7b66f77cdc-kb2n4   1/1   Terminating   1 (108m ago)   3h2m
+worker-7b66f77cdc-krrd4   1/1   Running       0              42m
+worker-7b66f77cdc-ks947   1/1   Terminating   1 (110m ago)   172m
+worker-7b66f77cdc-lr8db   1/1   Running       0              42m
+worker-7b66f77cdc-mgj6r   1/1   Running       0              41m
+worker-7b66f77cdc-mh9lf   1/1   Running       0              46m
+worker-7b66f77cdc-mkklr   1/1   Terminating   1 (103m ago)   173m
+worker-7b66f77cdc-mlc9h   1/1   Running       0              42m
+worker-7b66f77cdc-pqjzs   1/1   Running       0              42m
+worker-7b66f77cdc-pw92k   1/1   Terminating   1 (110m ago)   169m
+worker-7b66f77cdc-px68g   1/1   Terminating   1 (110m ago)   179m
+worker-7b66f77cdc-q5fhk   1/1   Terminating   1 (82m ago)    173m
+worker-7b66f77cdc-q7fm2   1/1   Running       0              41m
+worker-7b66f77cdc-q8s5d   1/1   Terminating   1 (110m ago)   173m
+worker-7b66f77cdc-qq9zm   1/1   Terminating   1 (102m ago)   173m
+worker-7b66f77cdc-rq6wr   1/1   Running       0              43m
+worker-7b66f77cdc-rqgmq   1/1   Terminating   1 (100m ago)   179m
+worker-7b66f77cdc-scrjp   1/1   Terminating   1 (79m ago)    170m
+worker-7b66f77cdc-v68vk   1/1   Running       0              44m
+worker-7b66f77cdc-vjcpj   1/1   Running       0              42m
+worker-7b66f77cdc-vl46q   1/1   Terminating   1 (86m ago)    170m
+worker-7b66f77cdc-xbjcv   1/1   Terminating   1 (98m ago)    170m
+worker-7b66f77cdc-xv2f7   1/1   Running       0              43m
+worker-7b66f77cdc-xwkpb   1/1   Running       0              41m
+worker-7b66f77cdc-zdrb2   1/1   Terminating   1 (101m ago)   175m
+worker-7b66f77cdc-zh4pk   1/1   Running       0              41m
+worker-7b66f77cdc-zs9wq   1/1   Running       0              41m
+
+==> v2/HorizontalPodAutoscaler
+NAME     REFERENCE           TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+worker   Deployment/worker   cpu: 0%/60%   5         560       28         3h54m
+
+==> v1/StorageClass
+NAME   PROVISIONER                                              RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+nfs    cluster.local/openstudio-server-nfs-server-provisioner   Delete          Immediate           true                   3h54m
+
+
+TEST SUITE: None

@@ -6,18 +6,28 @@ kind: ClusterConfig
 metadata:
   name: openstudio-server-03
   region: us-west-2
-  version: "1.27"
+  version: "1.34"
 
 
 vpc:
   clusterEndpoints:
     privateAccess: true
 
+iam:
+  withOIDC: true
+  serviceAccounts:
+    - metadata:
+        name: ebs-csi-controller-sa
+        namespace: kube-system
+      wellKnownPolicies:
+        ebsCSIController: true
+
 managedNodeGroups:
   - name: worker-node-group-spot-2a
+    amiType: Bottlerocket_x86_64
     instanceTypes: ["c7i.48xlarge", "c7a.48xlarge", "c7i.metal-48xl", "c7a.metal-48xl"]
     minSize: 0
-    maxSize: 5
+    maxSize: 20
     desiredCapacity: 0
     maxPodsPerNode: 360
     registryQps: 0
@@ -33,11 +43,6 @@ managedNodeGroups:
         cni: true
     propagateASGTags: true
     spot: true
-    ssh:
-      allow: true
-      # Update publicKeyPath for your public key
-      publicKeyPath: ~/.ssh/id_rsa_179d.pub
-    # availabilityZones: ["us-west-2a"]
     subnets:
       - subnet-08a05df026b4ec9a8
       - subnet-00ea3f10afdc9fb8e
@@ -51,9 +56,10 @@ managedNodeGroups:
       maxUnavailable: 1
 
   - name: worker-node-group-spot-2c
+    amiType: Bottlerocket_x86_64
     instanceTypes: ["c7i.48xlarge", "c7a.48xlarge", "c7i.metal-48xl", "c7a.metal-48xl"]
     minSize: 0
-    maxSize: 16
+    maxSize: 20
     desiredCapacity: 0
     maxPodsPerNode: 360
     registryQps: 0
@@ -69,11 +75,6 @@ managedNodeGroups:
         cni: true
     propagateASGTags: true
     spot: true
-    ssh:
-      allow: true
-      # Update publicKeyPath for your public key
-      publicKeyPath: ~/.ssh/id_rsa_179d.pub
-    # availabilityZones: ["us-west-2c"]
     subnets:
       - subnet-00c5a82bb58556223
       - subnet-0027c0fd03f5cb2bb
@@ -88,9 +89,10 @@ managedNodeGroups:
       maxUnavailable: 1
 
   - name: worker-node-group-spot-2d
+    amiType: Bottlerocket_x86_64
     instanceTypes: ["c7i.48xlarge", "c7a.48xlarge", "c7i.metal-48xl", "c7a.metal-48xl"]
     minSize: 0
-    maxSize: 5
+    maxSize: 20
     desiredCapacity: 0
     maxPodsPerNode: 360
     registryQps: 0
@@ -106,11 +108,6 @@ managedNodeGroups:
         cni: true
     propagateASGTags: true
     spot: true
-    ssh:
-      allow: true
-      # Update publicKeyPath for your public key
-      publicKeyPath: ~/.ssh/id_rsa_179d.pub
-    # availabilityZones: ["us-west-2d"]
     subnets:
       - subnet-04bbcd385d4d482cc
     volumeSize: 1500
@@ -121,3 +118,8 @@ managedNodeGroups:
       'cluster-autoscaler.kubernetes.io/safe-to-evict': 'false'
     updateConfig:
       maxUnavailable: 1
+
+addons:
+  - name: aws-ebs-csi-driver
+    wellKnownPolicies:
+      ebsCSIController: true

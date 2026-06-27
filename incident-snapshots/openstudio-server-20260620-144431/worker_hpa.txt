@@ -1,0 +1,2 @@
+NAME                       REFERENCE           TARGETS         MINPODS   MAXPODS   REPLICAS   AGE
+openstudio-server-worker   Deployment/worker   cpu: 164%/50%   400       6200      460        44h

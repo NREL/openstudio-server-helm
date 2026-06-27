@@ -17,12 +17,19 @@ nfs-server-provisioner:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 550Gi
+    size: 2Ti
   storageClass:
-    allowVolumeExpansion: false
+    allowVolumeExpansion: true
     mountOptions:
       - vers=4
       - addr=10.100.148.127
+  resources:
+    requests:
+      cpu: 4
+      memory: "8Gi"
+    limits:
+      cpu: 8
+      memory: "16Gi"
 db:
   name:  "db"
   label: "db"
@@ -33,14 +40,17 @@ db:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/mongo:6.0.7"
     resources:
       requests:
-        cpu: 4
-        memory: "12Gi"
+        cpu: 6
+        memory: "16Gi"
+      limits:
+        cpu: 8
+        memory: "24Gi"
     ports:
       db_port: 27017
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 200Gi
+    size: 500Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -71,19 +81,22 @@ redis:
   name: "redis"
   label: "redis"
   password: "openstudio"
-  maxclients: 40000
+  maxclients: 100000
   container:
     name: "redis"
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/redis:6.0.9"
     resources:
       requests:
-        cpu: 3
-        memory: "4Gi"
+        cpu: 4
+        memory: "8Gi"
+      limits:
+        cpu: 6
+        memory: "12Gi"
     port: 6379
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 200Gi
+    size: 500Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -102,8 +115,11 @@ rserve:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-rserve:3.10.0"
     resources:
       requests:
-        cpu: 1
-        memory: "1Gi"
+        cpu: 2
+        memory: "4Gi"
+      limits:
+        cpu: 4
+        memory: "8Gi"
 
 rserve_svc:
   name: "rserve"
@@ -119,8 +135,11 @@ web_background:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0"
     resources:
       requests:
-        cpu: 2
-        memory: "4Gi"
+        cpu: 4
+        memory: "8Gi"
+      limits:
+        cpu: 6
+        memory: "12Gi"
 
 web:
   name: "web"
@@ -136,11 +155,11 @@ web:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0"
     resources:
       requests:
-        cpu: 6
-        memory: "50Gi"
-      limits:
         cpu: 8
-        memory: "60Gi"
+        memory: "64Gi"
+      limits:
+        cpu: 12
+        memory: "80Gi"
     port:
      http: 80
      https: 443
@@ -171,12 +190,15 @@ worker:
       requests:
         cpu: 800m
         memory: "1Gi"
-    terminationGracePeriodSeconds: 180
+      limits:
+        cpu: 4000m
+        memory: "2Gi"
+    terminationGracePeriodSeconds: 300
 
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 9000
+  maxReplicas: 10000
   targetCPUUtilizationPercentage: 10
   stabilizationWindowSeconds: 300
-  scalePolicyValue: 950
+  scalePolicyValue: 2000

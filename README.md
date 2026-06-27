@@ -71,11 +71,11 @@ helm install openstudio-server ./openstudio-server --set provider.name=azure --s
 
 Parameter | Description | Default
 --------- | ----------- | -------
-nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 550Gi |
-db.persistence.size | Size of the volume for MongoDB | 200Gi |
+nfs-server-provisioner.persistence.size | Size of the volume for storing the data point results | 2Ti |
+db.persistence.size | Size of the volume for MongoDB | 500Gi |
 cluster.name | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly | openstudio-server |
 worker_hpa.minReplicas | Worker pods that run the simulations | 2 |
-worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 20 |
+worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 10000 |
 worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
 web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
 web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
@@ -84,7 +84,7 @@ worker.container.image   | Container to run the worker. Can use a custom image t
 rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve:3.7.0 |
 
 #### For Large Workloads
-Copy the text from inside the [large template values file](/openstudio-server/values_large.templateyaml)] and paste it inside of the [values file](/openstudio-server/values.yaml). Do this before using the `helm install ...` command.
+Copy the text from inside the [large template values file](/openstudio-server/values_large.templateyaml) and paste it inside of the [values file](/openstudio-server/values.yaml). Do this before using the `helm install ...` command.
 
 Additionally, note that with large workloads you may have issues with downloading container images from Docker Hub if you have a lot of worker nodes. Therefore, you may want to upload the container images into the cloud's container registry and then update the container image path in the [values file](/openstudio-server/values.yaml). This [article](https://docs.aws.amazon.com/AmazonECR/latest/userguide/docker-push-ecr-image.html#:~:text=Identify%20the%20local%20image%20to,container%20images%20on%20your%20system.&text=You%20can%20identify%20an%20image,tag%20name%20combination%20to%20use.) has instructions on how to do this for aws' Elastic Container Registry (ECR).
 
@@ -137,6 +137,13 @@ worker-5cf4db9bbd-z92xx                                    1m           172Mi
 Note that 1000m means one virtual CPU core.
 
 You can also add `watch` to the beginning of the command to see the output change over time.
+
+For periodic remediation, use `scripts/health-remediation-loop.sh`. It checks the cluster and release every 15 minutes, prefers `kubectl patch`-based rollouts, and escalates unresolved issues by email when configured:
+
+```bash
+NAMESPACE=openstudio-server RELEASE=openstudio-server ESCALATION_EMAIL=you@example.com \
+  ./scripts/health-remediation-loop.sh
+```
 
 Once the cluster is up and running, you can use `kubectl` to determine the external IP or DN to access OpenStudio server and use this in PAT to connect to. For example, on AWS, a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com is the external name. See the examples below for each cloud provider.
 

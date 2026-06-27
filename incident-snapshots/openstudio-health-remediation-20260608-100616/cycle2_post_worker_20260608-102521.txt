@@ -1,0 +1,2 @@
+NAME     READY     UP-TO-DATE   AVAILABLE   AGE     CONTAINERS   IMAGES                                               SELECTOR
+worker   221/220   34           221         2d17h   worker       registry-1.docker.io/nrel/openstudio-server:3.10.0   app=worker,release=openstudio-server

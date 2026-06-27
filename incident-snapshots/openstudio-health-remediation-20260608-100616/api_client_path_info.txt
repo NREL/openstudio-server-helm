@@ -1,0 +1,7 @@
+== kubeconfig server ==
+https://wlyy3y77frm2d6jbxdhx5v6azye561zq2dmyqkwwbh7ug8l2.stack.nrel.gov:443
+== current context ==
+openstudio-179d-admin@openstudio-179d
+== env proxy vars ==
+== kubectl config proxy-url fields ==
+openstudio-179d	

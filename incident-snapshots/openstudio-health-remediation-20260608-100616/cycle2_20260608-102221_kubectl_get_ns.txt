@@ -1,0 +1,21 @@
+E0608 10:23:49.709427    9472 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: an error on the server (\"<html>\\r\\n<head><title>502 Bad Gateway</title></head>\\r\\n<body>\\r\\n<center><h1>502 Bad Gateway</h1></center>\\r\\n<hr><center>nginx</center>\\r\\n</body>\\r\\n</html>\") has prevented the request from succeeding"
+E0608 10:23:49.710211    9472 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: an error on the server (\"<html>\\r\\n<head><title>502 Bad Gateway</title></head>\\r\\n<body>\\r\\n<center><h1>502 Bad Gateway</h1></center>\\r\\n<hr><center>nginx</center>\\r\\n</body>\\r\\n</html>\") has prevented the request from succeeding"
+E0608 10:23:49.711580    9472 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: an error on the server (\"<html>\\r\\n<head><title>502 Bad Gateway</title></head>\\r\\n<body>\\r\\n<center><h1>502 Bad Gateway</h1></center>\\r\\n<hr><center>nginx</center>\\r\\n</body>\\r\\n</html>\") has prevented the request from succeeding"
+NAME                     STATUS   AGE
+calico-apiserver         Active   3d18h
+calico-system            Active   3d18h
+default                  Active   3d18h
+gpu-operator             Active   3d18h
+ingress-nginx            Active   3d18h
+keda                     Active   115m
+kube-node-lease          Active   3d18h
+kube-public              Active   3d18h
+kube-system              Active   3d18h
+kubernetes-dashboard     Active   3d18h
+monitoring-system        Active   3d18h
+network-operator         Active   3d18h
+node-feature-discovery   Active   3d18h
+node-problem-detector    Active   3d18h
+openstack-system         Active   3d18h
+openstudio-server        Active   2d17h
+tigera-operator          Active   3d18h

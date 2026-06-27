@@ -5,7 +5,6 @@ metadata:
   annotations:
     cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app: {{ .Values.worker.name }}
@@ -37,11 +36,16 @@ spec:
           lifecycle:
             preStop:
               exec:
-                command: ['/bin/sh', '-c', 'echo "Creating kill.worker file" >&2; touch /opt/openstudio/server/bin/kill.worker; echo "Sending QUIT signal to Resque" >&2; pkill -f -QUIT resque; echo "Waiting for Ruby or OpenStudio processes to end" >&2; while [ $(eval "pgrep -c ruby") -gt 1 ] || [ $(eval "pgrep -c openstudio") -gt 0 ]; do sleep 15; echo "Still waiting..." >&2; done; echo "Killing remaining processes" >&2; pkill -P 1;']
+                command: ['/bin/sh', '-c', 'TIMEOUT=280; ELAPSED=0; echo "$(date): Starting graceful shutdown (timeout ${TIMEOUT}s)" >&2; touch /opt/openstudio/server/bin/kill.worker; echo "$(date): Created kill.worker file" >&2; pkill -f -QUIT resque || true; echo "$(date): Sent QUIT signal to Resque" >&2; while [ $ELAPSED -lt $TIMEOUT ]; do RUBY_COUNT=$(pgrep -c ruby 2>/dev/null || echo 0); OPENSTUDIO_COUNT=$(pgrep -c openstudio 2>/dev/null || echo 0); if [ "$RUBY_COUNT" -le 1 ] && [ "$OPENSTUDIO_COUNT" -eq 0 ]; then echo "$(date): All jobs completed successfully" >&2; break; fi; REMAINING=$((TIMEOUT - ELAPSED)); echo "$(date): Waiting ($REMAINING s remaining) - ruby=$RUBY_COUNT, openstudio=$OPENSTUDIO_COUNT" >&2; sleep 5; ELAPSED=$((ELAPSED + 5)); done; if [ $ELAPSED -ge $TIMEOUT ]; then echo "$(date): Timeout reached. Force killing remaining processes" >&2; pkill -P 1 || true; else echo "$(date): Graceful shutdown completed" >&2; fi']
           resources:
             requests:
               cpu:  {{  .Values.worker.container.resources.requests.cpu  }}
               memory:  {{  .Values.worker.container.resources.requests.memory  }}
+            {{- with .Values.worker.container.resources.limits }}
+            limits:
+              cpu:  {{ .cpu }}
+              memory:  {{ .memory }}
+            {{- end }}
           volumeMounts:
             - name: osdata-worker
               mountPath: "/mnt/openstudio"

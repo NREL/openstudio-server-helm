@@ -1,0 +1,17 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: openstudio-server-03
+  region: us-west-2
+
+managedNodeGroups:
+  - name: bottlerocket-canary
+    amiType: Bottlerocket_x86_64
+    instanceTypes: ["m7i.8xlarge"]
+    minSize: 1
+    maxSize: 1
+    desiredCapacity: 1
+    privateNetworking: true
+    subnets:
+      - subnet-02213ae644f5f392e

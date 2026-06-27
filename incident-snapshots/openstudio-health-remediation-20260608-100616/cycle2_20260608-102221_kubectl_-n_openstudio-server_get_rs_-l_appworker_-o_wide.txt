@@ -1,0 +1,12 @@
+NAME                DESIRED   CURRENT   READY   AGE     CONTAINERS   IMAGES                                                                     SELECTOR
+worker-54568b5fb6   77        77        77      82m     worker       registry-1.docker.io/nrel/openstudio-server:3.10.0                         app=worker,pod-template-hash=54568b5fb6,release=openstudio-server
+worker-575fd66fbc   0         0         0       8h      worker       nrel/openstudio-server:3.10.0                                              app=worker,pod-template-hash=575fd66fbc,release=openstudio-server
+worker-685b875cdf   0         0         0       172m    worker       registry.<ingress-base-domain>/proxy-cache/nrel/openstudio-server:3.10.0   app=worker,pod-template-hash=685b875cdf,release=openstudio-server
+worker-6f8f9544f9   0         0         0       7h51m   worker       nrel/openstudio-server:3.10.0                                              app=worker,pod-template-hash=6f8f9544f9,release=openstudio-server
+worker-75f95467fc   416       416       414     162m    worker       registry-1.docker.io/nrel/openstudio-server:3.10.0                         app=worker,pod-template-hash=75f95467fc,release=openstudio-server
+worker-77f8f7868c   0         0         0       8h      worker       nrel/openstudio-server:3.10.0                                              app=worker,pod-template-hash=77f8f7868c,release=openstudio-server
+worker-78f54d5d97   0         0         0       8h      worker       nrel/openstudio-server:3.10.0                                              app=worker,pod-template-hash=78f54d5d97,release=openstudio-server
+worker-79477f946c   0         0         0       8h      worker       nrel/openstudio-server:3.10.0                                              app=worker,pod-template-hash=79477f946c,release=openstudio-server
+worker-7b8bfc6665   0         0         0       8h      worker       nrel/openstudio-server:3.10.0                                              app=worker,pod-template-hash=7b8bfc6665,release=openstudio-server
+worker-856b7c94b7   0         0         0       8h      worker       nrel/openstudio-server:3.10.0                                              app=worker,pod-template-hash=856b7c94b7,release=openstudio-server
+worker-86d46bd56b   0         0         0       8h      worker       nrel/openstudio-server:3.10.0                                              app=worker,pod-template-hash=86d46bd56b,release=openstudio-server

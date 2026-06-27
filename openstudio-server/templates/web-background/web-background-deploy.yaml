@@ -36,6 +36,11 @@ spec:
             requests:
               cpu:  {{  .Values.web_background.container.resources.requests.cpu  }}
               memory:  {{  .Values.web_background.container.resources.requests.memory  }}
+            {{- with .Values.web_background.container.resources.limits }}
+            limits:
+              cpu:  {{ .cpu }}
+              memory:  {{ .memory }}
+            {{- end }}
           volumeMounts:
             - name: nfs
               mountPath: "/mnt/openstudio"

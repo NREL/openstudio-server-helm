@@ -1,0 +1,4 @@
+duration_seconds=600
+interval_seconds=30
+namespace=openstudio-server
+release=openstudio-server

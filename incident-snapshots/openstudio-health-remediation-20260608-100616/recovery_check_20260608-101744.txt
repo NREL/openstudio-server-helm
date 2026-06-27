@@ -1,0 +1,24 @@
+[INFO] Running read-only reliability checks for openstudio-server/openstudio-server
+NAME: openstudio-server
+LAST DEPLOYED: Mon Jun  8 09:01:35 2026
+NAMESPACE: openstudio-server
+STATUS: failed
+REVISION: 62
+DESCRIPTION: Upgrade "openstudio-server" failed: cannot patch "nfs-pvc-data" with kind PersistentVolumeClaim: an error on the server ("<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>") has prevented the request from succeeding (patch persistentvolumeclaims nfs-pvc-data) && failed to create patch: unable to get data for current object openstudio-server/rserve: an error on the server ("<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>") has prevented the request from succeeding (get services rserve) && cannot patch "worker" with kind ScaledObject: an error on the server ("<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>") has prevented the request from succeeding (patch scaledobjects.keda.sh worker) && cannot patch "worker-keda-redis-auth" with kind TriggerAuthentication: an error on the server ("<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>") has prevented the request from succeeding (patch triggerauthentications.keda.sh worker-keda-redis-auth)
+RESOURCES:
+==> v1/PersistentVolumeClaim
+NAME           STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+nfs-pvc-data   Bound    pvc-94566787-6dd6-400a-94a4-339f7012de02   1536Gi     RWO            csi-cinder     <unset>                 136m
+db    Bound   pvc-08eeb221-2b4b-4e73-a650-035d100aadb7   300Gi   RWO   csi-cinder   <unset>   2d17h
+nfs-pvc   Bound   pvc-5ec6d57a-9704-42bf-8404-9fb85086e7ee   100Gi   RWX   nfs   <unset>   2d17h
+redis   Bound   pvc-b2918007-05e7-4947-ac4e-2ecbc94b43fd   300Gi   RWO   csi-cinder   <unset>   2d17h
+
+==> v1/ClusterRoleBinding
+NAME                                       ROLE                                                   AGE
+openstudio-server-nfs-server-provisioner   ClusterRole/openstudio-server-nfs-server-provisioner   2d17h
+
+==> v1/Service
+NAME                                       TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                                                                                                     AGE
+---
+Error from server (InternalError): an error on the server ("<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>") has prevented the request from succeeding (get pods)
+[ERROR] No pods found matching name substring: nfs-server-provisioner

@@ -1,0 +1,3 @@
+E0608 10:12:59.753290   80559 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: an error on the server (\"<html>\\r\\n<head><title>502 Bad Gateway</title></head>\\r\\n<body>\\r\\n<center><h1>502 Bad Gateway</h1></center>\\r\\n<hr><center>nginx</center>\\r\\n</body>\\r\\n</html>\") has prevented the request from succeeding"
+E0608 10:12:59.754555   80559 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: an error on the server (\"<html>\\r\\n<head><title>502 Bad Gateway</title></head>\\r\\n<body>\\r\\n<center><h1>502 Bad Gateway</h1></center>\\r\\n<hr><center>nginx</center>\\r\\n</body>\\r\\n</html>\") has prevented the request from succeeding"
+deployment.apps/worker paused

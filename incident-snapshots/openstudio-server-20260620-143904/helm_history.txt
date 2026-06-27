@@ -1,0 +1,11 @@
+REVISION	UPDATED                 	STATUS    	CHART                  	APP VERSION	DESCRIPTION     
+14      	Fri Jun 19 23:07:47 2026	superseded	openstudio-server-0.5.2	3.8.0-1    	Upgrade complete
+15      	Fri Jun 19 23:08:35 2026	superseded	openstudio-server-0.5.2	3.8.0-1    	Upgrade complete
+16      	Fri Jun 19 23:17:26 2026	superseded	openstudio-server-0.5.2	3.8.0-1    	Upgrade complete
+17      	Fri Jun 19 23:28:11 2026	deployed  	openstudio-server-0.5.2	3.8.0-1    	Upgrade complete
+18      	Sat Jun 20 02:42:58 2026	superseded	openstudio-server-0.5.2	3.8.0-1    	Upgrade complete
+19      	Sat Jun 20 03:13:38 2026	superseded	openstudio-server-0.5.2	3.8.0-1    	Upgrade complete
+20      	Sat Jun 20 03:18:10 2026	superseded	openstudio-server-0.5.2	3.8.0-1    	Upgrade complete
+21      	Sat Jun 20 03:28:05 2026	deployed  	openstudio-server-0.5.2	3.8.0-1    	Upgrade complete
+22      	Sat Jun 20 03:47:07 2026	deployed  	openstudio-server-0.5.2	3.8.0-1    	Upgrade complete
+23      	Sat Jun 20 04:22:26 2026	deployed  	openstudio-server-0.5.2	3.8.0-1    	Upgrade complete

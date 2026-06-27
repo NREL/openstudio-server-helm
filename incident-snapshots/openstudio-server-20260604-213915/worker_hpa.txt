@@ -1,0 +1,2 @@
+NAME     REFERENCE           TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+worker   Deployment/worker   cpu: 0%/60%   5         560       28         3h54m

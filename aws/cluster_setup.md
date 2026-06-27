@@ -26,13 +26,13 @@ For AWS, the key EC2 quota for the worker node groups in this guide is:
 
 - `All Standard (A, C, D, H, I, M, R, T, Z) Spot Instance Requests` (regional, in vCPUs)
 
-If your worker pod request is `1 vCPU` (as used in the large workload template), the minimum worker compute is:
+If your worker pod request is `800m` (as used in the large workload template), the minimum worker compute is:
 
-- Required worker vCPU = `10,000 pods * 1 vCPU` = `10,000 vCPU`
+- Required worker vCPU = `10,000 pods * 800m` = `8,000 vCPU`
 
 Using the worker instance types in this repo (for example `c7i.48xlarge` / `c7a.48xlarge` at 192 vCPU each):
 
-- Minimum spot nodes = `ceil(10,000 / 192)` = `53 nodes`
+- Minimum spot nodes = `ceil(8,000 / 192)` = `42 nodes`
 
 You should add headroom for:
 
@@ -42,10 +42,10 @@ You should add headroom for:
 
 Recommended request target (20% headroom):
 
-- Spot vCPU quota target = `10,000 * 1.2` = `12,000 vCPU`
-- Spot node target at 192 vCPU/node = `ceil(12,000 / 192)` = `63 nodes`
+- Spot vCPU quota target = `8,000 * 1.2` = `9,600 vCPU`
+- Spot node target at 192 vCPU/node = `ceil(9,600 / 192)` = `50 nodes`
 
-On-demand quota for essential services depends on web-group sizing. With one `m7i.8xlarge` essential node:
+On-demand quota for essential services depends on web-group sizing. With two `m7i.8xlarge` essential nodes:
 
 - On-demand vCPU = `32 vCPU`
 
@@ -58,9 +58,9 @@ If you tune worker CPU requests, use this formula:
 
 - Spot vCPU quota target = `worker_pod_count * worker_cpu_request * headroom_factor`
 
-Example with `500m` workers and 20% headroom:
+Example with `800m` workers and 20% headroom:
 
-- `10,000 * 0.5 * 1.2 = 6,000 vCPU`
+- `10,000 * 0.8 * 1.2 = 9,600 vCPU`
 
 Important: quota alone is not enough at this scale. You must also ensure subnet IP capacity for VPC CNI (or enable prefix delegation) so nodes can host the required pod density.
 
@@ -78,7 +78,7 @@ The chart templates in this repo already use node affinity for this pattern:
 
 ## 3. Cluster Config Requirements (eksctl)
 
-Use [eks_config_large-spot.yaml](../eks_config_large-spot.yaml) as your base. Ensure these key settings are present.
+Use [eks_config_large-spot.yaml](../eks_config_large-spot.yaml) as your base. Keep [eks_config_large-spot-workerng.yaml](../eks_config_large-spot-workerng.yaml) and [worker_node_group_large-spot.yaml](../worker_node_group_large-spot.yaml) aligned on worker capacity if you use those variants. Ensure these key settings are present.
 
 ### 3.1 OIDC and EBS CSI IAM setup
 
@@ -100,8 +100,8 @@ managedNodeGroups:
   - name: Web-node-group2
     instanceType: m7i.8xlarge
     minSize: 0
-    maxSize: 1
-    desiredCapacity: 1
+    maxSize: 2
+    desiredCapacity: 2
     labels:
       nodegroup: web-group
       role: essential
@@ -117,7 +117,7 @@ managedNodeGroups:
     spot: true
     instanceTypes: ["c7i.48xlarge", "c7a.48xlarge", "c7i.metal-48xl", "c7a.metal-48xl"]
     minSize: 0
-    maxSize: 10
+    maxSize: 20
     desiredCapacity: 0
     labels:
       nodegroup: worker-group
@@ -313,10 +313,10 @@ Confirm:
 
 When scaling worker capacity during active analyses, prefer patching the worker HPA rather than running `helm upgrade` for this specific change. This avoids unnecessary deployment churn while jobs are running.
 
-Example: set worker HPA max replicas to `2000`.
+Example: set worker HPA max replicas to `10000`.
 
 ```bash
-kubectl patch hpa worker -n default --type='json' -p='[{"op": "replace", "path": "/spec/maxReplicas", "value": 2000}]'
+kubectl patch hpa worker -n default --type='json' -p='[{"op": "replace", "path": "/spec/maxReplicas", "value": 10000}]'
 ```
 
 You can also update the HPA minimum if needed:
@@ -372,5 +372,3 @@ Useful follow-up checks:
 kubectl describe pod -n kube-system aws-node-csx9h
 aws eks describe-addon --cluster-name openstudio-server-03 --addon-name vpc-cni --region us-west-2 --query 'addon.status'
 ```
-
-

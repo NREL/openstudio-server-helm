@@ -40,6 +40,11 @@ spec:
             requests:
               cpu:  {{  .Values.web.container.resources.requests.cpu  }}
               memory:  {{  .Values.web.container.resources.requests.memory  }}
+            {{- with .Values.web.container.resources.limits }}
+            limits:
+              cpu:  {{ .cpu }}
+              memory:  {{ .memory }}
+            {{- end }}
           ports:
             - containerPort: {{ .Values.web.container.port.http  }}
             - containerPort: {{ .Values.web.container.port.https  }}

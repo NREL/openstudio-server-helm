@@ -1,0 +1,5 @@
+2026-06-08T10:06:58-04:00\tOK\tkubectl -n openstudio-server get pods --request-timeout=10s
+2026-06-08T10:07:00-04:00\tOK\tkubectl -n openstudio-server get deploy worker --request-timeout=10s
+2026-06-08T10:07:01-04:00\tOK\tkubectl -n openstudio-server get hpa worker --request-timeout=10s
+2026-06-08T10:07:01-04:00\tOK\tkubectl get nodes --request-timeout=10s
+2026-06-08T10:07:02-04:00\tOK\thelm status openstudio-server -n openstudio-server

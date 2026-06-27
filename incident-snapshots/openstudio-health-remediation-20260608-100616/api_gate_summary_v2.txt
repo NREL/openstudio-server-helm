@@ -1,0 +1,2 @@
+readyz_pass=8
+readyz_fail=7

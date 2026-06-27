@@ -1,0 +1,131 @@
+NAME: openstudio-server
+LAST DEPLOYED: Thu Jun  4 20:52:23 2026
+NAMESPACE: openstudio-server
+STATUS: deployed
+REVISION: 9
+DESCRIPTION: Reconcile release after SSA conflicts
+RESOURCES:
+==> v1/ClusterRole
+NAME                                       CREATED AT
+openstudio-server-nfs-server-provisioner   2026-06-04T21:44:36Z
+
+==> v1/Service
+NAME                                       TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                                                                                                     AGE
+openstudio-server-nfs-server-provisioner   ClusterIP   172.24.156.70   <none>        2049/TCP,2049/UDP,32803/TCP,32803/UDP,20048/TCP,20048/UDP,875/TCP,875/UDP,111/TCP,111/UDP,662/TCP,662/UDP   4h29m
+db    ClusterIP   172.27.210.156   <none>   27017/TCP   4h29m
+ingress-load-balancer   LoadBalancer   172.28.200.46   10.60.107.178   80:32664/TCP,443:30738/TCP   4h29m
+queue   ClusterIP   172.30.191.184   <none>   6379/TCP   4h29m
+rserve   ClusterIP   172.25.217.158   <none>   6311/TCP   4h29m
+web   ClusterIP   172.28.99.76   <none>   80/TCP,443/TCP   4h29m
+
+==> v1/Deployment
+NAME                                       READY   UP-TO-DATE   AVAILABLE   AGE
+openstudio-server-nfs-server-provisioner   1/1     1            1           4h29m
+db    1/1   1     1     4h29m
+redis   1/1   1     1     4h29m
+rserve   1/1   1     1     4h29m
+web-background   2/2   2     2     4h29m
+web   1/1   1     1     4h29m
+worker   62/62   62    62    4h29m
+
+==> v2/HorizontalPodAutoscaler
+NAME     REFERENCE           TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+worker   Deployment/worker   cpu: 0%/60%   5         560       62         4h29m
+
+==> v1/StorageClass
+NAME   PROVISIONER                                              RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+nfs    cluster.local/openstudio-server-nfs-server-provisioner   Delete          Immediate           true                   4h29m
+
+==> v1/PersistentVolumeClaim
+NAME           STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+nfs-pvc-data   Bound    pvc-0e82a164-7817-49c9-868f-703e3a72cc63   1Ti        RWO            csi-cinder     <unset>                 4h29m
+db    Bound   pvc-b683bdc2-af96-40c1-8749-7cd5d1e77c55   20Gi   RWO   nfs   <unset>   4h29m
+nfs-pvc   Bound   pvc-d0aa7ce0-b46b-4bcf-955c-d62114321392   10Gi   RWX   nfs   <unset>   4h29m
+redis   Bound   pvc-3d5065fe-2275-4fbc-baae-adb10d714a80   5Gi   RWO   nfs   <unset>   4h29m
+
+==> v1/ClusterRoleBinding
+NAME                                       ROLE                                                   AGE
+openstudio-server-nfs-server-provisioner   ClusterRole/openstudio-server-nfs-server-provisioner   4h29m
+
+==> v1/Pod(related)
+NAME                                                        READY   STATUS    RESTARTS   AGE
+openstudio-server-nfs-server-provisioner-79b49c5c8f-cgj88   1/1     Running   0          4h29m
+db-758649f869-8vb6x   1/1   Running   3 (11m ago)   108m
+redis-59b7d8cd69-zvtmx   1/1   Running   0     3h58m
+rserve-56c6dbb978-64kgp   1/1   Running   0     3h58m
+web-background-848c9d8cb5-bq8br   1/1   Running   0     108m
+web-background-848c9d8cb5-m67wb   1/1   Running   0     108m
+web-7b5979f457-mjvfr   1/1   Running   0     108m
+worker-6b55ff77cc-26lcx   1/1   Running   0     29m
+worker-6b55ff77cc-4nwvj   1/1   Running   0     34m
+worker-6b55ff77cc-4sxjw   1/1   Running   0     29m
+worker-6b55ff77cc-4vptd   1/1   Running   0     33m
+worker-6b55ff77cc-56qsx   1/1   Running   0     33m
+worker-6b55ff77cc-5s8x5   1/1   Running   0     30m
+worker-6b55ff77cc-66c8s   1/1   Running   0     29m
+worker-6b55ff77cc-7r8gx   1/1   Running   0     30m
+worker-6b55ff77cc-8995c   1/1   Running   0     30m
+worker-6b55ff77cc-8z96x   1/1   Running   0     29m
+worker-6b55ff77cc-bnqnd   1/1   Running   0     34m
+worker-6b55ff77cc-bsd4g   1/1   Running   0     34m
+worker-6b55ff77cc-c94sd   1/1   Running   0     29m
+worker-6b55ff77cc-ch4f4   1/1   Running   0     22m
+worker-6b55ff77cc-cvnpz   1/1   Running   0     29m
+worker-6b55ff77cc-cvwvt   1/1   Running   0     34m
+worker-6b55ff77cc-d87tg   1/1   Running   0     30m
+worker-6b55ff77cc-g4dd7   1/1   Running   0     29m
+worker-6b55ff77cc-g6m54   1/1   Running   0     30m
+worker-6b55ff77cc-gnf82   1/1   Running   0     29m
+worker-6b55ff77cc-h9v62   1/1   Running   0     34m
+worker-6b55ff77cc-hbmts   1/1   Running   0     30m
+worker-6b55ff77cc-hw92d   1/1   Running   0     21m
+worker-6b55ff77cc-jb6gd   1/1   Running   0     30m
+worker-6b55ff77cc-jgp6z   1/1   Running   0     34m
+worker-6b55ff77cc-jjs4f   1/1   Running   0     29m
+worker-6b55ff77cc-jtlj5   1/1   Running   0     30m
+worker-6b55ff77cc-k4nnj   1/1   Running   0     29m
+worker-6b55ff77cc-kdg8v   1/1   Running   0     30m
+worker-6b55ff77cc-kjm52   1/1   Running   0     21m
+worker-6b55ff77cc-kmk6j   1/1   Running   0     30m
+worker-6b55ff77cc-kx4tq   1/1   Running   0     34m
+worker-6b55ff77cc-l8r2d   1/1   Running   0     30m
+worker-6b55ff77cc-ll447   1/1   Running   0     30m
+worker-6b55ff77cc-lxnnh   1/1   Running   0     29m
+worker-6b55ff77cc-m8wtz   1/1   Running   0     34m
+worker-6b55ff77cc-mczmx   1/1   Running   0     34m
+worker-6b55ff77cc-mh8hh   1/1   Running   0     30m
+worker-6b55ff77cc-mq4rv   1/1   Running   0     30m
+worker-6b55ff77cc-n6hb7   1/1   Running   0     34m
+worker-6b55ff77cc-nkb95   1/1   Running   0     30m
+worker-6b55ff77cc-nkfgm   1/1   Running   0     29m
+worker-6b55ff77cc-pq9bd   1/1   Running   0     29m
+worker-6b55ff77cc-pxgb8   1/1   Running   0     30m
+worker-6b55ff77cc-q5xjp   1/1   Running   0     30m
+worker-6b55ff77cc-qw9q5   1/1   Running   0     30m
+worker-6b55ff77cc-rcv79   1/1   Running   0     30m
+worker-6b55ff77cc-t4bm2   1/1   Running   0     30m
+worker-6b55ff77cc-t6hvk   1/1   Running   0     21m
+worker-6b55ff77cc-tnnrs   1/1   Running   0     30m
+worker-6b55ff77cc-v5gbh   1/1   Running   0     21m
+worker-6b55ff77cc-vq8ch   1/1   Running   0     29m
+worker-6b55ff77cc-w4m7k   1/1   Running   0     34m
+worker-6b55ff77cc-w5s9c   1/1   Running   0     21m
+worker-6b55ff77cc-w5x5g   1/1   Running   0     21m
+worker-6b55ff77cc-wc64x   1/1   Running   0     29m
+worker-6b55ff77cc-wcb7z   1/1   Running   0     22m
+worker-6b55ff77cc-wnlkb   1/1   Running   0     30m
+worker-6b55ff77cc-wrshp   1/1   Running   0     34m
+worker-6b55ff77cc-z7l58   1/1   Running   0     29m
+worker-6b55ff77cc-zhc7c   1/1   Running   0     21m
+worker-6b55ff77cc-zx4zx   1/1   Running   0     30m
+
+==> v1/HorizontalPodAutoscaler
+NAME   REFERENCE        TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+web    Deployment/web   cpu: 20%/70%   1         1         1          4h29m
+
+==> v1/ServiceAccount
+NAME                                       SECRETS   AGE
+openstudio-server-nfs-server-provisioner   0         4h29m
+
+
+TEST SUITE: None
