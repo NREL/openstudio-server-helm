@@ -1848,3 +1848,16 @@ Pod openstudio-server-nfs-server-provisioner-f95dcb7c4-sjhwx is still unhealthy 
 2026-06-27T20:09:28Z HPA objects present
 2026-06-27T20:09:28Z Health cycle complete
 2026-06-27T20:09:28Z Sleeping for 900s
+2026-06-27T20:24:28Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T20:24:28Z Checking cluster reachability
+NAME                                          STATUS   ROLES    AGE    VERSION
+ip-172-18-118-83.us-west-2.compute.internal   Ready    <none>   121m   v1.34.7-eks-40737a8
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T20:24:36Z Patching deployment/worker resources and termination grace (request=1Gi limit=3Gi grace=180s)
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T20:24:42Z Unhealthy pod detected: web-57c8458d5-kj2b2 ready=0/1 status=Running restarts=0 app=web
+2026-06-27T20:24:44Z HPA objects present
+2026-06-27T20:24:44Z Health cycle complete
+2026-06-27T20:24:44Z Sleeping for 900s
