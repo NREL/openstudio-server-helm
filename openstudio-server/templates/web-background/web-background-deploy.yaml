@@ -28,6 +28,35 @@ spec:
                     operator: In
                     values:
                       - web-group
+      initContainers:
+          - name: init-verify-mnt-openstudio
+            image: alpine
+            command:
+              - /bin/sh
+              - -c
+              - |
+                set -e
+                echo "Verifying /mnt/openstudio mount..."
+                if [ ! -d "/mnt/openstudio" ]; then
+                  echo "ERROR: /mnt/openstudio directory does not exist"
+                  exit 1
+                fi
+                echo "Checking mount point..."
+                if ! grep -qs "/mnt/openstudio " /proc/mounts; then
+                  echo "ERROR: /mnt/openstudio is not mounted"
+                  exit 1
+                fi
+                echo "Verifying write permissions..."
+                TEST_FILE="/mnt/openstudio/.startup-check-$(date +%s)"
+                if ! touch "$TEST_FILE" 2>/dev/null; then
+                  echo "ERROR: /mnt/openstudio is not writable"
+                  exit 1
+                fi
+                rm -f "$TEST_FILE"
+                echo "SUCCESS: /mnt/openstudio is mounted and writable"
+            volumeMounts:
+              - name: nfs
+                mountPath: "/mnt/openstudio"
       containers:
         - name:  {{  .Values.web_background.container.name  }}
           image:  {{  .Values.web_background.container.image  }}
@@ -60,10 +89,16 @@ spec:
           command: ["/usr/local/bin/start-web-background"]
           livenessProbe:
             exec:
-              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
-            initialDelaySeconds: 5
-            periodSeconds: 30
-            timeoutSeconds: 30
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  grep -qs "/mnt/openstudio " /proc/mounts && \
+                  test -w /mnt/openstudio && \
+                  exit 0 || exit 1
+            initialDelaySeconds: 10
+            periodSeconds: 60
+            timeoutSeconds: 10
             failureThreshold: 3
       priorityClassName: high-priority
       volumes:

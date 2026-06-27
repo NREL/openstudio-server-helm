@@ -32,6 +32,34 @@ spec:
           - name: init-wait-for-db
             image: alpine
             command: ["/bin/sh", "-c", "for i in $(seq 1 300); do nc -zvw1 {{  .Values.db.name  }} {{ .Values.db.container.ports.db_port }} && exit 0 || sleep 3; done; exit 1"]
+          - name: init-verify-mnt-openstudio
+            image: alpine
+            command:
+              - /bin/sh
+              - -c
+              - |
+                set -e
+                echo "Verifying /mnt/openstudio mount..."
+                if [ ! -d "/mnt/openstudio" ]; then
+                  echo "ERROR: /mnt/openstudio directory does not exist"
+                  exit 1
+                fi
+                echo "Checking mount point..."
+                if ! grep -qs "/mnt/openstudio " /proc/mounts; then
+                  echo "ERROR: /mnt/openstudio is not mounted"
+                  exit 1
+                fi
+                echo "Verifying write permissions..."
+                TEST_FILE="/mnt/openstudio/.startup-check-$(date +%s)"
+                if ! touch "$TEST_FILE" 2>/dev/null; then
+                  echo "ERROR: /mnt/openstudio is not writable"
+                  exit 1
+                fi
+                rm -f "$TEST_FILE"
+                echo "SUCCESS: /mnt/openstudio is mounted and writable"
+            volumeMounts:
+              - name: nfs
+                mountPath: "/mnt/openstudio"
       containers:
         - name:  {{ .Values.web.container.name  }}
           image: {{ .Values.web.container.image  }}
@@ -68,22 +96,68 @@ spec:
               value: {{ (ceil (mulf .Values.worker_hpa.maxReplicas 1.05)) | quote }}
             - name: MAX_POOL
               value: {{ (ceil (divf (mulf (trimSuffix "Gi" .Values.web.container.resources.requests.memory) 1024 0.75) .Values.web.passenger_memory_per_process)) | quote }}
+            # Passenger performance tuning
+            - name: PASSENGER_MIN_INSTANCES
+              value: {{ .Values.web.passenger_min_instances | quote }}
+            - name: PASSENGER_MAX_POOL_SIZE
+              value: {{ .Values.web.passenger_max_pool_size | quote }}
+            - name: PASSENGER_REQUEST_QUEUE_OVERFLOW_TO_WAIT_LIST
+              value: {{ .Values.web.passenger_request_queue_overflow_to_wait_list | quote }}
+            - name: PASSENGER_MAX_REQUEST_QUEUE_SIZE
+              value: {{ .Values.web.passenger_max_request_queue_size | quote }}
+            - name: PASSENGER_RESTART_DIR
+              value: "/tmp/passenger-restart"
+            # Nginx compression and buffering
+            - name: NGINX_GZIP
+              value: {{ .Values.web.nginx_gzip | quote }}
+            - name: NGINX_GZIP_COMP_LEVEL
+              value: {{ .Values.web.nginx_gzip_comp_level | quote }}
+            - name: NGINX_GZIP_MIN_LENGTH
+              value: {{ .Values.web.nginx_gzip_min_length | quote }}
+            - name: NGINX_CLIENT_MAX_BODY_SIZE
+              value: {{ .Values.web.nginx_client_max_body_size | quote }}
+            - name: NGINX_PROXY_CONNECT_TIMEOUT
+              value: {{ .Values.web.nginx_proxy_connect_timeout | quote }}
+            - name: NGINX_PROXY_SEND_TIMEOUT
+              value: {{ .Values.web.nginx_proxy_send_timeout | quote }}
+            - name: NGINX_PROXY_READ_TIMEOUT
+              value: {{ .Values.web.nginx_proxy_read_timeout | quote }}
+            - name: NGINX_PROXY_BUFFERING
+              value: {{ .Values.web.nginx_proxy_buffering | quote }}
+            - name: NGINX_PROXY_BUFFER_SIZE
+              value: {{ .Values.web.nginx_proxy_buffer_size | quote }}
+            - name: NGINX_PROXY_BUFFERS
+              value: {{ .Values.web.nginx_proxy_buffers | quote }}
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
           readinessProbe:
             httpGet:
-              path: /
+              path: /analyses.json
               port: 80
-            initialDelaySeconds: 60
-            periodSeconds: 200
-            timeoutSeconds: 120
-            failureThreshold: 10
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 3
           livenessProbe:
             exec:
-              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
-            initialDelaySeconds: 5
-            periodSeconds: 200
-            timeoutSeconds: 120
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  grep -qs "/mnt/openstudio " /proc/mounts && \
+                  test -w /mnt/openstudio && \
+                  exit 0 || exit 1
+            initialDelaySeconds: 10
+            periodSeconds: 60
+            timeoutSeconds: 10
             failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
       priorityClassName: high-priority
       volumes:
         - name: nfs

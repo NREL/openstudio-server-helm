@@ -151,11 +151,26 @@ web:
   name: "web"
   label: "web"
   secret_key_value: "c4ab6d293e4bf52ee92e8dda6e16dc9b5448d0c5f7908ee40c66736d515f3c29142d905b283d73e5e9cef6b13cd8e38be6fd3b5e25d00f35b259923a86c7c473"
-  # passenger_max_request_queue_size: "1600"
-  # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
-  # passenger_max_pool_size: "21"
-  # This value is typically between 150 and 400, find this by ssh into web pod and doing `passenger-status`
+  # Passenger tuning parameters
   passenger_memory_per_process: 250
+  passenger_min_instances: 2
+  passenger_max_pool_size: 32
+  passenger_request_queue_overflow_to_wait_list: "true"
+  passenger_max_request_queue_size: 1600
+  # Nginx tuning parameters
+  nginx_gzip: "on"
+  nginx_gzip_comp_level: 6
+  nginx_gzip_min_length: 1024
+  nginx_client_max_body_size: "100m"
+  # Connection timeout for analyses.json download
+  nginx_proxy_connect_timeout: "90s"
+  nginx_proxy_send_timeout: "300s"
+  nginx_proxy_read_timeout: "300s"
+  nginx_proxy_buffering: "on"
+  nginx_proxy_buffer_size: "32k"
+  nginx_proxy_buffers: "8 32k"
+  # Health check tuning
+  health_check_timeout_analyses: 15
   container:
     name: "web"
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0"

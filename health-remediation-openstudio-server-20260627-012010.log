@@ -1719,3 +1719,132 @@ Subject: Missing expected HPA objects
 Expected HPA objects were not found: worker-hpa
 2026-06-27T18:37:53Z Health cycle complete
 2026-06-27T18:37:53Z Sleeping for 900s
+2026-06-27T18:52:53Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T18:52:53Z Checking cluster reachability
+NAME                                          STATUS   ROLES    AGE   VERSION
+ip-172-18-118-83.us-west-2.compute.internal   Ready    <none>   30m   v1.34.7-eks-40737a8
+ip-172-18-119-43.us-west-2.compute.internal   Ready    <none>   16m   v1.34.9-eks-93b80c6
+Error from server (NotFound): horizontalpodautoscalers.autoscaling "worker-hpa" not found
+Error from server (NotFound): horizontalpodautoscalers.autoscaling "worker-hpa" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T18:53:01Z Patching deployment/worker resources and termination grace (request=1Gi limit=3Gi grace=180s)
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T18:53:05Z Unhealthy pod detected: openstudio-server-nfs-server-provisioner-9b99f758b-x2kc9 ready=0/1 status=ContainerCreating restarts=0 app=nfs-server-provisioner
+2026-06-27T18:53:07Z Unhealthy pod detected: rserve-78b5666b5f-bkkhw ready=0/1 status=ContainerCreating restarts=0 app=rserve
+Error from server (NotFound): pods "web-5b757cc8b8-6z89n" not found
+2026-06-27T18:53:08Z Unhealthy pod detected: web-5b757cc8b8-6z89n ready=0/1 status=Error restarts=0 app=web-5b757cc8b8-6z89n
+2026-06-27T18:53:08Z Patching deployment/web-5b757cc8b8-6z89n to trigger a safe rollout
+Error from server (NotFound): deployments.apps "web-5b757cc8b8-6z89n" not found
+2026-06-27T18:53:10Z Unhealthy pod detected: web-5b757cc8b8-msmkl ready=0/1 status=Init:0/1 restarts=0 app=web
+2026-06-27T18:53:10Z ESCALATE: Persistent unhealthy pod for web
+
+--- ESCALATION ---
+Subject: Persistent unhealthy pod for web
+Pod web-5b757cc8b8-msmkl is still unhealthy after a prior remediation attempt. Please inspect 'openstudio-server/web'.
+2026-06-27T18:53:11Z ESCALATE: Missing expected HPA objects
+
+--- ESCALATION ---
+Subject: Missing expected HPA objects
+Expected HPA objects were not found: worker-hpa
+2026-06-27T18:53:11Z Health cycle complete
+2026-06-27T18:53:11Z Sleeping for 900s
+2026-06-27T19:08:11Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T19:08:11Z Checking cluster reachability
+NAME                                          STATUS   ROLES    AGE   VERSION
+ip-172-18-118-83.us-west-2.compute.internal   Ready    <none>   45m   v1.34.7-eks-40737a8
+ip-172-18-119-43.us-west-2.compute.internal   Ready    <none>   31m   v1.34.9-eks-93b80c6
+Error from server (NotFound): horizontalpodautoscalers.autoscaling "worker-hpa" not found
+Error from server (NotFound): horizontalpodautoscalers.autoscaling "worker-hpa" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T19:08:19Z Patching deployment/worker resources and termination grace (request=1Gi limit=3Gi grace=180s)
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T19:08:25Z Unhealthy pod detected: web-87755488-lmgl5 ready=0/1 status=Running restarts=0 app=web
+2026-06-27T19:08:26Z ESCALATE: Missing expected HPA objects
+
+--- ESCALATION ---
+Subject: Missing expected HPA objects
+Expected HPA objects were not found: worker-hpa
+2026-06-27T19:08:26Z Health cycle complete
+2026-06-27T19:08:26Z Sleeping for 900s
+2026-06-27T19:23:27Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T19:23:27Z Checking cluster reachability
+NAME                                           STATUS                     ROLES    AGE   VERSION
+ip-172-18-115-249.us-west-2.compute.internal   Ready,SchedulingDisabled   <none>   57s   v1.34.9-eks-93b80c6
+ip-172-18-118-83.us-west-2.compute.internal    Ready                      <none>   60m   v1.34.7-eks-40737a8
+2026-06-27T19:23:30Z Uncordoning node ip-172-18-115-249.us-west-2.compute.internal (Ready,SchedulingDisabled)
+node/ip-172-18-115-249.us-west-2.compute.internal uncordoned
+Error from server (NotFound): horizontalpodautoscalers.autoscaling "worker-hpa" not found
+Error from server (NotFound): horizontalpodautoscalers.autoscaling "worker-hpa" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T19:23:36Z Patching deployment/worker resources and termination grace (request=1Gi limit=3Gi grace=180s)
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T19:23:43Z All release pods are healthy
+2026-06-27T19:23:44Z ESCALATE: Missing expected HPA objects
+
+--- ESCALATION ---
+Subject: Missing expected HPA objects
+Expected HPA objects were not found: worker-hpa
+2026-06-27T19:23:44Z Health cycle complete
+2026-06-27T19:23:44Z Sleeping for 900s
+2026-06-27T19:38:44Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T19:38:44Z Checking cluster reachability
+NAME                                          STATUS   ROLES    AGE   VERSION
+ip-172-18-118-83.us-west-2.compute.internal   Ready    <none>   76m   v1.34.7-eks-40737a8
+Error from server (NotFound): horizontalpodautoscalers.autoscaling "worker-hpa" not found
+Error from server (NotFound): horizontalpodautoscalers.autoscaling "worker-hpa" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T19:38:52Z Patching deployment/worker resources and termination grace (request=1Gi limit=3Gi grace=180s)
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T19:38:59Z All release pods are healthy
+2026-06-27T19:39:00Z ESCALATE: Missing expected HPA objects
+
+--- ESCALATION ---
+Subject: Missing expected HPA objects
+Expected HPA objects were not found: worker-hpa
+2026-06-27T19:39:00Z Health cycle complete
+2026-06-27T19:39:00Z Sleeping for 900s
+2026-06-27T19:54:00Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T19:54:00Z Checking cluster reachability
+NAME                                          STATUS   ROLES    AGE   VERSION
+ip-172-18-118-83.us-west-2.compute.internal   Ready    <none>   91m   v1.34.7-eks-40737a8
+Error from server (NotFound): horizontalpodautoscalers.autoscaling "worker-hpa" not found
+Error from server (NotFound): horizontalpodautoscalers.autoscaling "worker-hpa" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T19:54:08Z Patching deployment/worker resources and termination grace (request=1Gi limit=3Gi grace=180s)
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T19:54:15Z All release pods are healthy
+2026-06-27T19:54:16Z ESCALATE: Missing expected HPA objects
+
+--- ESCALATION ---
+Subject: Missing expected HPA objects
+Expected HPA objects were not found: worker-hpa
+2026-06-27T19:54:16Z Health cycle complete
+2026-06-27T19:54:16Z Sleeping for 900s
+2026-06-27T20:09:16Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T20:09:16Z Checking cluster reachability
+NAME                                          STATUS   ROLES    AGE    VERSION
+ip-172-18-118-83.us-west-2.compute.internal   Ready    <none>   106m   v1.34.7-eks-40737a8
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T20:09:24Z Patching deployment/worker resources and termination grace (request=1Gi limit=3Gi grace=180s)
+Error from server (NotFound): deployments.apps "worker" not found
+2026-06-27T20:09:27Z Unhealthy pod detected: openstudio-server-nfs-server-provisioner-f95dcb7c4-sjhwx ready=0/1 status=Pending restarts=0 app=nfs-server-provisioner
+2026-06-27T20:09:27Z ESCALATE: Persistent unhealthy pod for nfs-server-provisioner
+
+--- ESCALATION ---
+Subject: Persistent unhealthy pod for nfs-server-provisioner
+Pod openstudio-server-nfs-server-provisioner-f95dcb7c4-sjhwx is still unhealthy after a prior remediation attempt. Please inspect 'openstudio-server/nfs-server-provisioner'.
+2026-06-27T20:09:28Z HPA objects present
+2026-06-27T20:09:28Z Health cycle complete
+2026-06-27T20:09:28Z Sleeping for 900s
