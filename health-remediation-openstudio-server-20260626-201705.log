@@ -482,3 +482,191 @@ The loop hit the per-cycle remediation cap (5). Remaining issues require manual 
 2026-06-27T04:30:46Z HPA objects present
 2026-06-27T04:30:46Z Health cycle complete
 2026-06-27T04:30:46Z Sleeping for 900s
+2026-06-27T04:45:46Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T04:45:46Z Checking cluster reachability
+NAME                                           STATUS                     ROLES    AGE     VERSION
+ip-172-18-112-178.us-west-2.compute.internal   Ready                      <none>   17m     v1.34.9-eks-93b80c6
+ip-172-18-115-191.us-west-2.compute.internal   Ready                      <none>   13m     v1.34.9-eks-93b80c6
+ip-172-18-117-139.us-west-2.compute.internal   Ready                      <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-118-187.us-west-2.compute.internal   Ready                      <none>   8m8s    v1.34.9-eks-93b80c6
+ip-172-18-118-247.us-west-2.compute.internal   Ready                      <none>   3h23m   v1.34.7-eks-40737a8
+ip-172-18-119-76.us-west-2.compute.internal    Ready                      <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-224-108.us-west-2.compute.internal   Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-225-240.us-west-2.compute.internal   Ready                      <none>   10m     v1.34.9-eks-93b80c6
+ip-172-18-233-80.us-west-2.compute.internal    Ready                      <none>   24m     v1.34.9-eks-93b80c6
+ip-172-18-234-16.us-west-2.compute.internal    Ready                      <none>   16m     v1.34.9-eks-93b80c6
+ip-172-18-237-74.us-west-2.compute.internal    Ready                      <none>   12m     v1.34.9-eks-93b80c6
+ip-172-18-240-233.us-west-2.compute.internal   Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-245-123.us-west-2.compute.internal   Ready                      <none>   39m     v1.34.9-eks-93b80c6
+ip-172-18-250-3.us-west-2.compute.internal     Ready                      <none>   9m11s   v1.34.9-eks-93b80c6
+ip-172-18-252-185.us-west-2.compute.internal   Ready                      <none>   24m     v1.34.9-eks-93b80c6
+ip-172-18-253-207.us-west-2.compute.internal   Ready                      <none>   24m     v1.34.9-eks-93b80c6
+ip-172-18-255-179.us-west-2.compute.internal   Ready                      <none>   16m     v1.34.9-eks-93b80c6
+ip-172-18-255-21.us-west-2.compute.internal    Ready                      <none>   24m     v1.34.9-eks-93b80c6
+ip-172-18-255-232.us-west-2.compute.internal   Ready                      <none>   39m     v1.34.9-eks-93b80c6
+ip-172-18-45-10.us-west-2.compute.internal     Ready                      <none>   24m     v1.34.7-eks-40737a8
+ip-172-18-45-104.us-west-2.compute.internal    Ready                      <none>   18m     v1.34.7-eks-40737a8
+ip-172-18-45-107.us-west-2.compute.internal    Ready                      <none>   24m     v1.34.7-eks-40737a8
+ip-172-18-45-144.us-west-2.compute.internal    Ready                      <none>   17m     v1.34.7-eks-40737a8
+ip-172-18-45-145.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   3h26m   v1.34.7-eks-40737a8
+ip-172-18-45-153.us-west-2.compute.internal    Ready                      <none>   17m     v1.34.7-eks-40737a8
+ip-172-18-45-158.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   136m    v1.34.7-eks-40737a8
+ip-172-18-45-161.us-west-2.compute.internal    Ready                      <none>   10m     v1.34.7-eks-40737a8
+ip-172-18-45-164.us-west-2.compute.internal    Ready                      <none>   11m     v1.34.7-eks-40737a8
+ip-172-18-45-169.us-west-2.compute.internal    Ready                      <none>   10m     v1.34.7-eks-40737a8
+ip-172-18-45-171.us-west-2.compute.internal    Ready                      <none>   18m     v1.34.7-eks-40737a8
+ip-172-18-45-173.us-west-2.compute.internal    Ready                      <none>   10m     v1.34.7-eks-40737a8
+ip-172-18-45-178.us-west-2.compute.internal    Ready                      <none>   17m     v1.34.7-eks-40737a8
+ip-172-18-45-182.us-west-2.compute.internal    Ready                      <none>   10m     v1.34.7-eks-40737a8
+ip-172-18-45-185.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   136m    v1.34.7-eks-40737a8
+ip-172-18-45-187.us-west-2.compute.internal    Ready                      <none>   17m     v1.34.7-eks-40737a8
+ip-172-18-45-189.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   136m    v1.34.7-eks-40737a8
+ip-172-18-45-193.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   136m    v1.34.7-eks-40737a8
+ip-172-18-45-194.us-west-2.compute.internal    Ready                      <none>   11m     v1.34.7-eks-40737a8
+ip-172-18-45-196.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   136m    v1.34.7-eks-40737a8
+ip-172-18-45-200.us-west-2.compute.internal    Ready                      <none>   18m     v1.34.7-eks-40737a8
+ip-172-18-45-202.us-west-2.compute.internal    Ready                      <none>   10m     v1.34.7-eks-40737a8
+ip-172-18-45-205.us-west-2.compute.internal    Ready                      <none>   19m     v1.34.7-eks-40737a8
+ip-172-18-45-207.us-west-2.compute.internal    Ready                      <none>   17m     v1.34.7-eks-40737a8
+ip-172-18-45-21.us-west-2.compute.internal     Ready                      <none>   23m     v1.34.7-eks-40737a8
+ip-172-18-45-213.us-west-2.compute.internal    Ready                      <none>   10m     v1.34.7-eks-40737a8
+ip-172-18-45-219.us-west-2.compute.internal    Ready                      <none>   19m     v1.34.7-eks-40737a8
+ip-172-18-45-22.us-west-2.compute.internal     Ready                      <none>   23m     v1.34.7-eks-40737a8
+ip-172-18-45-229.us-west-2.compute.internal    Ready                      <none>   18m     v1.34.7-eks-40737a8
+ip-172-18-45-235.us-west-2.compute.internal    Ready                      <none>   10m     v1.34.7-eks-40737a8
+ip-172-18-45-236.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   135m    v1.34.7-eks-40737a8
+ip-172-18-45-237.us-west-2.compute.internal    Ready                      <none>   17m     v1.34.7-eks-40737a8
+ip-172-18-45-241.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   136m    v1.34.7-eks-40737a8
+ip-172-18-45-243.us-west-2.compute.internal    Ready                      <none>   17m     v1.34.7-eks-40737a8
+ip-172-18-45-244.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   135m    v1.34.7-eks-40737a8
+ip-172-18-45-254.us-west-2.compute.internal    Ready                      <none>   18m     v1.34.7-eks-40737a8
+ip-172-18-45-68.us-west-2.compute.internal     Ready                      <none>   23m     v1.34.7-eks-40737a8
+ip-172-18-45-85.us-west-2.compute.internal     Ready,SchedulingDisabled   <none>   3h9m    v1.34.7-eks-40737a8
+ip-172-18-45-86.us-west-2.compute.internal     Ready                      <none>   24m     v1.34.7-eks-40737a8
+ip-172-18-45-88.us-west-2.compute.internal     Ready                      <none>   23m     v1.34.7-eks-40737a8
+ip-172-18-48-74.us-west-2.compute.internal     Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-49-166.us-west-2.compute.internal    Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-50-100.us-west-2.compute.internal    Ready                      <none>   37m     v1.34.9-eks-93b80c6
+ip-172-18-50-234.us-west-2.compute.internal    Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-50-244.us-west-2.compute.internal    Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-50-36.us-west-2.compute.internal     Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-51-5.us-west-2.compute.internal      Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-51-62.us-west-2.compute.internal     Ready                      <none>   37m     v1.34.9-eks-93b80c6
+ip-172-18-52-140.us-west-2.compute.internal    Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-52-217.us-west-2.compute.internal    Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-53-123.us-west-2.compute.internal    Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-53-145.us-west-2.compute.internal    Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-53-166.us-west-2.compute.internal    Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-53-246.us-west-2.compute.internal    Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-53-37.us-west-2.compute.internal     Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-53-48.us-west-2.compute.internal     Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-54-137.us-west-2.compute.internal    Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-54-247.us-west-2.compute.internal    Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-55-12.us-west-2.compute.internal     Ready                      <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-55-32.us-west-2.compute.internal     Ready                      <none>   25m     v1.34.9-eks-93b80c6
+2026-06-27T04:46:31Z Unhealthy pod detected: worker-59b864fcbd-225j9 ready=0/1 status=Running restarts=0 app=worker
+2026-06-27T04:46:32Z Unhealthy pod detected: worker-59b864fcbd-225t8 ready=0/1 status=Running restarts=2 app=worker
+2026-06-27T04:46:33Z Unhealthy pod detected: worker-59b864fcbd-22b2v ready=0/1 status=ContainerCreating restarts=0 app=worker
+2026-06-27T04:46:36Z Unhealthy pod detected: worker-59b864fcbd-22ddh ready=0/1 status=CreateContainerError restarts=2 app=worker
+2026-06-27T04:46:38Z Unhealthy pod detected: worker-59b864fcbd-22gn4 ready=0/1 status=ContainerCreating restarts=0 app=worker
+2026-06-27T04:46:38Z ESCALATE: Remediation cap reached
+
+--- ESCALATION ---
+Subject: Remediation cap reached
+The loop hit the per-cycle remediation cap (5). Remaining issues require manual review.
+2026-06-27T04:46:39Z HPA objects present
+2026-06-27T04:46:39Z Health cycle complete
+2026-06-27T04:46:39Z Sleeping for 900s
+2026-06-27T05:01:39Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T05:01:39Z Checking cluster reachability
+NAME                                           STATUS                        ROLES    AGE     VERSION
+ip-172-18-112-178.us-west-2.compute.internal   Ready                         <none>   33m     v1.34.9-eks-93b80c6
+ip-172-18-115-191.us-west-2.compute.internal   Ready                         <none>   29m     v1.34.9-eks-93b80c6
+ip-172-18-117-139.us-west-2.compute.internal   Ready                         <none>   57m     v1.34.9-eks-93b80c6
+ip-172-18-118-187.us-west-2.compute.internal   Ready                         <none>   24m     v1.34.9-eks-93b80c6
+ip-172-18-118-247.us-west-2.compute.internal   Ready                         <none>   3h39m   v1.34.7-eks-40737a8
+ip-172-18-119-76.us-west-2.compute.internal    Ready                         <none>   57m     v1.34.9-eks-93b80c6
+ip-172-18-224-108.us-west-2.compute.internal   Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-225-240.us-west-2.compute.internal   Ready                         <none>   26m     v1.34.9-eks-93b80c6
+ip-172-18-233-80.us-west-2.compute.internal    Ready                         <none>   40m     v1.34.9-eks-93b80c6
+ip-172-18-234-16.us-west-2.compute.internal    Ready                         <none>   32m     v1.34.9-eks-93b80c6
+ip-172-18-237-74.us-west-2.compute.internal    Ready                         <none>   28m     v1.34.9-eks-93b80c6
+ip-172-18-240-233.us-west-2.compute.internal   Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-245-123.us-west-2.compute.internal   Ready                         <none>   55m     v1.34.9-eks-93b80c6
+ip-172-18-250-3.us-west-2.compute.internal     Ready                         <none>   25m     v1.34.9-eks-93b80c6
+ip-172-18-252-185.us-west-2.compute.internal   Ready                         <none>   40m     v1.34.9-eks-93b80c6
+ip-172-18-253-207.us-west-2.compute.internal   Ready                         <none>   40m     v1.34.9-eks-93b80c6
+ip-172-18-255-179.us-west-2.compute.internal   Ready                         <none>   32m     v1.34.9-eks-93b80c6
+ip-172-18-255-21.us-west-2.compute.internal    Ready                         <none>   40m     v1.34.9-eks-93b80c6
+ip-172-18-255-232.us-west-2.compute.internal   Ready                         <none>   55m     v1.34.9-eks-93b80c6
+ip-172-18-45-10.us-west-2.compute.internal     Ready                         <none>   40m     v1.34.7-eks-40737a8
+ip-172-18-45-102.us-west-2.compute.internal    Ready                         <none>   8m25s   v1.34.7-eks-40737a8
+ip-172-18-45-104.us-west-2.compute.internal    Ready                         <none>   34m     v1.34.7-eks-40737a8
+ip-172-18-45-107.us-west-2.compute.internal    Ready                         <none>   40m     v1.34.7-eks-40737a8
+ip-172-18-45-114.us-west-2.compute.internal    Ready                         <none>   40s     v1.34.7-eks-40737a8
+ip-172-18-45-123.us-west-2.compute.internal    Ready                         <none>   40s     v1.34.7-eks-40737a8
+ip-172-18-45-13.us-west-2.compute.internal     Ready                         <none>   7m45s   v1.34.7-eks-40737a8
+ip-172-18-45-14.us-west-2.compute.internal     Ready                         <none>   40s     v1.34.7-eks-40737a8
+ip-172-18-45-144.us-west-2.compute.internal    Ready                         <none>   33m     v1.34.7-eks-40737a8
+ip-172-18-45-145.us-west-2.compute.internal    Ready                         <none>   3h41m   v1.34.7-eks-40737a8
+ip-172-18-45-153.us-west-2.compute.internal    Ready,SchedulingDisabled      <none>   33m     v1.34.7-eks-40737a8
+ip-172-18-45-164.us-west-2.compute.internal    Ready                         <none>   27m     v1.34.7-eks-40737a8
+ip-172-18-45-170.us-west-2.compute.internal    Ready                         <none>   4m57s   v1.34.7-eks-40737a8
+ip-172-18-45-171.us-west-2.compute.internal    Ready                         <none>   34m     v1.34.7-eks-40737a8
+ip-172-18-45-173.us-west-2.compute.internal    Ready                         <none>   26m     v1.34.7-eks-40737a8
+ip-172-18-45-178.us-west-2.compute.internal    Ready                         <none>   33m     v1.34.7-eks-40737a8
+ip-172-18-45-182.us-west-2.compute.internal    Ready                         <none>   26m     v1.34.7-eks-40737a8
+ip-172-18-45-187.us-west-2.compute.internal    Ready                         <none>   33m     v1.34.7-eks-40737a8
+ip-172-18-45-196.us-west-2.compute.internal    Ready                         <none>   152m    v1.34.7-eks-40737a8
+ip-172-18-45-200.us-west-2.compute.internal    Ready,SchedulingDisabled      <none>   34m     v1.34.7-eks-40737a8
+ip-172-18-45-202.us-west-2.compute.internal    Ready                         <none>   26m     v1.34.7-eks-40737a8
+ip-172-18-45-205.us-west-2.compute.internal    NotReady,SchedulingDisabled   <none>   35m     v1.34.7-eks-40737a8
+ip-172-18-45-207.us-west-2.compute.internal    Ready                         <none>   33m     v1.34.7-eks-40737a8
+ip-172-18-45-21.us-west-2.compute.internal     Ready                         <none>   39m     v1.34.7-eks-40737a8
+ip-172-18-45-219.us-west-2.compute.internal    Ready                         <none>   35m     v1.34.7-eks-40737a8
+ip-172-18-45-22.us-west-2.compute.internal     Ready                         <none>   39m     v1.34.7-eks-40737a8
+ip-172-18-45-229.us-west-2.compute.internal    Ready,SchedulingDisabled      <none>   34m     v1.34.7-eks-40737a8
+ip-172-18-45-23.us-west-2.compute.internal     Ready                         <none>   40s     v1.34.7-eks-40737a8
+ip-172-18-45-235.us-west-2.compute.internal    Ready                         <none>   26m     v1.34.7-eks-40737a8
+ip-172-18-45-237.us-west-2.compute.internal    Ready,SchedulingDisabled      <none>   33m     v1.34.7-eks-40737a8
+ip-172-18-45-243.us-west-2.compute.internal    Ready                         <none>   33m     v1.34.7-eks-40737a8
+ip-172-18-45-254.us-west-2.compute.internal    Ready                         <none>   34m     v1.34.7-eks-40737a8
+ip-172-18-45-56.us-west-2.compute.internal     Ready                         <none>   10m     v1.34.7-eks-40737a8
+ip-172-18-45-57.us-west-2.compute.internal     Ready                         <none>   65s     v1.34.7-eks-40737a8
+ip-172-18-45-66.us-west-2.compute.internal     Ready                         <none>   7m54s   v1.34.7-eks-40737a8
+ip-172-18-45-68.us-west-2.compute.internal     Ready                         <none>   39m     v1.34.7-eks-40737a8
+ip-172-18-45-86.us-west-2.compute.internal     Ready                         <none>   40m     v1.34.7-eks-40737a8
+ip-172-18-45-88.us-west-2.compute.internal     Ready                         <none>   39m     v1.34.7-eks-40737a8
+ip-172-18-48-74.us-west-2.compute.internal     Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-49-166.us-west-2.compute.internal    Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-50-100.us-west-2.compute.internal    Ready                         <none>   52m     v1.34.9-eks-93b80c6
+ip-172-18-50-234.us-west-2.compute.internal    Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-50-244.us-west-2.compute.internal    Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-50-36.us-west-2.compute.internal     Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-51-5.us-west-2.compute.internal      Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-51-62.us-west-2.compute.internal     Ready                         <none>   52m     v1.34.9-eks-93b80c6
+ip-172-18-52-140.us-west-2.compute.internal    Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-52-217.us-west-2.compute.internal    Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-53-123.us-west-2.compute.internal    Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-53-145.us-west-2.compute.internal    Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-53-166.us-west-2.compute.internal    Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-53-246.us-west-2.compute.internal    Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-53-37.us-west-2.compute.internal     Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-53-48.us-west-2.compute.internal     Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-54-137.us-west-2.compute.internal    Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-54-247.us-west-2.compute.internal    Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-55-12.us-west-2.compute.internal     Ready                         <none>   41m     v1.34.9-eks-93b80c6
+ip-172-18-55-32.us-west-2.compute.internal     Ready                         <none>   41m     v1.34.9-eks-93b80c6
+2026-06-27T05:01:52Z Unhealthy pod detected: worker-567cd499bb-2fzbk ready=0/1 status=Running restarts=0 app=worker
+2026-06-27T05:01:53Z Unhealthy pod detected: worker-567cd499bb-9m27l ready=0/1 status=ContainerCreating restarts=0 app=worker
+2026-06-27T05:02:01Z Unhealthy pod detected: worker-588c4946d-b7r7r ready=1/1 status=Terminating restarts=0 app=worker
+2026-06-27T05:02:08Z Unhealthy pod detected: worker-588c4946d-q7jh9 ready=1/1 status=Terminating restarts=0 app=worker
+2026-06-27T05:02:09Z Unhealthy pod detected: worker-588c4946d-qkj55 ready=1/1 status=Terminating restarts=0 app=worker
+2026-06-27T05:02:09Z ESCALATE: Remediation cap reached
+
+--- ESCALATION ---
+Subject: Remediation cap reached
+The loop hit the per-cycle remediation cap (5). Remaining issues require manual review.
+2026-06-27T05:02:10Z HPA objects present
+2026-06-27T05:02:10Z Health cycle complete
+2026-06-27T05:02:10Z Sleeping for 900s

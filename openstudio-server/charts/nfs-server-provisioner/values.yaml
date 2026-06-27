@@ -71,7 +71,7 @@ storageClass:
   parameters: {}
 
   mountOptions:
-    - vers=3
+    - vers=4
 
   ## ReclaimPolicy field of the class, which can be either Delete or Retain
   reclaimPolicy: Delete
@@ -84,10 +84,13 @@ rbac:
   ##
   serviceAccountName: default
 
-resources: {}
-  # limits:
-  #  cpu: 100m
-  #  memory: 128Mi
+resources:
+  requests:
+    cpu: 2
+    memory: "4Gi"
+  limits:
+    cpu: 4
+    memory: "8Gi"
 
 nodeSelector: {}
 

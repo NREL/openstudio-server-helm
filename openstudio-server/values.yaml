@@ -46,11 +46,11 @@ db:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/mongo:6.0.7"
     resources:
       requests:
-        cpu: 6
-        memory: "16Gi"
+        cpu: 2
+        memory: "8Gi"
       limits:
-        cpu: 8
-        memory: "24Gi"
+        cpu: 4
+        memory: "12Gi"
     ports:
       db_port: 27017
   persistence:
@@ -93,11 +93,11 @@ redis:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/redis:6.0.9"
     resources:
       requests:
+        cpu: 2
+        memory: "4Gi"
+      limits:
         cpu: 4
         memory: "8Gi"
-      limits:
-        cpu: 6
-        memory: "12Gi"
     port: 6379
   persistence:
     enabled: true
@@ -121,11 +121,11 @@ rserve:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-rserve:3.10.0"
     resources:
       requests:
+        cpu: 1
+        memory: "2Gi"
+      limits:
         cpu: 2
         memory: "4Gi"
-      limits:
-        cpu: 4
-        memory: "8Gi"
 
 rserve_svc:
   name: "rserve"
@@ -141,11 +141,11 @@ web_background:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0"
     resources:
       requests:
+        cpu: 2
+        memory: "4Gi"
+      limits:
         cpu: 4
         memory: "8Gi"
-      limits:
-        cpu: 6
-        memory: "12Gi"
 
 web:
   name: "web"
@@ -162,10 +162,10 @@ web:
     resources:
       requests:
         cpu: 8
-        memory: "64Gi"
+        memory: "32Gi"
       limits:
         cpu: 12
-        memory: "80Gi"
+        memory: "48Gi"
     port:
      http: 80
      https: 443
