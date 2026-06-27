@@ -131,3 +131,19 @@ ip-172-18-45-85.us-west-2.compute.internal     Ready    <none>   27m   v1.34.7-e
 2026-06-27T02:03:44Z HPA objects present
 2026-06-27T02:03:44Z Health cycle complete
 2026-06-27T02:03:44Z Sleeping for 900s
+2026-06-27T02:18:44Z Starting health cycle for release=openstudio-server namespace=openstudio-server
+2026-06-27T02:18:44Z Checking cluster reachability
+NAME                                           STATUS   ROLES    AGE   VERSION
+ip-172-18-118-247.us-west-2.compute.internal   Ready    <none>   56m   v1.34.7-eks-40737a8
+ip-172-18-45-145.us-west-2.compute.internal    Ready    <none>   59m   v1.34.7-eks-40737a8
+ip-172-18-45-30.us-west-2.compute.internal     Ready    <none>   27m   v1.34.7-eks-40737a8
+ip-172-18-45-85.us-west-2.compute.internal     Ready    <none>   42m   v1.34.7-eks-40737a8
+2026-06-27T02:18:54Z Unhealthy pod detected: worker-588c4946d-22q24 ready=0/1 status=Pending restarts=0 app=worker
+2026-06-27T02:18:54Z ESCALATE: Persistent unhealthy pod for worker
+
+--- ESCALATION ---
+Subject: Persistent unhealthy pod for worker
+Pod worker-588c4946d-22q24 is still unhealthy after a prior remediation attempt. Please inspect 'openstudio-server/worker'.
+2026-06-27T02:18:55Z HPA objects present
+2026-06-27T02:18:55Z Health cycle complete
+2026-06-27T02:18:55Z Sleeping for 900s

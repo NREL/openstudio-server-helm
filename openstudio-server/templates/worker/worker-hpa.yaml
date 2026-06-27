@@ -11,12 +11,13 @@ spec:
   maxReplicas: {{ .Values.worker_hpa.maxReplicas  }}
   behavior:
     scaleUp:
+      stabilizationWindowSeconds: {{ .Values.worker_hpa.scaleUpStabilizationWindowSeconds  }}
       policies:
       - type: Pods
         value: {{ .Values.worker_hpa.scalePolicyValue  }}
         periodSeconds: 60
     scaleDown:
-      stabilizationWindowSeconds: {{ .Values.worker_hpa.stabilizationWindowSeconds  }}
+      stabilizationWindowSeconds: {{ .Values.worker_hpa.scaleDownStabilizationWindowSeconds  }}
       policies:
       - type: Pods
         value: {{ .Values.worker_hpa.scalePolicyValue  }}

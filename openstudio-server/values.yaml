@@ -200,5 +200,6 @@ worker_hpa:
   minReplicas: 2
   maxReplicas: 10000
   targetCPUUtilizationPercentage: 10
-  stabilizationWindowSeconds: 300
+  scaleUpStabilizationWindowSeconds: 60
+  scaleDownStabilizationWindowSeconds: 300
   scalePolicyValue: 2000
