@@ -1712,3 +1712,164 @@
 2026-06-27T20:23:54Z desired=0 ready=0 available=0 bad=-1 stable=0
 2026-06-27T20:24:55Z desired=0 ready=0 available=0 bad=-1 stable=0
 2026-06-27T20:24:55Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:25:56Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:25:56Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:26:57Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:26:57Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:27:59Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:27:59Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:29:01Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:29:01Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:30:03Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:30:03Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:31:05Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:31:05Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:32:06Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:32:06Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:33:08Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:33:08Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:34:09Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:34:09Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:35:10Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:35:10Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:36:11Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:36:11Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:37:12Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:37:12Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:38:13Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:38:13Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:39:15Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:39:15Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:40:16Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:40:16Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:41:17Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:41:17Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:42:18Z desired=1 ready=0 available=0 bad=1 stable=0
+2026-06-27T20:42:18Z desired=1 ready=0 available=0 bad=1 stable=0
+2026-06-27T20:42:22Z deleted_bad_pods=1
+2026-06-27T20:43:21Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:43:22Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:43:27Z deleted_bad_pods=2
+2026-06-27T20:44:25Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:44:27Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:44:33Z deleted_bad_pods=2
+2026-06-27T20:45:28Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:45:33Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:45:38Z deleted_bad_pods=2
+2026-06-27T20:46:31Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:46:38Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:46:43Z deleted_bad_pods=2
+2026-06-27T20:47:34Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:47:43Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:47:48Z deleted_bad_pods=2
+2026-06-27T20:48:38Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:48:48Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:49:39Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:49:49Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:50:40Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:50:50Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:51:41Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:51:51Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T20:52:42Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:52:52Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:52:57Z deleted_bad_pods=2
+2026-06-27T20:53:45Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:53:57Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:54:02Z deleted_bad_pods=2
+2026-06-27T20:54:48Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:55:02Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T20:55:08Z deleted_bad_pods=2
+2026-06-27T20:55:52Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T20:56:08Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T20:56:14Z deleted_bad_pods=3
+2026-06-27T20:56:55Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T20:57:14Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T20:57:21Z deleted_bad_pods=3
+2026-06-27T20:57:59Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T20:58:21Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T20:58:27Z deleted_bad_pods=3
+2026-06-27T20:59:02Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T20:59:27Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T20:59:33Z deleted_bad_pods=3
+2026-06-27T21:00:06Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:00:33Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:00:40Z deleted_bad_pods=3
+2026-06-27T21:01:10Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:01:40Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:01:48Z deleted_bad_pods=3
+2026-06-27T21:02:13Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:02:48Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:02:58Z deleted_bad_pods=3
+2026-06-27T21:03:18Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:03:58Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:04:05Z deleted_bad_pods=3
+2026-06-27T21:04:22Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:05:05Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:05:11Z deleted_bad_pods=3
+2026-06-27T21:05:25Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:06:11Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:06:18Z deleted_bad_pods=3
+2026-06-27T21:06:29Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:07:18Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:07:24Z deleted_bad_pods=3
+2026-06-27T21:07:32Z desired=3 ready=0 available=0 bad=3 stable=0
+2026-06-27T21:08:24Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:08:36Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:09:25Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:09:37Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:10:26Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:10:38Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:11:27Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:11:39Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:12:28Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:12:39Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:13:29Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:13:40Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:14:30Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:14:41Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:15:31Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:15:42Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:16:32Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:16:43Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:17:33Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:17:45Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:18:34Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:18:46Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:19:35Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:19:46Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:20:36Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:20:47Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:21:37Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:21:48Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:22:38Z desired=1 ready=0 available=0 bad=1 stable=0
+2026-06-27T21:22:42Z deleted_bad_pods=1
+2026-06-27T21:22:49Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T21:23:42Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T21:23:47Z deleted_bad_pods=2
+2026-06-27T21:23:52Z desired=2 ready=0 available=0 bad=2 stable=0
+2026-06-27T21:24:47Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:24:56Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:25:48Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:25:56Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:26:49Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:26:57Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:27:50Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:27:58Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:28:51Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:28:59Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:29:52Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:30:00Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:30:53Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:31:01Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:31:54Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:32:02Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:32:55Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:33:03Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:33:56Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:34:04Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:34:57Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:35:05Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:35:59Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:36:06Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:37:00Z desired=0 ready=0 available=0 bad=-1 stable=0
+2026-06-27T21:37:06Z desired=0 ready=0 available=0 bad=-1 stable=0

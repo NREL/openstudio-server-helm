@@ -140,7 +140,16 @@ spec:
               value: {{ .Values.web.nginx_proxy_buffer_size | quote }}
             - name: NGINX_PROXY_BUFFERS
               value: {{ .Values.web.nginx_proxy_buffers | quote }}
-          command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
+          command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server & sleep 3 && sed -i 's/^[[:space:]]*gzip off;/    gzip on;/g' /opt/nginx/conf/nginx.conf && sed -i 's/passenger_max_pool_size 16;/passenger_max_pool_size 32;/g' /opt/nginx/conf/nginx.conf && pkill -HUP nginx; wait"]
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    sleep 2
+                    pkill -HUP nginx || true
           readinessProbe:
             httpGet:
               path: /analyses.json
