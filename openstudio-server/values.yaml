@@ -188,17 +188,17 @@ worker:
     image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0"
     resources:
       requests:
+        cpu: 600m
+        memory: "800Mi"
+      limits:
         cpu: 800m
         memory: "1Gi"
-      limits:
-        cpu: 4000m
-        memory: "2Gi"
     terminationGracePeriodSeconds: 300
 
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 10000
+  maxReplicas: 450
   targetCPUUtilizationPercentage: 10
   scaleUpStabilizationWindowSeconds: 60
   scaleDownStabilizationWindowSeconds: 300
