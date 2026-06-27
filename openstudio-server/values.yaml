@@ -198,7 +198,7 @@ worker:
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 450
+  maxReplicas: 10000
   targetCPUUtilizationPercentage: 10
   scaleUpStabilizationWindowSeconds: 60
   scaleDownStabilizationWindowSeconds: 300
