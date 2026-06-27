@@ -138,7 +138,7 @@ web_background:
   replicas: 1
   container:
     name: "web-background"
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0-gzip-optimized"
     resources:
       requests:
         cpu: 2
@@ -173,7 +173,7 @@ web:
   health_check_timeout_analyses: 15
   container:
     name: "web"
-    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0-gzip-optimized"
     resources:
       requests:
         cpu: 8
