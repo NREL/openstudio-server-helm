@@ -93,6 +93,20 @@ iam:
         ebsCSIController: true
 ```
 
+For S3 exporter IRSA, create an additional IAM policy and role with at least:
+
+- `s3:ListBucket` on your bucket
+- `s3:GetObject` and `s3:PutObject` on your export prefix
+
+Then annotate the chart's exporter service account by setting:
+
+```bash
+--set s3_exporter.enabled=true \
+--set s3_exporter.bucket=<your-bucket> \
+--set s3_exporter.prefix=<your-prefix> \
+--set s3_exporter.serviceAccount.roleArn=arn:aws:iam::<account-id>:role/<s3-exporter-role>
+```
+
 ### 3.2 On-demand essential node group
 
 ```yaml
@@ -207,6 +221,30 @@ aws eks describe-addon --cluster-name openstudio-server-03 --addon-name aws-ebs-
 ```
 
 Each command should return `"ACTIVE"`.
+
+## 6.1 Cluster Autoscaler IAM for managed node groups
+
+If you deploy Cluster Autoscaler against EKS managed node groups, ensure the IAM role used by the autoscaler service account includes `eks:DescribeNodegroup`.
+
+Without this permission, autoscaler logs will show repeated `AccessDeniedException` for managed node groups, which can degrade scale decision quality.
+
+Minimum additional permission:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "eks:DescribeNodegroup"
+  ],
+  "Resource": "*"
+}
+```
+
+Quick verification:
+
+```bash
+kubectl -n kube-system logs deploy/cluster-autoscaler | grep -E "DescribeNodegroup|AccessDeniedException"
+```
 
 
 ## 7. Operational Recommendations

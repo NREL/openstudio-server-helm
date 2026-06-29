@@ -168,9 +168,11 @@ spec:
             - --stderrthreshold=info
             - --cloud-provider=aws
             - --skip-nodes-with-local-storage=false
-            - --expander=least-waste
+            - --expander={{ .Values.cluster_autoscaler.expander | default "least-waste" }}
             - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/{{ .Values.cluster.name }}
             - --balance-similar-node-groups=true
+            - --scan-interval={{ .Values.cluster_autoscaler.scanInterval | default "10s" }}
+            - --max-node-provision-time={{ .Values.cluster_autoscaler.maxNodeProvisionTime | default "3m" }}
             # - --skip-nodes-with-system-pods
             - --scale-down-utilization-threshold={{ .Values.cluster_autoscaler.scaleDownUtilizationThreshold | default "0.2" }}
             - --scale-down-unneeded-time={{ .Values.cluster_autoscaler.scaleDownUnneededTime | default "10m" }}

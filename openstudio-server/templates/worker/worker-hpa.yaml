@@ -14,14 +14,14 @@ spec:
       stabilizationWindowSeconds: {{ .Values.worker_hpa.scaleUpStabilizationWindowSeconds  }}
       policies:
       - type: Pods
-        value: {{ .Values.worker_hpa.scalePolicyValue  }}
-        periodSeconds: 60
+        value: {{ .Values.worker_hpa.scaleUpPolicyValue | default .Values.worker_hpa.scalePolicyValue  }}
+        periodSeconds: {{ .Values.worker_hpa.scaleUpPolicyPeriodSeconds | default 60  }}
     scaleDown:
       stabilizationWindowSeconds: {{ .Values.worker_hpa.scaleDownStabilizationWindowSeconds  }}
       policies:
       - type: Pods
-        value: {{ .Values.worker_hpa.scalePolicyValue  }}
-        periodSeconds: 60
+        value: {{ .Values.worker_hpa.scaleDownPolicyValue | default .Values.worker_hpa.scalePolicyValue  }}
+        periodSeconds: {{ .Values.worker_hpa.scaleDownPolicyPeriodSeconds | default 60  }}
   metrics:
     - type: Resource
       resource:

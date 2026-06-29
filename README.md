@@ -101,13 +101,59 @@ nfs-server-provisioner.persistence.size | Size of the volume for storing the dat
 db.persistence.size | Size of the volume for MongoDB | 500Gi |
 cluster.name | Kubernetes AWS or Google cluster name. If you change the default name you need to set this name here otherwise AWS auto-scaling will not work correctly | openstudio-server |
 worker_hpa.minReplicas | Worker pods that run the simulations | 2 |
-worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 200 |
-worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 50 |
+worker_hpa.maxReplicas | Maximum Worker pods that run the simulations | 15000 |
+worker_hpa.targetCPUUtilizationPercentage | When aggregate CPU % of worker pods exceed threshold begin scaling. | 35 |
+worker_hpa.scaleUpPolicyValue | Maximum pods to add per scale-up interval. | 500 |
+worker_hpa.scaleDownPolicyValue | Maximum pods to remove per scale-down interval. | 25 |
 web_background.replicas  | Number of projects/analyses to run in parallel. __*Note__ Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses.  | 1 |
 web_background.container.image  | Container to run the web background. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
 web.container.image   | Container to run the web front-end. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
 worker.container.image   | Container to run the worker. Can use a custom image to override default | nrel/openstudio-server:3.7.0 |
 rserve.container.image   | Container to run r server. Can use a custom image to override default | nrel/openstudio-rserve:3.7.0 |
+s3_exporter.enabled | Enables targeted results export CronJob for CSV + manifest (and optional enrich zips) to S3 | false |
+s3_exporter.schedule | Export CronJob schedule | */5 * * * * |
+s3_exporter.bucket | Destination S3 bucket for exported artifacts | "" |
+s3_exporter.prefix | Destination S3 prefix for exported artifacts | "" |
+s3_exporter.serviceAccount.roleArn | Optional IRSA role ARN for exporter pod access to S3 | "" |
+
+## Targeted S3 export for teardown-safe result downloads
+
+This chart can run a targeted export CronJob that writes only `download_results`-oriented artifacts to S3:
+
+- `manifest/analyses.json`
+- `csv/<analysis_id>/<analysis_name>.csv`
+- optional `enrich/data_point_zip/<data_point_id>.zip`
+
+Enable with:
+
+```bash
+helm upgrade --install openstudio-server ./openstudio-server \
+  --set s3_exporter.enabled=true \
+  --set s3_exporter.bucket=<your-bucket> \
+  --set s3_exporter.prefix=<your-prefix> \
+  --set s3_exporter.serviceAccount.roleArn=arn:aws:iam::<account-id>:role/<irsa-role>
+```
+
+Before tearing down the node groups, run a final on-demand sync job and block teardown on failure:
+
+```bash
+./scripts/finalize-s3-export-and-teardown.sh \
+  --namespace openstudio-server \
+  --cronjob openstudio-server-s3-incremental-sync
+```
+
+Then scale down node groups (keeping cluster control plane intact):
+
+```bash
+# Scale worker node groups to 0 (adjust nodegroup names as needed)
+eksctl scale nodegroup --cluster openstudio-server-03 --name worker-node-group-spot-2a --nodes 0 --region us-west-2
+eksctl scale nodegroup --cluster openstudio-server-03 --name worker-node-group-spot-2b --nodes 0 --region us-west-2
+
+# Or scale essential nodes if needed
+eksctl scale nodegroup --cluster openstudio-server-03 --name web-group --nodes 0 --region us-west-2
+```
+
+Results remain accessible in S3 for post-teardown download via gem S3 fallback mode.
 
 #### For Large Workloads
 Copy the text from inside the [large template values file](/openstudio-server/values_large.templateyaml) and paste it inside of the [values file](/openstudio-server/values.yaml). Do this before using the `helm install ...` command.

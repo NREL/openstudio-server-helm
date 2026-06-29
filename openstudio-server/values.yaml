@@ -11,6 +11,9 @@ cluster:
   name: "openstudio-server-03"
 
 cluster_autoscaler:
+  expander: "least-waste"
+  scanInterval: "10s"
+  maxNodeProvisionTime: "3m"
   scaleDownUtilizationThreshold: "0.2"
   scaleDownUnneededTime: "10m"
   maxGracefulTerminationSec: "120"
@@ -219,8 +222,50 @@ worker:
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 200
-  targetCPUUtilizationPercentage: 50
-  scaleUpStabilizationWindowSeconds: 180
+  maxReplicas: 15000
+  targetCPUUtilizationPercentage: 35
+  scaleUpStabilizationWindowSeconds: 0
   scaleDownStabilizationWindowSeconds: 600
-  scalePolicyValue: 25
+  scaleUpPolicyValue: 500
+  scaleUpPolicyPeriodSeconds: 60
+  scaleDownPolicyValue: 25
+  scaleDownPolicyPeriodSeconds: 60
+
+s3_exporter:
+  enabled: false
+  schedule: "*/5 * * * *"
+  bucket: ""
+  prefix: ""
+  apiBaseUrl: "http://web"
+  nfsRoot: "/mnt/openstudio"
+  includeEnrichArtifacts: false
+  awsCliImage: "public.ecr.aws/aws-cli/aws-cli:2.17.49"
+  concurrencyPolicy: "Forbid"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  activeDeadlineSeconds: 1800
+  storageClass: ""
+  includePatterns:
+    - "manifest/*"
+    - "csv/*"
+  excludePatterns: []
+  serviceAccount:
+    create: true
+    name: "s3-sync-sa"
+    roleArn: ""
+    annotations: {}
+  resources:
+    collector:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+    uploader:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"

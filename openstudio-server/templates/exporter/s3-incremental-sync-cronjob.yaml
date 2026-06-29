@@ -1,0 +1,184 @@
+{{- if .Values.s3_exporter.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-s3-incremental-sync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: s3-incremental-sync
+    release: {{ .Release.Name }}
+spec:
+  schedule: {{ .Values.s3_exporter.schedule | quote }}
+  concurrencyPolicy: {{ .Values.s3_exporter.concurrencyPolicy | quote }}
+  successfulJobsHistoryLimit: {{ .Values.s3_exporter.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.s3_exporter.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ .Values.s3_exporter.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            app: s3-incremental-sync
+            release: {{ .Release.Name }}
+        spec:
+          serviceAccountName: {{ .Values.s3_exporter.serviceAccount.name }}
+          restartPolicy: Never
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: nodegroup
+                        operator: In
+                        values:
+                          - web-group
+          containers:
+            - name: collect-results
+              image: {{ .Values.web.container.image }}
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: API_BASE_URL
+                  value: {{ .Values.s3_exporter.apiBaseUrl | quote }}
+                - name: NFS_ROOT
+                  value: {{ .Values.s3_exporter.nfsRoot | quote }}
+                - name: INCLUDE_ENRICH_ARTIFACTS
+                  value: {{ .Values.s3_exporter.includeEnrichArtifacts | quote }}
+              command:
+                - /bin/bash
+                - -ec
+              args:
+                - |
+                  set -euo pipefail
+                  if [[ -z "${API_BASE_URL}" ]]; then
+                    echo "ERROR: s3_exporter.apiBaseUrl must be set"
+                    exit 1
+                  fi
+
+                  rm -rf /export/manifest /export/csv /export/enrich /tmp/analysis-map.tsv /tmp/analyses.json
+                  mkdir -p /export/manifest /export/csv /export/enrich/data_point_zip
+
+                  echo "Collecting analysis metadata from ${API_BASE_URL}"
+                  curl -fsS "${API_BASE_URL%/}/analyses.json" -o /tmp/analyses.json
+
+                  ruby <<'RUBY'
+                  require "json"
+                  require "time"
+                  require "fileutils"
+
+                  input = JSON.parse(File.read("/tmp/analyses.json"))
+                  analyses = input.is_a?(Array) ? input : (input["analyses"] || [])
+                  mapped = []
+
+                  analyses.each do |analysis|
+                    id = analysis["id"] || analysis["_id"] || analysis["analysis_id"]
+                    next if id.nil? || id.to_s.empty?
+
+                    name = (analysis["name"] || "analysis-#{id}").to_s
+                    safe_name = name.gsub(/[^0-9A-Za-z._-]+/, "_")
+                    FileUtils.mkdir_p("/export/csv/#{id}")
+                    File.open("/tmp/analysis-map.tsv", "a") { |f| f.puts("#{id}\t#{safe_name}") }
+
+                    mapped << {
+                      "id" => id,
+                      "name" => name,
+                      "safe_name" => safe_name,
+                      "status" => analysis["status"],
+                      "created_at" => analysis["created_at"]
+                    }
+                  end
+
+                  manifest = {
+                    "exported_at" => Time.now.utc.iso8601,
+                    "source" => "openstudio-server-api",
+                    "analysis_count" => mapped.length,
+                    "analyses" => mapped
+                  }
+                  File.write("/export/manifest/analyses.json", JSON.pretty_generate(manifest))
+                  RUBY
+
+                  csv_count=0
+                  if [[ -f /tmp/analysis-map.tsv ]]; then
+                    while IFS=$'\t' read -r analysis_id safe_name; do
+                      [[ -z "${analysis_id}" ]] && continue
+                      csv_path="/export/csv/${analysis_id}/${safe_name}.csv"
+                      curl -fsS "${API_BASE_URL%/}/analyses/${analysis_id}/download_data.csv?export=true" -o "${csv_path}"
+                      csv_count=$((csv_count + 1))
+                    done < /tmp/analysis-map.tsv
+                  fi
+
+                  zip_count=0
+                  if [[ "${INCLUDE_ENRICH_ARTIFACTS}" == "true" ]]; then
+                    while IFS= read -r zip_file; do
+                      data_point_id="$(basename "$(dirname "${zip_file}")")"
+                      cp -f "${zip_file}" "/export/enrich/data_point_zip/${data_point_id}.zip"
+                      zip_count=$((zip_count + 1))
+                    done < <(find "${NFS_ROOT}" -type f -name "data_point.zip" 2>/dev/null || true)
+                  fi
+
+                  printf "csv_exported=%s\nzip_exported=%s\n" "${csv_count}" "${zip_count}" > /export/manifest/export-summary.txt
+                  touch /export/.ready
+              resources:
+{{ toYaml .Values.s3_exporter.resources.collector | indent 16 }}
+              volumeMounts:
+                - name: nfs
+                  mountPath: /mnt/openstudio
+                  readOnly: true
+                - name: export
+                  mountPath: /export
+            - name: upload-to-s3
+              image: {{ .Values.s3_exporter.awsCliImage }}
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: S3_BUCKET
+                  value: {{ .Values.s3_exporter.bucket | quote }}
+                - name: S3_PREFIX
+                  value: {{ .Values.s3_exporter.prefix | quote }}
+              command:
+                - /bin/sh
+                - -ec
+              args:
+                - |
+                  if [ -z "${S3_BUCKET}" ] || [ -z "${S3_PREFIX}" ]; then
+                    echo "ERROR: s3_exporter.bucket and s3_exporter.prefix are required"
+                    exit 1
+                  fi
+
+                  i=0
+                  while [ ! -f /export/.ready ] && [ "$i" -lt 1800 ]; do
+                    sleep 2
+                    i=$((i + 2))
+                  done
+
+                  if [ ! -f /export/.ready ]; then
+                    echo "ERROR: collector did not complete before timeout"
+                    exit 1
+                  fi
+
+                  aws s3 sync /export "s3://${S3_BUCKET}/${S3_PREFIX}/" \
+                    {{- range .Values.s3_exporter.excludePatterns }}
+                    --exclude {{ . | quote }} \
+                    {{- end }}
+                    {{- range .Values.s3_exporter.includePatterns }}
+                    --include {{ . | quote }} \
+                    {{- end }}
+                    {{- if not .Values.s3_exporter.includeEnrichArtifacts }}
+                    --exclude "enrich/*" \
+                    {{- else }}
+                    --include "enrich/*" \
+                    {{- end }}
+                    {{- if .Values.s3_exporter.storageClass }}
+                    --storage-class {{ .Values.s3_exporter.storageClass | quote }} \
+                    {{- end }}
+                    --only-show-errors
+              resources:
+{{ toYaml .Values.s3_exporter.resources.uploader | indent 16 }}
+              volumeMounts:
+                - name: export
+                  mountPath: /export
+          volumes:
+            - name: nfs
+              persistentVolumeClaim:
+                claimName: {{ .Values.nfs_pvc.name }}
+            - name: export
+              emptyDir: {}
+{{- end }}
