@@ -171,14 +171,10 @@ spec:
             periodSeconds: 60
             timeoutSeconds: 10
             failureThreshold: 3
-          startupProbe:
-            httpGet:
-              path: /
-              port: 80
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 10
-            failureThreshold: 30
+          # Startup probe removed - readiness probe handles initial readiness.
+          # The web app can take >2 minutes to start, and aggressive startup
+          # probes were causing unnecessary restarts. The readiness probe 
+          # with 120s delay+timeout+period is sufficient.
       priorityClassName: high-priority
       volumes:
         - name: nfs
