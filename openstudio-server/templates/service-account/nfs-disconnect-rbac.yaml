@@ -1,3 +1,4 @@
+{{- if .Values.security.legacyDefaultServiceAccountClusterAdmin.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -5,8 +6,37 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: default
-    namespace: default
+    namespace: {{ .Release.Namespace }}
 roleRef:
   kind: ClusterRole
   name: cluster-admin
   apiGroup: rbac.authorization.k8s.io
+{{- else }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nfs-client-cleanup
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames:
+      - {{ .Values.web.name }}
+      - {{ .Values.web_background.name }}
+      - {{ .Values.rserve.name }}
+    verbs: ["delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nfs-client-cleanup
+  namespace: {{ .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.pre_delete_hook.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: nfs-client-cleanup
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

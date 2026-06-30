@@ -19,6 +19,7 @@ spec:
         app: {{ .Values.rserve.name }}
         release: {{ .Release.Name }}
     spec:
+      serviceAccountName: {{ .Values.rserve.serviceAccount.name }}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -28,6 +29,35 @@ spec:
                     operator: In
                     values:
                       - web-group
+      initContainers:
+          - name: init-verify-mnt-openstudio
+            image: alpine
+            command:
+              - /bin/sh
+              - -c
+              - |
+                set -e
+                echo "Verifying /mnt/openstudio mount..."
+                if [ ! -d "/mnt/openstudio" ]; then
+                  echo "ERROR: /mnt/openstudio directory does not exist"
+                  exit 1
+                fi
+                echo "Checking mount point..."
+                if ! grep -qs "/mnt/openstudio " /proc/mounts; then
+                  echo "ERROR: /mnt/openstudio is not mounted"
+                  exit 1
+                fi
+                echo "Verifying write permissions..."
+                TEST_FILE="/mnt/openstudio/.startup-check-$(date +%s)"
+                if ! touch "$TEST_FILE" 2>/dev/null; then
+                  echo "ERROR: /mnt/openstudio is not writable"
+                  exit 1
+                fi
+                rm -f "$TEST_FILE"
+                echo "SUCCESS: /mnt/openstudio is mounted and writable"
+            volumeMounts:
+              - name: osdata
+                mountPath: "/mnt/openstudio"
       containers:
         - name: {{ .Values.rserve.container.name }}
           image: {{ .Values.rserve.container.image }}
@@ -35,6 +65,11 @@ spec:
             requests:
               cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
               memory:  {{  .Values.rserve.container.resources.requests.memory  }}
+            {{- with .Values.rserve.container.resources.limits }}
+            limits:
+              cpu:  {{ .cpu }}
+              memory:  {{ .memory }}
+            {{- end }}
           volumeMounts:
             - name: osdata
               mountPath: "/mnt/openstudio"
@@ -51,11 +86,17 @@ spec:
                value: {{ .Values.db.password }}
           livenessProbe:
             exec:
-              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
-            initialDelaySeconds: 5
-            periodSeconds: 30
-            timeoutSeconds: 30
-            failureThreshold: 3
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  grep -qs "/mnt/openstudio " /proc/mounts && \
+                  test -w /mnt/openstudio && \
+                  exit 0 || exit 1
+            initialDelaySeconds: {{ .Values.rserve.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.rserve.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.rserve.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.rserve.livenessProbe.failureThreshold }}
       priorityClassName: high-priority
       volumes:
         - name: osdata

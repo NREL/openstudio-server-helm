@@ -14,15 +14,18 @@ spec:
         app: {{ .Values.redis.name  }}
         release: {{ .Release.Name }}
     spec:
+      serviceAccountName: {{ .Values.redis.serviceAccount.name }}
+      {{- if .Values.redis.affinity.enabled }}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: nodegroup
+                  - key: {{ .Values.redis.affinity.nodegroupKey }}
                     operator: In
                     values:
-                      - web-group
+                      {{- toYaml .Values.redis.affinity.nodegroupValues | nindent 22 }}
+      {{- end }}
       containers:
         - name: {{ .Values.redis.container.name  }}
           image: {{ .Values.redis.container.image  }}
@@ -30,6 +33,11 @@ spec:
             requests:
               cpu:  {{  .Values.redis.container.resources.requests.cpu  }}
               memory:  {{  .Values.redis.container.resources.requests.memory  }}
+            {{- with .Values.redis.container.resources.limits }}
+            limits:
+              cpu:  {{ .cpu }}
+              memory:  {{ .memory }}
+            {{- end }}
           ports:
             - containerPort: {{ .Values.redis.container.port  }}
           volumeMounts:
@@ -39,5 +47,9 @@ spec:
       priorityClassName: high-priority
       volumes:
         - name: {{ .Values.redis.name }}
+          {{- if .Values.redis.persistence.enabled }}
           persistentVolumeClaim:
             claimName: {{ .Values.redis.name }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

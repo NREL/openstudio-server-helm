@@ -19,6 +19,7 @@ spec:
         app: {{ .Values.db.name }}
         release: {{ .Release.Name }}
     spec:
+      serviceAccountName: {{ .Values.db.serviceAccount.name }}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -40,6 +41,11 @@ spec:
             requests:
               cpu:  {{  .Values.db.container.resources.requests.cpu  }}
               memory:  {{  .Values.db.container.resources.requests.memory  }}
+            {{- with .Values.db.container.resources.limits }}
+            limits:
+              cpu:  {{ .cpu }}
+              memory:  {{ .memory }}
+            {{- end }}
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
               value: {{ .Values.db.username }}

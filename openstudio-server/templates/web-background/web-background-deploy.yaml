@@ -3,7 +3,13 @@ kind: Deployment
 metadata:
   name: {{  .Values.web_background.name  }}
 spec:
-  replicas: {{  .Values.web_background.replicas  }}
+{{- if .Values.web_background_hpa.enabled }}
+  replicas: {{ .Values.web_background_hpa.minReplicas }}
+{{- else if .Values.web_background_keda.enabled }}
+  replicas: {{ .Values.web_background_keda.minReplicas }}
+{{- else }}
+  replicas: {{ .Values.web_background.replicas }}
+{{- end }}
   selector:
     matchLabels:
       app: {{  .Values.web_background.name  }}
@@ -19,6 +25,8 @@ spec:
         app: {{  .Values.web_background.name  }}
         release: {{ .Release.Name }}
     spec:
+      terminationGracePeriodSeconds: {{ .Values.web_background.terminationGracePeriodSeconds }}
+      serviceAccountName: {{ .Values.web_background.serviceAccount.name }}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -28,6 +36,47 @@ spec:
                     operator: In
                     values:
                       - web-group
+      initContainers:
+          - name: init-verify-mnt-openstudio
+            image: alpine
+            command:
+              - /bin/sh
+              - -c
+              - |
+                set -e
+                echo "Verifying /mnt/openstudio mount..."
+                if [ ! -d "/mnt/openstudio" ]; then
+                  echo "ERROR: /mnt/openstudio directory does not exist"
+                  exit 1
+                fi
+                echo "Checking mount point..."
+                if ! grep -qs "/mnt/openstudio " /proc/mounts; then
+                  echo "ERROR: /mnt/openstudio is not mounted"
+                  exit 1
+                fi
+                echo "Verifying write permissions..."
+                TEST_FILE="/mnt/openstudio/.startup-check-$(date +%s)"
+                if ! touch "$TEST_FILE" 2>/dev/null; then
+                  echo "ERROR: /mnt/openstudio is not writable"
+                  exit 1
+                fi
+                rm -f "$TEST_FILE"
+                echo "SUCCESS: /mnt/openstudio is mounted and writable"
+            volumeMounts:
+              - name: nfs
+                mountPath: "/mnt/openstudio"
+          - name: init-nginx-config
+            image: alpine
+            command:
+              - /bin/sh
+              - -c
+              - |
+                echo "Injecting Nginx configuration with gzip enabled..."
+                cp /etc/nginx-config/nginx.conf /opt/nginx/conf/nginx.conf
+                echo "Nginx configuration injected successfully"
+            volumeMounts:
+              - name: nginx-config
+                mountPath: /etc/nginx-config
       containers:
         - name:  {{  .Values.web_background.container.name  }}
           image:  {{  .Values.web_background.container.image  }}
@@ -36,32 +85,78 @@ spec:
             requests:
               cpu:  {{  .Values.web_background.container.resources.requests.cpu  }}
               memory:  {{  .Values.web_background.container.resources.requests.memory  }}
+            {{- with .Values.web_background.container.resources.limits }}
+            limits:
+              cpu:  {{ .cpu }}
+              memory:  {{ .memory }}
+            {{- end }}
           volumeMounts:
             - name: nfs
               mountPath: "/mnt/openstudio"
+            {{- if .Values.server_hotfix.enabled }}
+            - name: server-hotfix-scripts
+              mountPath: /opt/hotfix
+              readOnly: true
+            {{- end }}
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
               value: {{ .Values.rserve.number_of_workers | quote }}
             - name: QUEUES
-              value: background,analyses
+              value: {{ .Values.web_background.queues | quote }}
             - name: SECRET_KEY_BASE
               value: {{ .Values.web.secret_key_value }}
             - name: REDIS_URL
               value: {{ .Values.redis_svc.url  }}
+{{- if .Values.web_background_keda.enabled }}
+            - name: REDIS_PASSWORD
+              value: {{ .Values.redis.password }}
+{{- end }}
             - name: MONGO_USER
               value: {{ .Values.db.username }}
             - name: MONGO_PASSWORD
               value: {{ .Values.db.password }}
-          command: ["/usr/local/bin/start-web-background"]
+            - name: OS_SERVER_HOTFIX_ENFORCE_BATCH_RUN_START
+              value: {{ .Values.server_hotfix.enforceBatchRunStart | quote }}
+            - name: OS_SERVER_HOTFIX_COMPLETED_KEY_TTL_ENABLED
+              value: {{ .Values.server_hotfix.completedKeyTtlEnabled | quote }}
+            - name: OS_SERVER_HOTFIX_COMPLETED_KEY_TTL_SECONDS
+              value: {{ .Values.server_hotfix.completedKeyTtlSeconds | quote }}
+            - name: OS_SERVER_HOTFIX_AUTOCHAIN_LHS_TO_BATCH_RUN
+              value: {{ .Values.server_hotfix.autochainLhsToBatchRun | quote }}
+          command: ["/bin/sh", "-c", "/opt/hotfix/apply-hotfix.sh && exec /usr/local/bin/start-web-background"]
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    pkill -f -QUIT resque 2>/dev/null || true
+                    sleep {{ .Values.web_background.lifecycle.preStopSleepSeconds | quote }}
           livenessProbe:
             exec:
-              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
-            initialDelaySeconds: 5
-            periodSeconds: 30
-            timeoutSeconds: 30
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  grep -qs "/mnt/openstudio " /proc/mounts && \
+                  test -w /mnt/openstudio && \
+                  exit 0 || exit 1
+            initialDelaySeconds: 10
+            periodSeconds: 60
+            timeoutSeconds: 10
             failureThreshold: 3
       priorityClassName: high-priority
       volumes:
         - name: nfs
           persistentVolumeClaim:
             claimName: nfs-pvc
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+        {{- if .Values.server_hotfix.enabled }}
+        - name: server-hotfix-scripts
+          configMap:
+            name: server-hotfix-scripts
+            defaultMode: 0755
+        {{- end }}
