@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: {{ .Values.web.name  }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.web.replicaCount }}
   selector:
     matchLabels:
       app: {{ .Values.web.name  }}
@@ -19,6 +19,8 @@ spec:
         app: {{ .Values.web.name  }}
         release: {{ .Release.Name }}
     spec:
+      terminationGracePeriodSeconds: {{ .Values.web.terminationGracePeriodSeconds }}
+      serviceAccountName: {{ .Values.web.serviceAccount.name }}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -28,10 +30,92 @@ spec:
                     operator: In
                     values:
                       - web-group
+        {{- if .Values.web.podAntiAffinity.enabled }}
+        podAntiAffinity:
+          {{- if eq .Values.web.podAntiAffinity.type "required" }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - {{ .Values.web.name }}
+                  - key: release
+                    operator: In
+                    values:
+                      - {{ .Release.Name }}
+              topologyKey: {{ .Values.web.podAntiAffinity.topologyKey }}
+          {{- else }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: {{ .Values.web.podAntiAffinity.weight }}
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - {{ .Values.web.name }}
+                    - key: release
+                      operator: In
+                      values:
+                        - {{ .Release.Name }}
+                topologyKey: {{ .Values.web.podAntiAffinity.topologyKey }}
+          {{- end }}
+        {{- end }}
+      {{- if .Values.web.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.web.topologySpread.maxSkew }}
+          topologyKey: {{ .Values.web.topologySpread.topologyKey }}
+          whenUnsatisfiable: {{ .Values.web.topologySpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              app: {{ .Values.web.name }}
+              release: {{ .Release.Name }}
+      {{- end }}
       initContainers:
           - name: init-wait-for-db
             image: alpine
             command: ["/bin/sh", "-c", "for i in $(seq 1 300); do nc -zvw1 {{  .Values.db.name  }} {{ .Values.db.container.ports.db_port }} && exit 0 || sleep 3; done; exit 1"]
+          - name: init-verify-mnt-openstudio
+            image: alpine
+            command:
+              - /bin/sh
+              - -c
+              - |
+                set -e
+                echo "Verifying /mnt/openstudio mount..."
+                if [ ! -d "/mnt/openstudio" ]; then
+                  echo "ERROR: /mnt/openstudio directory does not exist"
+                  exit 1
+                fi
+                echo "Checking mount point..."
+                if ! grep -qs "/mnt/openstudio " /proc/mounts; then
+                  echo "ERROR: /mnt/openstudio is not mounted"
+                  exit 1
+                fi
+                echo "Verifying write permissions..."
+                TEST_FILE="/mnt/openstudio/.startup-check-$(date +%s)"
+                if ! touch "$TEST_FILE" 2>/dev/null; then
+                  echo "ERROR: /mnt/openstudio is not writable"
+                  exit 1
+                fi
+                rm -f "$TEST_FILE"
+                echo "SUCCESS: /mnt/openstudio is mounted and writable"
+            volumeMounts:
+              - name: nfs
+                mountPath: "/mnt/openstudio"
+          - name: init-nginx-config
+            image: alpine
+            command:
+              - /bin/sh
+              - -c
+              - |
+                echo "Injecting Nginx configuration with gzip enabled..."
+                cp /etc/nginx-config/nginx.conf /opt/nginx/conf/nginx.conf
+                echo "Nginx configuration injected successfully"
+            volumeMounts:
+              - name: nginx-config
+                mountPath: /etc/nginx-config
       containers:
         - name:  {{ .Values.web.container.name  }}
           image: {{ .Values.web.container.image  }}
@@ -40,12 +124,22 @@ spec:
             requests:
               cpu:  {{  .Values.web.container.resources.requests.cpu  }}
               memory:  {{  .Values.web.container.resources.requests.memory  }}
+            {{- with .Values.web.container.resources.limits }}
+            limits:
+              cpu:  {{ .cpu }}
+              memory:  {{ .memory }}
+            {{- end }}
           ports:
             - containerPort: {{ .Values.web.container.port.http  }}
             - containerPort: {{ .Values.web.container.port.https  }}
           volumeMounts:
             - name: nfs
               mountPath: "/mnt/openstudio"
+            {{- if .Values.server_hotfix.enabled }}
+            - name: server-hotfix-scripts
+              mountPath: /opt/hotfix
+              readOnly: true
+            {{- end }}
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
               value: {{ .Values.rserve.number_of_workers | quote }}
@@ -63,24 +157,104 @@ spec:
               value: {{ (ceil (mulf .Values.worker_hpa.maxReplicas 1.05)) | quote }}
             - name: MAX_POOL
               value: {{ (ceil (divf (mulf (trimSuffix "Gi" .Values.web.container.resources.requests.memory) 1024 0.75) .Values.web.passenger_memory_per_process)) | quote }}
-          command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
+            # Passenger performance tuning
+            - name: PASSENGER_MIN_INSTANCES
+              value: {{ .Values.web.passenger_min_instances | quote }}
+            - name: PASSENGER_MAX_POOL_SIZE
+              value: {{ .Values.web.passenger_max_pool_size | quote }}
+            - name: PASSENGER_REQUEST_QUEUE_OVERFLOW_TO_WAIT_LIST
+              value: {{ .Values.web.passenger_request_queue_overflow_to_wait_list | quote }}
+            - name: PASSENGER_MAX_REQUEST_QUEUE_SIZE
+              value: {{ .Values.web.passenger_max_request_queue_size | quote }}
+            - name: PASSENGER_RESTART_DIR
+              value: "/tmp/passenger-restart"
+            # Nginx compression and buffering
+            - name: NGINX_GZIP
+              value: {{ .Values.web.nginx_gzip | quote }}
+            - name: NGINX_GZIP_COMP_LEVEL
+              value: {{ .Values.web.nginx_gzip_comp_level | quote }}
+            - name: NGINX_GZIP_MIN_LENGTH
+              value: {{ .Values.web.nginx_gzip_min_length | quote }}
+            - name: NGINX_CLIENT_MAX_BODY_SIZE
+              value: {{ .Values.web.nginx_client_max_body_size | quote }}
+            - name: NGINX_PROXY_CONNECT_TIMEOUT
+              value: {{ .Values.web.nginx_proxy_connect_timeout | quote }}
+            - name: NGINX_PROXY_SEND_TIMEOUT
+              value: {{ .Values.web.nginx_proxy_send_timeout | quote }}
+            - name: NGINX_PROXY_READ_TIMEOUT
+              value: {{ .Values.web.nginx_proxy_read_timeout | quote }}
+            - name: NGINX_PROXY_BUFFERING
+              value: {{ .Values.web.nginx_proxy_buffering | quote }}
+            - name: NGINX_PROXY_BUFFER_SIZE
+              value: {{ .Values.web.nginx_proxy_buffer_size | quote }}
+            - name: NGINX_PROXY_BUFFERS
+              value: {{ .Values.web.nginx_proxy_buffers | quote }}
+            - name: OS_SERVER_HOTFIX_ENFORCE_BATCH_RUN_START
+              value: {{ .Values.server_hotfix.enforceBatchRunStart | quote }}
+            - name: OS_SERVER_HOTFIX_COMPLETED_KEY_TTL_ENABLED
+              value: {{ .Values.server_hotfix.completedKeyTtlEnabled | quote }}
+            - name: OS_SERVER_HOTFIX_COMPLETED_KEY_TTL_SECONDS
+              value: {{ .Values.server_hotfix.completedKeyTtlSeconds | quote }}
+            - name: OS_SERVER_HOTFIX_AUTOCHAIN_LHS_TO_BATCH_RUN
+              value: {{ .Values.server_hotfix.autochainLhsToBatchRun | quote }}
+          command: ["bash", "-c", "/opt/hotfix/apply-hotfix.sh && /usr/local/bin/rails-entrypoint && /usr/local/bin/start-server & sleep 3 && sed -i 's/^[[:space:]]*gzip off;/    gzip on;/g' /opt/nginx/conf/nginx.conf && sed -i 's/passenger_max_pool_size 16;/passenger_max_pool_size 32;/g' /opt/nginx/conf/nginx.conf && pkill -HUP nginx; wait"]
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep {{ .Values.web.lifecycle.preStopSleepSeconds | quote }}
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    sleep 2
+                    pkill -HUP nginx || true
           readinessProbe:
             httpGet:
-              path: /
+              path: {{ .Values.web.readinessProbe.path }}
               port: 80
-            initialDelaySeconds: 60
-            periodSeconds: 200
-            timeoutSeconds: 120
-            failureThreshold: 10
+            initialDelaySeconds: {{ .Values.web.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.web.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.web.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.web.readinessProbe.failureThreshold }}
           livenessProbe:
             exec:
-              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
-            initialDelaySeconds: 5
-            periodSeconds: 200
-            timeoutSeconds: 120
-            failureThreshold: 3
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  grep -qs "/mnt/openstudio " /proc/mounts && \
+                  test -w /mnt/openstudio && \
+                  exit 0 || exit 1
+            initialDelaySeconds: {{ .Values.web.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.web.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.web.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.web.livenessProbe.failureThreshold }}
+          {{- if .Values.web.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.web.startupProbe.path }}
+              port: 80
+            initialDelaySeconds: {{ .Values.web.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.web.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.web.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.web.startupProbe.failureThreshold }}
+          {{- end }}
       priorityClassName: high-priority
       volumes:
         - name: nfs
           persistentVolumeClaim:
             claimName: nfs-pvc
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+        {{- if .Values.server_hotfix.enabled }}
+        - name: server-hotfix-scripts
+          configMap:
+            name: server-hotfix-scripts
+            defaultMode: 0755
+        {{- end }}

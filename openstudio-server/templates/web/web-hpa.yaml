@@ -1,4 +1,5 @@
-apiVersion: autoscaling/v1
+{{- if .Values.web_hpa.enabled }}
+apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: {{ .Values.web.name  }}
@@ -9,4 +10,24 @@ spec:
     name: {{ .Values.web.name  }}
   minReplicas: {{ .Values.web_hpa.minReplicas  }}
   maxReplicas: {{ .Values.web_hpa.maxReplicas  }}
-  targetCPUUtilizationPercentage: {{ .Values.web_hpa.targetCPUUtilizationPercentage  }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.web_hpa.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.web_hpa.scaleUpStabilizationWindowSeconds }}
+      policies:
+        - type: Pods
+          value: {{ .Values.web_hpa.scaleUpPolicyValue }}
+          periodSeconds: {{ .Values.web_hpa.scaleUpPolicyPeriodSeconds }}
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.web_hpa.scaleDownStabilizationWindowSeconds }}
+      policies:
+        - type: Pods
+          value: {{ .Values.web_hpa.scaleDownPolicyValue }}
+          periodSeconds: {{ .Values.web_hpa.scaleDownPolicyPeriodSeconds }}
+{{- end }}
