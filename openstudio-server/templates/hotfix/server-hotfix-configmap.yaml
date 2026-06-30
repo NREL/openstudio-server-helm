@@ -1,0 +1,149 @@
+{{- if .Values.server_hotfix.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: server-hotfix-scripts
+data:
+  apply-hotfix.sh: |
+    #!/usr/bin/env sh
+    set -eu
+
+    if [ "${OS_SERVER_HOTFIX_ENFORCE_BATCH_RUN_START:-true}" = "true" ]; then
+      ruby /opt/hotfix/patch-start-guards.rb
+      ruby /opt/hotfix/patch-start-analysis-type-option.rb
+    fi
+
+    if [ "${OS_SERVER_HOTFIX_COMPLETED_KEY_TTL_ENABLED:-true}" = "true" ]; then
+      ruby /opt/hotfix/patch-completed-ttl.rb
+    fi
+
+    if [ "${OS_SERVER_HOTFIX_AUTOCHAIN_LHS_TO_BATCH_RUN:-true}" = "true" ]; then
+      ruby /opt/hotfix/patch-lhs-autochain.rb
+    fi
+
+    echo "OpenStudio server hotfix applied"
+
+  patch-start-guards.rb: |
+    controller = "/opt/openstudio/server/app/controllers/analyses_controller.rb"
+    marker = "OS_SERVER_HOTFIX_START_GUARDS_V1"
+    content = File.read(controller)
+
+    unless content.include?(marker)
+      guard_block = <<~'GUARD_BLOCK'
+          # OS_SERVER_HOTFIX_START_GUARDS_V1
+          requested_analysis_type = params[:analysis_type].to_s
+          if params[:analysis_action] == 'start'
+            if requested_analysis_type.present? && !['batch_run', 'lhs'].include?(requested_analysis_type)
+              render json: {
+                code: 422,
+                error: "analysis_type '#{requested_analysis_type}' is not allowed for start; supported values are batch_run, lhs, or omitted"
+              }, status: :unprocessable_entity and return
+            end
+
+            # Ensure downstream jobs can rely on analysis_type in run_options.
+            options[:analysis_type] = @analysis_type
+
+            active_statuses = ['na', 'init', 'queued', 'started', 'post-processing']
+            if @analysis.jobs.where(:status.in => active_statuses).exists?
+              render json: {
+                code: 409,
+                error: 'analysis already has an active run; refusing duplicate start'
+              }, status: :conflict and return
+            end
+
+            # Prevent duplicate LHS generation retries from creating multiple NA batches.
+            if requested_analysis_type == 'lhs' && @analysis.data_points.where(status: 'na').exists?
+              render json: {
+                code: 409,
+                error: 'lhs samples already generated for this analysis; start batch_run (or omit analysis_type) to queue simulations'
+              }, status: :conflict and return
+            end
+          end
+
+      GUARD_BLOCK
+
+      anchor = /(options\s*=\s*params\.permit!\.to_h\s*\n\s*options\[:run_data_point_filename\]\s*=\s*params\[:run_data_point_filename\]\s*if\s*params\[:run_data_point_filename\]\s*\n)/m
+      if content.match?(anchor)
+        content = content.sub(anchor) { |m| "#{m}\n#{guard_block}" }
+        File.write(controller, content)
+      else
+        warn("hotfix warning: start guard anchor not found in analyses_controller.rb; skipping")
+      end
+    end
+
+  patch-completed-ttl.rb: |
+    run_analysis = "/opt/openstudio/server/app/jobs/resque_jobs/run_analysis.rb"
+    marker = "OS_SERVER_HOTFIX_COMPLETED_TTL_V1"
+    content = File.read(run_analysis)
+
+    unless content.include?(marker)
+      replacement = <<~'COMPLETION_PATCH'.chomp
+            # OS_SERVER_HOTFIX_COMPLETED_TTL_V1
+            if analysis_type == 'batch_run'
+              ttl_seconds = Integer(ENV.fetch('OS_SERVER_HOTFIX_COMPLETED_KEY_TTL_SECONDS', '900'))
+              Resque.redis.setex("analysis:#{analysis_id}:completed", ttl_seconds, true)
+            end
+      COMPLETION_PATCH
+
+      anchor = /^\s*Resque\.redis\.set\("analysis:\#\{analysis_id\}:completed",\s*true\)\s*$/
+      if content.match?(anchor)
+        content = content.sub(anchor, replacement)
+        File.write(run_analysis, content)
+      else
+        warn("hotfix warning: completion key assignment not found in run_analysis.rb; skipping")
+      end
+    end
+
+  patch-start-analysis-type-option.rb: |
+    controller = "/opt/openstudio/server/app/controllers/analyses_controller.rb"
+    content = File.read(controller)
+
+    unless content.include?("options[:analysis_type] = @analysis_type")
+      anchor = 'logger.debug("After parsing JSON arguments and default values, analysis will run with the following options #{options}")'
+      insertion = <<~'INSERTION'
+
+        # OS_SERVER_HOTFIX_START_ANALYSIS_TYPE_OPTION_V1
+        if params[:analysis_action] == 'start'
+          # Required by AnalysisLibrary::Core.initialize_analysis_job which uses options[:analysis_type] as a hash key.
+          options[:analysis_type] = @analysis_type
+        end
+
+      INSERTION
+
+      if content.include?(anchor)
+        content = content.sub(anchor, "#{insertion}#{anchor}")
+        File.write(controller, content)
+      else
+        warn("hotfix warning: analysis_type option insertion anchor not found in analyses_controller.rb; skipping")
+      end
+    end
+
+  patch-lhs-autochain.rb: |
+    run_analysis = "/opt/openstudio/server/app/jobs/resque_jobs/run_analysis.rb"
+    marker = "OS_SERVER_HOTFIX_LHS_AUTOCHAIN_V1"
+    content = File.read(run_analysis)
+
+    unless content.include?(marker)
+      replacement = <<~'AUTOCHAIN_PATCH'
+          # OS_SERVER_HOTFIX_LHS_AUTOCHAIN_V1
+          def self.after_perform_finalize_analysis(analysis_type, analysis_id, job_id, options = {})
+            if analysis_type == 'batch_run'
+              Resque.enqueue(FinalizeAnalysis, analysis_id)
+            else
+              follow_on_options = (options || {}).dup
+              follow_on_options['skip_init'] = true
+              follow_on_options['analysis_type'] = 'batch_run'
+              Resque.enqueue(self, 'batch_run', analysis_id, job_id, follow_on_options)
+            end
+          end
+      AUTOCHAIN_PATCH
+
+      anchor = /def self\.after_perform_finalize_analysis\([^\n]*\)\s*\n(?:\s*#.*\n)*\s*Resque\.enqueue\(FinalizeAnalysis,\s*analysis_id\)\s*\n\s*end/m
+      if content.match?(anchor)
+        content = content.sub(anchor, replacement)
+        File.write(run_analysis, content)
+      else
+        warn("hotfix warning: finalize hook not found in run_analysis.rb; skipping")
+      end
+    end
+{{- end }}
