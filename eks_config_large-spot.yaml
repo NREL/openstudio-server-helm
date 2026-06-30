@@ -6,7 +6,7 @@ kind: ClusterConfig
 metadata:
   name: openstudio-server-03
   region: us-west-2
-  version: "1.30"
+  version: "1.34"
 
 vpc:
   cidr: 192.168.0.0/16
@@ -30,10 +30,11 @@ iam:
 
 managedNodeGroups:
   - name: Web-node-group2
+    amiType: Bottlerocket_x86_64
     instanceType: m7i.8xlarge
     minSize: 0
-    maxSize: 1
-    desiredCapacity: 1
+    maxSize: 2
+    desiredCapacity: 2
     labels:
       nodegroup: web-group
     privateNetworking: true
@@ -48,7 +49,7 @@ managedNodeGroups:
       # Update publicKeyPath for your public key
       publicKeyPath: ~/.ssh/id_rsa_179d.pub
     availabilityZones: ["us-west-2b"]
-    volumeSize: 550
+    volumeSize: 750
     volumeType: gp3
     tags:
       'org': 'nrel179d'
@@ -57,10 +58,13 @@ managedNodeGroups:
       maxUnavailable: 1  # Or use maxUnavailablePercentage
 
   - name: worker-node-group-spot-2a
+    amiType: Bottlerocket_x86_64
     instanceTypes: ["c7i.48xlarge", "c7a.48xlarge", "c7i.metal-48xl", "c7a.metal-48xl"]
     minSize: 0
-    maxSize: 10
+    maxSize: 25
     desiredCapacity: 0
+    maxPodsPerNode: 250
+    registryQps: 0
     labels:
       nodegroup: worker-group
     privateNetworking: true
@@ -79,7 +83,7 @@ managedNodeGroups:
     subnets:
       - subnet-08a05df026b4ec9a8
       - subnet-00ea3f10afdc9fb8e
-    volumeSize: 250
+    volumeSize: 1500
     volumeType: gp3
     tags:
       'org': 'nrel179d'
@@ -88,10 +92,13 @@ managedNodeGroups:
       maxUnavailable: 1  # Or use maxUnavailablePercentage
 
   - name: worker-node-group-spot-2c
+    amiType: Bottlerocket_x86_64
     instanceTypes: ["c7i.48xlarge", "c7a.48xlarge", "c7i.metal-48xl", "c7a.metal-48xl"]
     minSize: 0
-    maxSize: 10
+    maxSize: 25
     desiredCapacity: 0
+    maxPodsPerNode: 250
+    registryQps: 0
     labels:
       nodegroup: worker-group
     privateNetworking: true
@@ -110,7 +117,7 @@ managedNodeGroups:
     subnets:
       - subnet-00c5a82bb58556223
       - subnet-0027c0fd03f5cb2bb
-    volumeSize: 250
+    volumeSize: 1500
     volumeType: gp3
     tags:
       'org': 'nrel179d'
@@ -119,10 +126,13 @@ managedNodeGroups:
       maxUnavailable: 1  # Or use maxUnavailablePercentage
 
   - name: worker-node-group-spot-2d
+    amiType: Bottlerocket_x86_64
     instanceTypes: ["c7i.48xlarge", "c7a.48xlarge", "c7i.metal-48xl", "c7a.metal-48xl"]
     minSize: 0
-    maxSize: 10
+    maxSize: 25
     desiredCapacity: 0
+    maxPodsPerNode: 250
+    registryQps: 0
     labels:
       nodegroup: worker-group
     privateNetworking: true
@@ -140,7 +150,7 @@ managedNodeGroups:
     # availabilityZones: ["us-west-2d"]
     subnets:
       - subnet-04bbcd385d4d482cc
-    volumeSize: 250
+    volumeSize: 1500
     volumeType: gp3
     tags:
       'org': 'nrel179d'
