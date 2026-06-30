@@ -2,6 +2,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Values.load_balancer.name  }}
+  {{- with .Values.load_balancer.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+  {{- end }}
 spec:
   type: LoadBalancer
   externalTrafficPolicy:  {{ .Values.load_balancer.externalTrafficPolicy }}
