@@ -1,0 +1,21 @@
+{{- if .Values.web_background_keda.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-keda-auth
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+stringData:
+  password: {{ .Values.redis.password | quote }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: redis-trigger-auth
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretTargetRef:
+    - parameter: password
+      name: redis-keda-auth
+      key: password
+{{- end }}

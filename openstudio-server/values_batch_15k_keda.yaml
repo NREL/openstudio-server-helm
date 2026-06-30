@@ -1,0 +1,49 @@
+# KEDA-backed queue scaling profile for web-background.
+# Requires the KEDA operator/CRDs in the cluster.
+
+cluster_autoscaler:
+  scanInterval: "10s"
+  maxNodeProvisionTime: "4m"
+  scaleDownUtilizationThreshold: "0.2"
+  scaleDownUnneededTime: "15m"
+  maxGracefulTerminationSec: "300"
+  scaleDownDelayAfterFailure: "10m"
+
+web_background:
+  replicas: 4
+
+web_background_keda:
+  enabled: true
+  minReplicas: 4
+  maxReplicas: 12
+  pollingInterval: 30
+  cooldownPeriod: 300
+  queueName: "resque:queue:analyses"
+  listLength: 25
+  activationListLength: 1
+  redisAddress: "queue.openstudio-server.svc.cluster.local:6379"
+
+web_background_hpa:
+  enabled: false
+
+worker:
+  container:
+    resources:
+      requests:
+        cpu: 600m
+        memory: "1Gi"
+      limits:
+        cpu: 800m
+        memory: "2Gi"
+    terminationGracePeriodSeconds: 180
+
+worker_hpa:
+  minReplicas: 2
+  maxReplicas: 15000
+  targetCPUUtilizationPercentage: 35
+  scaleUpStabilizationWindowSeconds: 0
+  scaleDownStabilizationWindowSeconds: 900
+  scaleUpPolicyValue: 200
+  scaleUpPolicyPeriodSeconds: 60
+  scaleDownPolicyValue: 10
+  scaleDownPolicyPeriodSeconds: 60

@@ -5,21 +5,40 @@
 
 # Set to google, aws, azure, or openstack
 provider:
-  name: ""
+  name: "aws"
 
 cluster:
   name: "openstudio-server-03"
 
+cluster_autoscaler:
+  expander: "least-waste"
+  scanInterval: "10s"
+  maxNodeProvisionTime: "3m"
+  scaleDownUtilizationThreshold: "0.2"
+  scaleDownUnneededTime: "10m"
+  maxGracefulTerminationSec: "120"
+  scaleDownDelayAfterFailure: "5m"
+
 nfs-server-provisioner:
+  service:
+    # Fixed ClusterIP used by RWX mount option `addr=` for Bottlerocket NFS mounts.
+    clusterIP: "10.100.148.127"
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 550Gi
+    size: 2Ti
   storageClass:
-    allowVolumeExpansion: false
+    allowVolumeExpansion: true
     mountOptions:
       - vers=4
-      - sync
+      - addr=10.100.148.127
+  resources:
+    requests:
+      cpu: 4
+      memory: "8Gi"
+    limits:
+      cpu: 8
+      memory: "16Gi"
 db:
   name:  "db"
   label: "db"
@@ -27,9 +46,12 @@ db:
   password: "openstudio"
   container:
     name: "mongo-db"
-    image: "mongo:6.0.7"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/mongo:6.0.7"
     resources:
       requests:
+        cpu: 2
+        memory: "8Gi"
+      limits:
         cpu: 4
         memory: "12Gi"
     ports:
@@ -37,7 +59,7 @@ db:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 200Gi
+    size: 500Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -60,7 +82,7 @@ nfs_pvc:
   name: "nfs-pvc"
   accessModes:
     - "ReadWriteMany"
-  storageClass: "ssd"
+  storageClass: "nfs"
   storage: "500Gi"
 
 
@@ -68,19 +90,22 @@ redis:
   name: "redis"
   label: "redis"
   password: "openstudio"
-  maxclients: 40000
+  maxclients: 100000
   container:
     name: "redis"
-    image: "redis:6.0.9"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/ecr-public/docker/library/redis:6.0.9"
     resources:
       requests:
-        cpu: 3
+        cpu: 2
         memory: "4Gi"
+      limits:
+        cpu: 4
+        memory: "8Gi"
     port: 6379
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 200Gi
+    size: 500Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -96,11 +121,14 @@ rserve:
   number_of_workers: "1"
   container:
     name: "rserve"
-    image: "nrel/openstudio-rserve:3.6.1-3"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-rserve:3.10.0"
     resources:
       requests:
         cpu: 1
-        memory: "1Gi"
+        memory: "2Gi"
+      limits:
+        cpu: 2
+        memory: "4Gi"
 
 rserve_svc:
   name: "rserve"
@@ -110,34 +138,83 @@ rserve_svc:
 web_background:
   name: "web-background"
   label: "web-background"
-  replicas: 1
+  replicas:
+  queues: "analysis_wrappers,analyses"
+  terminationGracePeriodSeconds: 300
+  lifecycle:
+    preStopSleepSeconds: 20
+ 1
   container:
     name: "web-background"
-    image: "nrel/openstudio-server:3.6.1-3"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0-gzip-optimized"
     resources:
       requests:
         cpu: 2
         memory: "4Gi"
+      limits:
+        cpu: 4
+        memory: "8Gi"
+
+
+web_background_keda:
+  enabled: false
+  name: "web-background"
+  minReplicas: 1
+  maxReplicas: 1
+  pollingInterval: 30
+  cooldownPeriod: 300
+  queueName: "resque:queue:analyses"
+  listLength: 25
+  activationListLength: 1
+  redisAddress: "queue.openstudio-server.svc.cluster.local:6379"
+
+web_background_hpa:
+  enabled: false
+  name: "web-background"
+  minReplicas: 1
+  maxReplicas: 1
+  targetCPUUtilizationPercentage: 60
+  scaleUpStabilizationWindowSeconds: 0
+  scaleDownStabilizationWindowSeconds: 300
+  scaleUpPolicyValue: 4
+  scaleUpPolicyPeriodSeconds: 60
+  scaleDownPolicyValue: 1
+  scaleDownPolicyPeriodSeconds: 60
 
 web:
   name: "web"
   label: "web"
   secret_key_value: "c4ab6d293e4bf52ee92e8dda6e16dc9b5448d0c5f7908ee40c66736d515f3c29142d905b283d73e5e9cef6b13cd8e38be6fd3b5e25d00f35b259923a86c7c473"
-  # passenger_max_request_queue_size: "1600"
-  # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
-  # passenger_max_pool_size: "21"
-  # This value is typically between 150 and 400, find this by ssh into web pod and doing `passenger-status`
+  # Passenger tuning parameters
   passenger_memory_per_process: 250
+  passenger_min_instances: 2
+  passenger_max_pool_size: 32
+  passenger_request_queue_overflow_to_wait_list: "true"
+  passenger_max_request_queue_size: 1600
+  # Nginx tuning parameters
+  nginx_gzip: "on"
+  nginx_gzip_comp_level: 6
+  nginx_gzip_min_length: 1024
+  nginx_client_max_body_size: "100m"
+  # Connection timeout for analyses.json download
+  nginx_proxy_connect_timeout: "90s"
+  nginx_proxy_send_timeout: "300s"
+  nginx_proxy_read_timeout: "300s"
+  nginx_proxy_buffering: "on"
+  nginx_proxy_buffer_size: "32k"
+  nginx_proxy_buffers: "8 32k"
+  # Health check tuning
+  health_check_timeout_analyses: 15
   container:
     name: "web"
-    image: "nrel/openstudio-server:3.6.1-3"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0-gzip-optimized"
     resources:
       requests:
-        cpu: 6
-        memory: "50Gi"
-      limits:
         cpu: 8
-        memory: "60Gi"
+        memory: "32Gi"
+      limits:
+        cpu: 12
+        memory: "48Gi"
     port:
      http: 80
      https: 443
@@ -163,17 +240,63 @@ worker:
   label: "worker"
   container:
     name: "worker"
-    image: "nrel/openstudio-server:3.6.1-3"
+    image: "554977624503.dkr.ecr.us-west-2.amazonaws.com/openstudio-server:3.10.0"
     resources:
       requests:
-        cpu: 500m
+        cpu: 600m
         memory: "1Gi"
+      limits:
+        cpu: 800m
+        memory: "2Gi"
     terminationGracePeriodSeconds: 180
 
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 6600
-  targetCPUUtilizationPercentage: 10
-  stabilizationWindowSeconds: 300
-  scalePolicyValue: 950
+  maxReplicas: 15000
+  targetCPUUtilizationPercentage: 35
+  scaleUpStabilizationWindowSeconds: 0
+  scaleDownStabilizationWindowSeconds: 600
+  scaleUpPolicyValue: 500
+  scaleUpPolicyPeriodSeconds: 60
+  scaleDownPolicyValue: 25
+  scaleDownPolicyPeriodSeconds: 60
+
+s3_exporter:
+  enabled: false
+  schedule: "*/5 * * * *"
+  bucket: ""
+  prefix: ""
+  apiBaseUrl: "http://web"
+  nfsRoot: "/mnt/openstudio"
+  includeEnrichArtifacts: false
+  awsCliImage: "public.ecr.aws/aws-cli/aws-cli:2.17.49"
+  concurrencyPolicy: "Forbid"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  activeDeadlineSeconds: 1800
+  storageClass: ""
+  includePatterns:
+    - "manifest/*"
+    - "csv/*"
+  excludePatterns: []
+  serviceAccount:
+    create: true
+    name: "s3-sync-sa"
+    roleArn: ""
+    annotations: {}
+  resources:
+    collector:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+    uploader:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"

@@ -1,0 +1,22 @@
+{{- if .Values.web_background_keda.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ .Values.web_background_keda.name }}
+spec:
+  scaleTargetRef:
+    name: {{ .Values.web_background.name }}
+  minReplicaCount: {{ .Values.web_background_keda.minReplicas }}
+  maxReplicaCount: {{ .Values.web_background_keda.maxReplicas }}
+  pollingInterval: {{ .Values.web_background_keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.web_background_keda.cooldownPeriod }}
+  triggers:
+    - type: redis
+      authenticationRef:
+        name: redis-trigger-auth
+      metadata:
+        address: {{ .Values.web_background_keda.redisAddress }}
+        listName: {{ .Values.web_background_keda.queueName | quote }}
+        listLength: "{{ .Values.web_background_keda.listLength }}"
+        activationListLength: "{{ .Values.web_background_keda.activationListLength }}"
+{{- end }}
