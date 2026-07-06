@@ -20,6 +20,12 @@ global:
   # affinityMode: required | preferred | disabled
   # webAffinityMode / workerAffinityMode can override affinityMode per role.
   # defaults by provider: openstack => preferred, others => required
+  # optional extra tolerations applied to all role-bound workloads:
+  # extraTolerations: []
+  # optional role-specific extra tolerations:
+  # roleTolerations:
+  #   web: []
+  #   worker: []
   nodeGroups: {}
     # labelKey: ""
     # web: ""
@@ -27,7 +33,8 @@ global:
     # affinityMode: ""
     # webAffinityMode: ""
     # workerAffinityMode: ""
-  # Optional pod-level image pull secrets applied to chart workloads.
+  # Optional image pull secrets applied to all workload pod specs.
+  # These are merged with serviceAccount.imagePullSecrets (de-duplicated).
   # Leave empty for public Docker Hub images; set only when using a private registry.
   imagePullSecrets: []
   images:
@@ -43,13 +50,18 @@ global:
     tag: "3.10.0"
 
 # Optional shared ServiceAccount for chart workloads.
-# If create=true, chart creates one and can attach imagePullSecrets to it.
+# If create=true, chart creates one and attaches merged image pull secrets.
 # If create=false and name is set, workloads use that existing ServiceAccount.
 # If both are unset/default, workloads use the namespace default ServiceAccount.
 serviceAccount:
   create: true
   name: openstudio-workload
   annotations: {}
+  # Strict by default for connected clusters.
+  # Set false only for offline/render-only workflows (for example CI helm template jobs).
+  validateImagePullSecrets: true
+  # Merged with global.imagePullSecrets and propagated to both pod specs and
+  # chart-created workload ServiceAccount. Keep credentials in either location.
   imagePullSecrets: []
 
 cluster:
@@ -198,7 +210,7 @@ nfs_pvc:
   # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
   storage: "4700Gi"
 
-# Redis - Enhanced for production
+# Redis - Enhanced for production at scale (10k+ workers)
 redis:
   # Required when secrets.create=true.
   password: ""
@@ -210,16 +222,44 @@ redis:
   config:
     # Increase this when running very large worker/background fleets to avoid
     # Redis::CommandError ERR max number of clients reached.
-    maxclients: 20000
+    # Formula: worker_hpa.maxReplicas + (web_background.replicas × web_background.workerCount) + 20% headroom
+    maxclients: 50000
     tcpBacklog: 511
     timeoutSeconds: 0
+    # Persistence tuning for high-throughput workloads.
+    # "everysec" balances durability with performance; "no" for pure throughput at risk of data loss.
+    appendfsync: "everysec"
+    # Disable automatic RDB saves during high-load periods to avoid fork() latency spikes.
+    # RDB snapshots should be triggered during maintenance windows or via Redis replication.
+    save: ""
+  # Redis HA mode: "standalone" | "sentinel"
+  # standalone: single Redis pod (current default)
+  # sentinel: 3-pod Redis Sentinel with 1 primary + 2 replicas (requires sentinel config below)
+  ha:
+    mode: "standalone"
+    sentinel:
+      # Number of Sentinel pods (typically 3 for quorum).
+      replicas: 3
+      # Sentinel quorum count for failover (ceil(replicas/2) = 2 for 3 replicas).
+      quorum: 2
+      # Failover timeout in milliseconds.
+      failoverTimeoutMs: 60000
+      # Parallel syncs during failover.
+      parallelSyncs: 1
+      # Container resources for sentinel sidecar.
+      container:
+        image: "library/redis@sha256:94fb31b765189935ffd5f0503ce496bee4404499cbcfa7f8d67020bfbed2a345"
+        resources:
+          requests:
+            cpu: 500m
+            memory: "512Mi"
   container:
     image: "library/redis@sha256:94fb31b765189935ffd5f0503ce496bee4404499cbcfa7f8d67020bfbed2a345"
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 3
-        memory: "4Gi"
+        cpu: 8          # 2.7x increase: handle 50k connections + AOF + replication
+        memory: "16Gi"  # 4x increase: larger queue buffers, in-flight job payloads
   persistence:
     # Keep Redis on block storage; reserve NFS for shared artifacts only.
     storageClass: "csi-cinder"
@@ -242,11 +282,14 @@ rserve:
 rserve_svc:
   {}
 
-# Web Background - Enhanced for production
+# Web Background - Enhanced for production at scale (B5: Pipeline throughput)
 web_background:
-  replicas: 2           # Increased from 1 for redundancy
+  # Scale with worker ceiling: aim for 1 simulation producer per ~800 consumers.
+  # At 10k workers -> 12-16 simulation-producing workers needed.
+  replicas: 8           # 4x increase: more analysis -> simulation pipeline capacity
   # Number of Resque child workers per web-background pod (COUNT env).
-  workerCount: 6
+  # Higher workerCount per pod reduces total pod count for the background layer.
+  workerCount: 12       # 2x increase: more workers per pod for job creation throughput
   # Optional explicit node selector override for web-background pods.
   nodeSelector: {}
   container:
@@ -255,8 +298,8 @@ web_background:
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 2
-        memory: "4Gi"
+        cpu: 4          # 2x increase: more worker processes need more CPU
+        memory: "8Gi"   # 2x increase: larger Resque worker memory footprint
     startup:
       maxRetries: 12
       retryDelaySeconds: 10
@@ -274,6 +317,19 @@ web:
     image: ""
     # Optional override. If empty, uses provider-aware default (openstack=IfNotPresent, others=Always).
     imagePullPolicy: "IfNotPresent"
+    waitForDb:
+      # Number of TCP connect attempts made by the init-wait-for-db container.
+      maxAttempts: 300
+      # Delay between DB connect attempts.
+      retryDelaySeconds: 3
+  strategy:
+    # Keep web rollouts conservative while DB availability is recovering.
+    maxSurge: 1
+    maxUnavailable: 0
+    # Surface rollout stalls quickly if init-wait-for-db is repeatedly timing out.
+    progressDeadlineSeconds: 1800
+    # Reduce endpoint flapping during rollout by requiring brief readiness soak.
+    minReadySeconds: 15
   runtimeOverrides:
     # Optional runtime monkey-patch initializer for requeue behavior.
     # Keep disabled unless this override is explicitly required.
@@ -297,55 +353,120 @@ web:
 web_svc:
   {}
 
-# Web HPA - Disabled-by-default baseline values for chart rendering.
+# Web HPA - baseline values for chart rendering.
 web_hpa:
   name: "web"
-  minReplicas: 1
-  # Keep single replica by default until distributed file locking is validated in your environment.
-  maxReplicas: 1
+  minReplicas: 2             # Increased for redundancy at scale
+  maxReplicas: 6             # Allow up to 6 web pods for API request fan-out
   targetCPUUtilizationPercentage: 50
   # stabilizationWindowSeconds controls how long to wait before scaling down.
   stabilizationWindowSeconds: 600
+  # Distributed file locking: required when maxReplicas > 1.
+  # Set to true after validating Redis-based locking (redlock-rb) in your environment.
+  distributedLocking:
+    enabled: false
+    # Backend type: "redis" (default), "nfs" (not recommended)
+    backend: "redis"
+    # Redis key prefix for lock resources
+    keyPrefix: "os-web-lock"
 
-# Worker - Enhanced for production
+# Web-background HPA - scales the analysis pipeline proportionally to job queue
+web_background_hpa:
+  name: "web-background"
+  minReplicas: 8
+  maxReplicas: 32            # Allow up to 32 bg pods during large job submission bursts
+  targetCPUUtilizationPercentage: 60
+  stabilizationWindowSeconds: 300
+
+# Worker - Enhanced for production at scale
 worker:
   queues: "simulations,requeued"
   # Optional explicit node selector override for worker pods.
   nodeSelector: {}
-  # Optional worker pod topology spread controls.
-  # Enable to reduce concentration on a single node during scale ramps.
+  # Worker pod topology spread controls.
+  # Enable to distribute pods across nodes and reduce single-node concentration.
   topologySpread:
-    enabled: false
+    enabled: true
     maxSkew: 1
     topologyKey: "kubernetes.io/hostname"
     whenUnsatisfiable: "ScheduleAnyway"
     # Optional: minimum number of eligible domains required for spreading.
+    # Set to 2+ once 2+ worker nodes exist to guarantee skew enforcement.
     minDomains: null
     # Optional policies for honoring node affinity and taints during spread.
     nodeAffinityPolicy: "Honor"
     nodeTaintsPolicy: "Ignore"
+  # PodDisruptionBudget: ensure minimum available workers during voluntary disruptions.
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  # Anti-affinity: prefer spreading workers across different nodes.
+  # Reduces blast radius during node failures and distributes NFS/Redis connection load.
+  antiAffinity:
+    type: "preferred"        # "required" or "preferred"
+    topologyKey: "kubernetes.io/hostname"
+  # Rolling update strategy for the worker Deployment.
+  # WARNING: Default maxSurge=1/maxUnavailable=0 is safe for graceful rolling updates
+  # but is prohibitively slow at large pod counts (e.g. 7500 workers ≈ 63-hour rollout).
+  # For emergency restart of hung workers at scale, use the KEDA-pause procedure:
+  #   1. Annotate ScaledObject: autoscaling.keda.sh/paused=true
+  #   2. kubectl scale deploy/worker --replicas=0
+  #   3. Force-delete any Terminating pods
+  #   4. kubectl scale deploy/worker --replicas=N (fresh pods)
+  #   5. Remove paused annotation
+  # For intentional large-scale rollouts, increase maxUnavailable temporarily
+  # (e.g. 500 or "10%"), but only when the queue is empty to avoid DirtyExit accumulation.
+  strategy:
+    maxSurge: 1
+    maxUnavailable: 0
+  # Resque job execution limits.
+  resque:
+    # Wall-clock timeout (seconds) for a single simulation job subprocess.
+    # When > 0, a pod liveness probe kills the worker if openstudio has been running
+    # longer than this value, allowing KEDA to schedule a fresh replacement.
+    # Recommended for production: 14400 (4 hours). 0 = disabled (no timeout).
+    jobTimeoutSeconds: 0
   container:
     # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 600m
-        memory: "700Mi"
-    terminationGracePeriodSeconds: 5200
+        cpu: 400m      # Reduced from 600m: allows ~2 workers per 1-core slice (better density)
+        memory: "1Gi"  # Increased from 700Mi: observed peak 1.3GB, 1Gi provides safer headroom
+      limits:
+        cpu: 2         # Cap burst to prevent CPU starvation of other pods on node
+        memory: "2Gi"  # Hard limit to prevent OOM on node; OOMKill single pod instead of node
+    terminationGracePeriodSeconds: 660  # Keep above preStop maxWait+TERM grace to avoid hook truncation
     startup:
       maxRetries: 12
       retryDelaySeconds: 10
     preStop:
       enabled: true
-      signal: "3"
-      pollIntervalSeconds: 30
-      maxWaitSeconds: 5100
+      signal: "3"              # SIGQUIT: Resque gracefully finishes current job
+      pollIntervalSeconds: 10  # Reduced from 30: faster detection of job completion
+      maxWaitSeconds: 600      # Reduced from 5100: 10 min max drain (was 85 min)
+      fastTerminateSeconds: 120 # Fast-terminate bias: bounded graceful attempt before deterministic fallback
+      forceTerminateGraceSeconds: 20 # Wait after TERM before optional KILL fallback
+      forceKillEnabled: true # If true, send KILL when TERM fallback still leaves worker processes
+    # Subprocess-age liveness probe: restarts the worker pod when an openstudio simulation
+    # subprocess has been running longer than worker.resque.jobTimeoutSeconds.
+    # Has no effect when jobTimeoutSeconds is 0. Enable in production to auto-recover hung workers.
+    livenessProbe:
+      enabled: false
+      # How often to run the check. Keep ≥ the expected job startup time to avoid false positives.
+      periodSeconds: 300
+      # Delay before first probe. Give the worker time to start and pick up its first job.
+      initialDelaySeconds: 300
+      # Consecutive failures before restart. 1 is appropriate: the elapsed-time check is already conservative.
+      failureThreshold: 1
+      # Time to wait for the probe command to complete.
+      timeoutSeconds: 10
 
 # Worker HPA - Optimized for production workloads with aggressive scale-up
 worker_hpa:
   minReplicas: 2
-  maxReplicas: 7900
+  maxReplicas: 800
   targetCPUUtilizationPercentage: 50
   stabilizationWindowSeconds: 600
   behavior:
@@ -369,10 +490,38 @@ worker_hpa:
           periodSeconds: 60
 
 # Worker autoscaling mode:
-# - hpa: Kubernetes HPA on CPU only (default)
-# - keda-hybrid: KEDA ScaledObject using queue depth + CPU
+# - hpa: Kubernetes HPA on CPU only (default, simpler but slower to react)
+# - keda-hybrid: KEDA ScaledObject using queue depth + CPU (recommended for 10k+ scale)
+#   Benefits: faster scale-up on queue build-up, scale-down on queue drain, CPU as safety net
 worker_autoscaling:
-  mode: "hpa"
+  mode: "keda-hybrid"
+  keda:
+    # Poll Redis every 10s for queue depth changes
+    pollingIntervalSeconds: 10
+    # Wait 5 minutes before scaling down after queue is empty
+    cooldownPeriodSeconds: 300
+    # Redis address for KEDA to query queue lengths
+    redisAddress: ""
+    # Queues to monitor for scaling decisions
+    queueNames:
+      - simulations
+      - requeued
+    # Scale up 1 worker per job in queue
+    queueLengthPerWorker: 1
+    # Don't scale until at least 1 job is queued
+    activationQueueLength: 1
+    # CPU trigger as safety net (uses same target as HPA)
+    enableCpuTrigger: false
+    # Fallback if KEDA cannot reach Redis
+    fallback:
+      failureThreshold: 3
+      replicas: 16
+    advanced:
+      restoreToOriginalReplicaCount: false
+
+    # For degraded infrastructure periods (registry/auth/network/control-plane
+    # instability), apply a safer tuning overlay, for example:
+    # helm upgrade --install ... -f openstudio-server/values.yaml -f openstudio-server/values.degraded-infra.yaml
 
 hooks:
   preDeleteCleanup:
@@ -385,12 +534,11 @@ hooks:
     imagePullPolicy: "IfNotPresent"
 
 prepull:
-  # Optional image warmup DaemonSet for scale-up/upgrade events.
-  # Enable temporarily, wait until all prepull pods are Running, then disable if desired.
-  enabled: false
-  # Optional role affinity for prepull DaemonSet: "", "web", or "worker".
-  # Leave empty so the warmup pod runs on every node.
-  role: ""
+  # Image warmup DaemonSet for scale-up/upgrade events.
+  # Keep enabled during planned warm-up windows to reduce registry stampede on scale-up.
+  enabled: true
+  # Restrict prepull to worker nodes where it's needed most.
+  role: "worker"
   # Optional explicit pull policy override. If empty, uses provider-aware default
   # (openstack=IfNotPresent, others=Always).
   imagePullPolicy: "IfNotPresent"
@@ -399,7 +547,8 @@ prepull:
   utilityImage: "registry.k8s.io/e2e-test-images/busybox:1.29-2"
   utilityImagePullPolicy: "IfNotPresent"
   # Spread node warm-up pulls across time to avoid a registry stampede.
-  spreadSeconds: 300
+  # Increased from 300s to spread over 10 min for larger node batches.
+  spreadSeconds: 600
   # Warm mode:
   # - once: perform one pull cycle, then hold pod in Running state.
   # - continuous: run pull cycles continuously with intervalSeconds pauses.
@@ -408,7 +557,7 @@ prepull:
   intervalSeconds: 1800
   # If true, pod exits non-zero when any pull in a cycle fails.
   # This makes failures obvious via CrashLoopBackOff/NotReady state.
-  failOnAnyPullError: false
+  failOnAnyPullError: true  # Changed: surface failures immediately
   includeRserve: false
   includeWebInit: false
   # Optional additional images to warm on each node (for example sidecars or infra tools)

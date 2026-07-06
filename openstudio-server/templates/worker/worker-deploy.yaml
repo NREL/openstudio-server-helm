@@ -23,9 +23,64 @@ spec:
     {{ $workerContainer := default (dict) .Values.worker.container }}
     {{ $workerStartup := default (dict) (get $workerContainer "startup") }}
     {{ $workerPreStop := default (dict) (get $workerContainer "preStop") }}
+    {{ $workerLiveness := default (dict) (get $workerContainer "livenessProbe") }}
+    {{ $workerResque := default (dict) (get $worker "resque") }}
     {{ $workerTopologySpread := default (dict) (get $worker "topologySpread") }}
+    {{ $workerAntiAffinity := default (dict) (get $worker "antiAffinity") }}
+    {{- $antiAffinityEnabled := not (empty (default "" (get $workerAntiAffinity "type"))) -}}
     spec:
+      {{- /* Use "if" (not "{{- if") to preserve the newline after "spec:" */}}
+      {{ if $antiAffinityEnabled }}
+      {{- /* Emit combined affinity block to avoid duplicate "affinity:" keys */}}
+      {{- $mode := include "openstudio.nodeGroupAffinityModeForRole" (dict "root" . "role" "worker") -}}
+      {{- $labelKey := include "openstudio.nodeGroupLabelKey" . -}}
+      {{- $nodeGroupValue := include "openstudio.nodeGroupValueForRole" (dict "root" . "role" "worker") -}}
+      {{- $antiAffinityType := get $workerAntiAffinity "type" -}}
+      {{- $antiAffinityTopologyKey := default "kubernetes.io/hostname" (get $workerAntiAffinity "topologyKey") -}}
+      {{- $workerLabel := default "worker" .Values.worker.label -}}
+      affinity:
+        {{- if ne $mode "disabled" }}
+        nodeAffinity:
+          {{- if eq $mode "preferred" }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: {{ $labelKey }}
+                    operator: In
+                    values:
+                      - {{ $nodeGroupValue }}
+          {{- else }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ $labelKey }}
+                    operator: In
+                    values:
+                      - {{ $nodeGroupValue }}
+          {{- end }}
+        {{- end }}
+        podAntiAffinity:
+          {{- if eq $antiAffinityType "preferred" }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: {{ $workerLabel }}
+                    release: {{ .Release.Name }}
+                topologyKey: {{ $antiAffinityTopologyKey }}
+          {{- else }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: {{ $workerLabel }}
+                  release: {{ .Release.Name }}
+              topologyKey: {{ $antiAffinityTopologyKey }}
+          {{- end }}
+      {{- else }}
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "worker") | nindent 6 }}
+      {{- end }}
       {{- include "openstudio.tolerationsForRole" (dict "root" . "role" "worker") | nindent 6 }}
       {{- if eq (include "openstudio.workloadServiceAccountUse" .) "true" }}
       serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
@@ -69,31 +124,88 @@ spec:
                   - |
                     set +e
                     signal="${WORKER_PRESTOP_SIGNAL:-3}"
-                    max_wait="${WORKER_PRESTOP_MAX_WAIT_SECONDS:-5100}"
-                    interval="${WORKER_PRESTOP_POLL_INTERVAL_SECONDS:-30}"
+                    max_wait="${WORKER_PRESTOP_MAX_WAIT_SECONDS:-600}"
+                    fast_wait="${WORKER_PRESTOP_FAST_TERMINATE_SECONDS:-120}"
+                    interval="${WORKER_PRESTOP_POLL_INTERVAL_SECONDS:-10}"
+                    force_term_grace="${WORKER_PRESTOP_FORCE_TERM_GRACE_SECONDS:-20}"
+                    force_kill_enabled="${WORKER_PRESTOP_FORCE_KILL_ENABLED:-true}"
                     start_ts="$(date +%s)"
+                    target_pattern='resque|openstudio'
+                    case "$max_wait" in ''|*[!0-9]*) max_wait=600 ;; esac
+                    case "$fast_wait" in ''|*[!0-9]*) fast_wait=120 ;; esac
+                    case "$interval" in ''|*[!0-9]*) interval=10 ;; esac
+                    case "$force_term_grace" in ''|*[!0-9]*) force_term_grace=20 ;; esac
+                    if [ "$fast_wait" -gt "$max_wait" ]; then
+                      fast_wait="$max_wait"
+                    fi
+                    echo "worker preStop phase=start signal=${signal} fast_wait=${fast_wait}s max_wait=${max_wait}s interval=${interval}s force_term_grace=${force_term_grace}s force_kill=${force_kill_enabled}"
                     pkill "-${signal}" -f resque >/dev/null 2>&1 || true
                     while true; do
                       ruby_count="$(pgrep -fc ruby || true)"
                       os_count="$(pgrep -fc openstudio || true)"
+                      target_count="$(pgrep -fc "$target_pattern" || true)"
+                      if [ "${target_count:-0}" -le 0 ]; then
+                        echo "worker preStop phase=graceful_complete reason=no_target_processes elapsed=$(( $(date +%s) - start_ts ))s"
+                        break
+                      fi
                       if [ "${ruby_count:-0}" -le 1 ] && [ "${os_count:-0}" -eq 0 ]; then
+                        echo "worker preStop phase=graceful_complete reason=process_drain_detected elapsed=$(( $(date +%s) - start_ts ))s ruby=${ruby_count:-0} openstudio=${os_count:-0}"
                         break
                       fi
                       now="$(date +%s)"
                       elapsed="$((now - start_ts))"
-                      if [ "$elapsed" -ge "$max_wait" ]; then
-                        echo "worker preStop reached max wait (${max_wait}s); allowing termination"
+                      if [ "$elapsed" -ge "$fast_wait" ]; then
+                        echo "worker preStop phase=fallback_trigger reason=fast_wait_exceeded elapsed=${elapsed}s ruby=${ruby_count:-0} openstudio=${os_count:-0}"
                         break
                       fi
                       sleep "$interval"
                     done
-                    pkill -P 1 >/dev/null 2>&1 || true
+                    remaining_after_grace="$(pgrep -fc "$target_pattern" || true)"
+                    if [ "${remaining_after_grace:-0}" -gt 0 ]; then
+                      echo "worker preStop phase=fallback_term remaining=${remaining_after_grace} signal=TERM"
+                      pkill -TERM -f "$target_pattern" >/dev/null 2>&1 || true
+                      sleep "$force_term_grace"
+                      remaining_after_term="$(pgrep -fc "$target_pattern" || true)"
+                      if [ "${remaining_after_term:-0}" -gt 0 ] && [ "$force_kill_enabled" = "true" ]; then
+                        echo "worker preStop phase=fallback_kill remaining=${remaining_after_term} signal=KILL"
+                        pkill -KILL -f "$target_pattern" >/dev/null 2>&1 || true
+                      elif [ "${remaining_after_term:-0}" -gt 0 ]; then
+                        echo "worker preStop phase=fallback_incomplete remaining=${remaining_after_term} force_kill=false"
+                      fi
+                    fi
+                    echo "worker preStop phase=done elapsed=$(( $(date +%s) - start_ts ))s"
                     exit 0
 {{- end }}
           resources:
             requests:
-              cpu:  {{  .Values.worker.container.resources.requests.cpu  }}
-              memory:  {{  .Values.worker.container.resources.requests.memory  }}
+{{ toYaml .Values.worker.container.resources.requests | nindent 14 }}
+            {{- if (get (default (dict) .Values.worker.container.resources) "limits") }}
+            limits:
+{{ toYaml .Values.worker.container.resources.limits | nindent 14 }}
+            {{- end }}
+{{- if and (default false (get $workerLiveness "enabled")) (gt (int (default 0 (get $workerResque "jobTimeoutSeconds"))) 0) }}
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  timeout_secs="${WORKER_JOB_TIMEOUT_SECONDS:-0}"
+                  [ "$timeout_secs" -le 0 ] && exit 0
+                  for pid in $(pgrep -x openstudio 2>/dev/null); do
+                    elapsed=$(ps -p "$pid" -o etimes= 2>/dev/null | tr -d ' ')
+                    [ -z "$elapsed" ] && continue
+                    if [ "$elapsed" -gt "$timeout_secs" ]; then
+                      echo "LIVENESS_FAIL: openstudio pid=$pid running ${elapsed}s > timeout ${timeout_secs}s"
+                      exit 1
+                    fi
+                  done
+                  exit 0
+            initialDelaySeconds: {{ default 300 (get $workerLiveness "initialDelaySeconds") }}
+            periodSeconds: {{ default 300 (get $workerLiveness "periodSeconds") }}
+            failureThreshold: {{ default 1 (get $workerLiveness "failureThreshold") }}
+            timeoutSeconds: {{ default 10 (get $workerLiveness "timeoutSeconds") }}
+{{- end }}
           volumeMounts:
             - name: osdata-worker
               mountPath: "/mnt/openstudio"
@@ -122,12 +234,20 @@ spec:
               value: {{ default 10 (get $workerStartup "retryDelaySeconds") | quote }}
 {{- if (default true (get $workerPreStop "enabled")) }}
             - name: WORKER_PRESTOP_MAX_WAIT_SECONDS
-              value: {{ default 5100 (get $workerPreStop "maxWaitSeconds") | quote }}
+              value: {{ default 600 (get $workerPreStop "maxWaitSeconds") | quote }}
             - name: WORKER_PRESTOP_POLL_INTERVAL_SECONDS
-              value: {{ default 30 (get $workerPreStop "pollIntervalSeconds") | quote }}
+              value: {{ default 10 (get $workerPreStop "pollIntervalSeconds") | quote }}
             - name: WORKER_PRESTOP_SIGNAL
               value: {{ default "3" (get $workerPreStop "signal") | quote }}
+            - name: WORKER_PRESTOP_FAST_TERMINATE_SECONDS
+              value: {{ default 120 (get $workerPreStop "fastTerminateSeconds") | quote }}
+            - name: WORKER_PRESTOP_FORCE_TERM_GRACE_SECONDS
+              value: {{ default 20 (get $workerPreStop "forceTerminateGraceSeconds") | quote }}
+            - name: WORKER_PRESTOP_FORCE_KILL_ENABLED
+              value: {{ default true (get $workerPreStop "forceKillEnabled") | quote }}
 {{- end }}
+            - name: WORKER_JOB_TIMEOUT_SECONDS
+              value: {{ default 0 (get $workerResque "jobTimeoutSeconds") | quote }}
             - name: MONGO_USER
               valueFrom:
                 secretKeyRef:

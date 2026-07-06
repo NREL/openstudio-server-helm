@@ -1,0 +1,128 @@
+# Local overrides for Azimuth-managed cluster: openstudio-server-july1v2
+
+cluster:
+  name: "openstudio-server-july1v2"
+
+global:
+  imagePullSecrets:
+    - "registry-credentials"
+  images:
+    registry: "pulp-dev.hpc.nlr.gov"
+    repositoryPrefix: "pulp-container-aurora-179d"
+
+serviceAccount:
+  imagePullSecrets:
+    - "registry-credentials"
+
+autoscaler:
+  # Keep chart-managed autoscaler disabled until ownership strategy is finalized.
+  enabled: false
+  openstackNodeGroups: []
+
+worker:
+  topologySpread:
+    enabled: true
+    maxSkew: 1
+    topologyKey: "kubernetes.io/hostname"
+    whenUnsatisfiable: "ScheduleAnyway"
+    nodeAffinityPolicy: "Honor"
+    nodeTaintsPolicy: "Ignore"
+  strategy:
+    maxSurge: 1
+    maxUnavailable: 0
+  # Liveness probe enabled: restarts workers that hang on a simulation for > 4 hours.
+  # Root cause: openstudio subprocess hangs indefinitely with no timeout; all worker slots fill
+  # up; Resque shows working=true but processed counter is flat — queue appears stalled.
+  resque:
+    jobTimeoutSeconds: 14400  # 4-hour wall-clock limit per simulation subprocess
+  container:
+    terminationGracePeriodSeconds: 660
+    preStop:
+      enabled: true
+      signal: "3"
+      pollIntervalSeconds: 10
+      maxWaitSeconds: 600
+      fastTerminateSeconds: 240
+      forceTerminateGraceSeconds: 20
+      forceKillEnabled: true
+    livenessProbe:
+      enabled: true
+      periodSeconds: 300       # Check every 5 minutes
+      initialDelaySeconds: 300 # First check 5 minutes after pod starts
+      failureThreshold: 1      # Restart on first failure (timer check is already conservative)
+      timeoutSeconds: 10
+
+worker_autoscaling:
+  # Sync with live cluster: KEDA ScaledObject deployed (not chart-managed HPA).
+  mode: "keda-hybrid"
+  keda:
+    pollingIntervalSeconds: 20
+    cooldownPeriodSeconds: 600
+    queueLengthPerWorker: 2
+    activationQueueLength: 3
+    # Disable CPU trigger to avoid runaway scale from transient CPU spikes.
+    enableCpuTrigger: false
+    fallback:
+      failureThreshold: 6
+      replicas: 8
+
+worker_hpa:
+  minReplicas: 2
+  # Campaign ceiling while waiting for larger worker disk flavor.
+  # Increase in probe-gated steps only.
+  maxReplicas: 1200
+  # Keep conservative while node readiness and scheduling pressure recover.
+  stabilizationWindowSeconds: 300
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120
+      selectPolicy: Min
+      policies:
+        - type: Pods
+          value: 20
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 15
+          periodSeconds: 60
+
+prepull:
+  enabled: true
+  role: "worker"
+  warmMode: "continuous"
+  intervalSeconds: 1200
+  spreadSeconds: 900
+  failOnAnyPullError: false
+
+web_background:
+  # Increase queue feeder capacity to keep worker queue depth high during bursts.
+  replicas: 4
+  workerCount: 12
+
+web_background_hpa:
+  # Scale web-background based on CPU utilization when analyses queue grows.
+  enabled: true
+  minReplicas: 4
+  maxReplicas: 32
+  targetCPUUtilizationPercentage: 60
+  # Reduce scale-down delay so we don't pay for idle web-background workers.
+  stabilizationWindowSeconds: 120
+
+# Cinder quota-fit overrides for this cluster.
+nfs-server-provisioner:
+  persistence:
+    size: 4320Gi
+
+nfs_pvc:
+  storage: 4000Gi
+
+db:
+  persistence:
+    size: 180Gi
+
+redis:
+  persistence:
+    size: 120Gi
