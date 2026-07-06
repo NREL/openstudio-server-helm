@@ -9,6 +9,16 @@ global:
   images:
     registry: "pulp-dev.hpc.nlr.gov"
     repositoryPrefix: "pulp-container-aurora-179d"
+  nodeGroups:
+    # Web nodes carry taint worker-pods:not-allowed:NoSchedule to keep worker pods off them.
+    # Infra pods (db, web, web-background, etc.) use role=web and must tolerate this taint.
+    # Without this, any pod using tolerationsForRole(web) fails to schedule after a restart.
+    roleTolerations:
+      web:
+        - key: worker-pods
+          operator: Equal
+          value: not-allowed
+          effect: NoSchedule
 
 serviceAccount:
   imagePullSecrets:
