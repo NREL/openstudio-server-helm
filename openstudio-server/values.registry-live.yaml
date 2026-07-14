@@ -7,6 +7,13 @@ global:
     name: "openstack"
   nodeGroups:
     webAffinityMode: "required"
+    workerAffinityMode: "required"
+    roleTolerations:
+      web:
+        - key: worker-pods
+          operator: Equal
+          value: not-allowed
+          effect: NoSchedule
   images:
     # Local registry endpoint reachable by cluster nodes.
     # Must be host[:port], not a bare name like "zot".
@@ -42,14 +49,25 @@ hostAliases:
 serviceAccount:
   create: true
   name: "openstudio-workload"
+  validateImagePullSecrets: true
   imagePullSecrets:
     - "registry-credentials"
 
 # OpenStack defaults resolve empty values to IfNotPresent.
 web:
   nodeSelector: {}
+  runtimeOverrides:
+    enabled: true
   initContainer:
     imagePullPolicy: ""
+    waitForDb:
+      maxAttempts: 300
+      retryDelaySeconds: 3
+  strategy:
+    maxSurge: 1
+    maxUnavailable: 0
+    progressDeadlineSeconds: 1800
+    minReadySeconds: 15
   container:
     imagePullPolicy: ""
 web_hpa:
@@ -62,17 +80,11 @@ web_background:
   container:
     imagePullPolicy: ""
 redis:
-  nodeSelector: {}
-  affinity:
-    nodeAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          preference:
-            matchExpressions:
-              - key: capi.stackhpc.com/node-group
-                operator: In
-                values:
-                  - "worker"
+  # Pin to web node: the worker-node Cinder volume attachment is stuck at the
+  # OpenStack level; the web node successfully attached the PVC on 2026-07-14.
+  nodeSelector:
+    capi.stackhpc.com/node-group: "web"
+  affinity: {}
   config:
     maxclients: 50000
     tcpBacklog: 511
@@ -83,6 +95,14 @@ rserve:
 worker:
   nodeSelector:
     capi.stackhpc.com/node-group: "worker"
+  resque:
+    # Bound runaway simulations and self-heal receipt-wait deadlocks.
+    jobTimeoutSeconds: 14400
+    receiptWaitTimeoutSeconds: 2400
+    lockJanitor:
+      enabled: true
+      intervalSeconds: 60
+      minAgeSeconds: 120
   topologySpread:
     enabled: true
     maxSkew: 1
@@ -93,7 +113,30 @@ worker:
     nodeTaintsPolicy: "Ignore"
   container:
     imagePullPolicy: ""
+    terminationGracePeriodSeconds: 660
+    resources:
+      requests:
+        cpu: 400m
+        memory: "1Gi"
+      limits:
+        cpu: 2
+        memory: "2Gi"
+    preStop:
+      enabled: true
+      signal: "3"
+      pollIntervalSeconds: 10
+      maxWaitSeconds: 600
+      fastTerminateSeconds: 600
+      forceTerminateGraceSeconds: 20
+      forceKillEnabled: true
+    livenessProbe:
+      enabled: true
+      periodSeconds: 300
+      initialDelaySeconds: 300
+      failureThreshold: 1
+      timeoutSeconds: 10
   strategy:
+    # Keep rollouts conservative while cluster stability recovers.
     maxSurge: 1
     maxUnavailable: 0
 
@@ -113,24 +156,23 @@ prepull:
   nodeSelector:
     capi.stackhpc.com/node-group: "worker"
 
+worker_autoscaling:
+  mode: "keda-hybrid"
+  keda:
+    pollingIntervalSeconds: 20
+    cooldownPeriodSeconds: 1800
+    queueNames:
+      - simulations
+      - requeued
+    queueLengthPerWorker: 2
+    activationQueueLength: 3
+    enableCpuTrigger: false
+    fallback:
+      failureThreshold: 6
+      replicas: 8
+
 worker_hpa:
-  name: "openstudio-server-worker"
-  # Keep a wide ceiling above the steady-state ramp so CPU-bound growth is not capped early.
-  minReplicas: 400
-  maxReplicas: 6200
-  behavior:
-    scaleUp:
-      # Conservative ramp to reduce simultaneous registry pulls.
-      stabilizationWindowSeconds: 120
-      selectPolicy: Min
-      policies:
-        - type: Pods
-          value: 20
-          periodSeconds: 60
-    scaleDown:
-      stabilizationWindowSeconds: 300
-      selectPolicy: Max
-      policies:
-        - type: Percent
-          value: 15
-          periodSeconds: 60
+  # minReplicas/maxReplicas shared by both HPA and KEDA modes
+  minReplicas: 2
+  maxReplicas: 600
+  targetCPUUtilizationPercentage: 50
