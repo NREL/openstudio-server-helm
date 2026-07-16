@@ -149,6 +149,7 @@ global:
 serviceAccount:
   create: true
   name: "openstudio-workload"
+  validateImagePullSecrets: true
   imagePullSecrets:
     - "registry-credentials"
 ```
@@ -160,6 +161,8 @@ Image auth precedence:
 1. Pod-level `global.imagePullSecrets` (if set)
 2. ServiceAccount-level pull secrets (`serviceAccount.imagePullSecrets`)
 3. Cluster/node runtime auth configuration
+
+`serviceAccount.validateImagePullSecrets=true` (default) adds a preflight lookup for every merged pull secret name and fails install/upgrade early when a referenced secret is missing in the release namespace.
 
 If image pulls still resolve to a mirrored path like `quay.io/v2/azimuth/...`, that is a node runtime registry mirror problem, not a Helm values problem. Fix the containerd mirror config on the nodes or point the workload at a registry the nodes can reach directly.
 
@@ -274,12 +277,26 @@ Recommended staged ramp workflow (very conservative):
    ./scripts/openstudio-reliability --mode ceiling-probe \
      --quiet-window-seconds 900 \
      --quiet-interval-seconds 30 \
-     --probe-step-replicas 50
+     --event-window-seconds 900 \
+     --event-hard-threshold 3 \
+     --event-soft-threshold 5 \
+     --problem-pod-threshold 3 \
+     --stale-terminating-minutes 10 \
+     --probe-step-replicas 50 \
+     --probe-max-replicas-limit 1200
    ```
 3. Increase worker cap in small steps (for example +50) **only** when `RECOMMENDATION=advance`, then wait for readiness convergence.
-4. If `RECOMMENDATION=hold` (or if post-step health regresses), keep/revert to the last stable cap and investigate blockers.
+4. If `RECOMMENDATION=hold` (or if post-step health regresses), keep/revert to the last stable cap and use `HOLD_REASON_CODES` plus blocker totals to drive remediation.
 
-When doing a pre-scale health check, also review recent warning events for:
+Platform node-supply coordination checklist (complete before each cap bump):
+
+1. Confirm worker node-group autoscaler min/max can absorb the next replica step plus headroom.
+2. Confirm no worker nodes are `SchedulingDisabled`; if present, pause promotion until resolved.
+3. Confirm expected node scale-out latency is compatible with your next probe window.
+4. Confirm image prewarm path is healthy (`prepull` Ready; no sustained image pull auth/network failures).
+5. Apply worker cap increase only after node-supply checks and quiet-window gates both pass.
+
+When doing a pre-scale health check, also review **namespace-scoped recent warning events** for:
 
 - `NodeNotReady`
 - `NetworkNotReady` / `FailedCreatePodSandBox`
@@ -289,6 +306,7 @@ When doing a pre-scale health check, also review recent warning events for:
 - Octavia `503 Service Unavailable`
 
 Treat `FailedCreatePodSandBox` and `failed to sync secret cache` as hard stop conditions for any further worker ramp.
+The probe now uses thresholded sustained counts in the configured event window, so transient single warnings no longer force a hold by themselves.
 
 Also pause further scaling if any node reports `MemoryPressure` or if you see repeated liveness-probe/OOM events; keep the worker ceiling aligned to the stable ready node count until those clear.
 
@@ -376,10 +394,17 @@ helm upgrade --install openstudio-server ./openstudio-server \
 --set secrets.validateExistingSecret=true
 ```
 
+Image pull secret validation is also enabled by default:
+
+```bash
+--set serviceAccount.validateImagePullSecrets=true
+```
+
 For offline/render-only workflows (for example CI `helm template` jobs without cluster access), explicitly disable lookup-based validation:
 
 ```bash
 --set secrets.validateExistingSecret=false
+--set serviceAccount.validateImagePullSecrets=false
 ```
 
 The chart also supports chart-managed secret creation as an alternate mode:
@@ -566,6 +591,8 @@ nfs_pvc:
 | redis.config.maxclients                            | Redis max client connections passed to `redis-server --maxclients` (important for large worker/background fleets)                                                                | 20000                  |
 | redis.config.tcpBacklog                            | Redis TCP backlog passed to `redis-server --tcp-backlog`                                                                                                                         | 511                    |
 | redis.config.timeoutSeconds                        | Redis idle client timeout passed to `redis-server --timeout` (`0` disables timeout)                                                                                              | 0                      |
+| load_balancer.openstack.address                    | Optional pre-allocated/public OpenStack address for the ingress LoadBalancer; avoids dynamic floating-IP creation                                                                  | ""                     |
+| load_balancer.openstack.securityGroups             | Optional OpenStack LB security-group IDs/names; rendered as the `loadbalancer.openstack.org/security-groups` annotation                                                        | []                     |
 | load_balancer.annotations                          | Optional extra annotations map applied to the LoadBalancer Service                                                                                                               | {}                     |
 | load_balancer.sourceRanges                         | Optional `loadBalancerSourceRanges` list; some OpenStack Octavia providers ignore this setting                                                                                   | []                     |
 | web_background.replicas                            | Number of projects/analyses to run in parallel. **\*Note** Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses. | 1                      |
@@ -576,18 +603,26 @@ nfs_pvc:
 | worker.container.startup.retryDelaySeconds         | Delay between worker startup retries                                                                                                                                             | 10                     |
 | worker.container.preStop.enabled                   | Enables worker graceful drain preStop hook                                                                                                                                       | true                   |
 | worker.container.preStop.signal                    | Signal sent to resque processes during preStop drain                                                                                                                             | "3"                    |
-| worker.container.preStop.pollIntervalSeconds       | Polling interval while waiting for ruby/openstudio process drain                                                                                                                 | 30                     |
-| worker.container.preStop.maxWaitSeconds            | Upper bound for worker preStop wait loop before allowing termination                                                                                                             | 5100                   |
+| worker.container.preStop.pollIntervalSeconds       | Polling interval while waiting for ruby/openstudio process drain                                                                                                                 | 10                     |
+| worker.container.preStop.maxWaitSeconds            | Absolute upper bound for worker preStop lifecycle loop                                                                                                                           | 600                    |
+| worker.container.preStop.fastTerminateSeconds      | Bounded graceful wait before deterministic fallback termination path                                                                                                              | 120                    |
+| worker.container.preStop.forceTerminateGraceSeconds | Grace period after TERM before optional KILL fallback                                                                                                                           | 20                     |
+| worker.container.preStop.forceKillEnabled          | If true, send KILL when TERM fallback still leaves worker processes running                                                                                                      | true                   |
 | global.images.org                                  | Docker image organization/registry namespace for OpenStudio images                                                                                                               | nrel                   |
 | global.images.registry                             | Optional registry host for OpenStudio images                                                                                                                                     | ""                     |
 | global.images.repositoryPrefix                     | Optional path prefix between registry and org/repository                                                                                                                         | ""                     |
 | global.images.serverRepository                     | Repository name used by web, web-background, and worker containers                                                                                                               | openstudio-server      |
 | global.images.rserveRepository                     | Repository name used by rserve container                                                                                                                                         | openstudio-rserve      |
 | global.images.tag                                  | Shared image tag used for both server and rserve repositories                                                                                                                    | 3.10.0                 |
-| global.imagePullSecrets                            | Optional pod-level image pull secret names for chart workloads                                                                                                                   | []                     |
+| global.imagePullSecrets                            | Optional image pull secret names merged with `serviceAccount.imagePullSecrets` and propagated to workload pods (and chart-created workload ServiceAccount)                      | []                     |
 | serviceAccount.create                              | Create a dedicated workload ServiceAccount for chart Deployments                                                                                                                 | true                   |
 | serviceAccount.name                                | Existing or created workload ServiceAccount name (auto-generated when create=true and empty)                                                                                     | ""                     |
-| serviceAccount.imagePullSecrets                    | Optional image pull secret names attached to chart-created ServiceAccount                                                                                                        | []                     |
+| serviceAccount.validateImagePullSecrets            | Validate that each merged image pull secret exists in the release namespace during install/upgrade                                                                              | true                   |
+| serviceAccount.imagePullSecrets                    | Optional image pull secret names merged with `global.imagePullSecrets`; propagated to workload pods and chart-created workload ServiceAccount                                    | []                     |
+| web.initContainer.waitForDb.maxAttempts            | Number of init-wait-for-db TCP connection attempts before failing the pod                                                                                                        | 300                    |
+| web.initContainer.waitForDb.retryDelaySeconds      | Delay in seconds between init-wait-for-db connection attempts                                                                                                                    | 3                      |
+| web.strategy.progressDeadlineSeconds               | Deployment progress deadline used to surface DB wait/init stalls during rollout                                                                                                  | 1800                   |
+| web.strategy.minReadySeconds                       | Minimum readiness soak time before a web pod is counted as available                                                                                                             | 15                     |
 | web_background.container.image                     | Optional explicit override for web-background image. If omitted, chart uses global.images.\* defaults                                                                            | (derived)              |
 | web.container.image                                | Optional explicit override for web image. If omitted, chart uses global.images.\* defaults                                                                                       | (derived)              |
 | worker.container.image                             | Optional explicit override for worker image. If omitted, chart uses global.images.\* defaults                                                                                    | (derived)              |
@@ -772,11 +807,48 @@ Use `scripts/openstudio-reliability` to standardize triage and recovery steps:
 ./scripts/openstudio-reliability --mode ceiling-probe \
   --quiet-window-seconds 900 \
   --quiet-interval-seconds 30 \
-  --probe-step-replicas 50
+  --event-window-seconds 900 \
+  --event-hard-threshold 3 \
+  --event-soft-threshold 5 \
+  --problem-pod-threshold 3 \
+  --stale-terminating-minutes 10 \
+  --probe-step-replicas 50 \
+  --probe-max-replicas-limit 1200
 
 # Capture queue/job snapshots before any mutation
 ./scripts/openstudio-reliability --mode snapshot \
   --snapshot-dir ./incident-snapshots/openstudio-server-$(date +%Y%m%d-%H%M%S)
+
+# Review all non-completed analyses/jobs and classify likely blockers (read-only)
+./scripts/openstudio-reliability --mode review-non-completed \
+  --stale-minutes 70 \
+  --snapshot-dir ./incident-snapshots/openstudio-server-review-$(date +%Y%m%d-%H%M%S)
+
+# Build a category-grouped remediation plan (dry-run default; reuses existing review data when provided)
+./scripts/openstudio-analysis-remediator \
+  --stale-minutes 70 \
+  --review-dir ./incident-snapshots/openstudio-server-review-<timestamp> \
+  --output-dir ./incident-snapshots/openstudio-server-remediation-$(date +%Y%m%d-%H%M%S)
+
+# Apply guarded remediation actions (including terminal post-processing job promotion)
+./scripts/openstudio-analysis-remediator \
+  --stale-minutes 70 \
+  --review-dir ./incident-snapshots/openstudio-server-review-<timestamp> \
+  --output-dir ./incident-snapshots/openstudio-server-remediation-$(date +%Y%m%d-%H%M%S) \
+  --apply
+
+# Optional: replay idempotent skips for selected analyses when drift persists
+./scripts/openstudio-analysis-remediator \
+  --stale-minutes 70 \
+  --review-dir ./incident-snapshots/openstudio-server-review-<timestamp> \
+  --output-dir ./incident-snapshots/openstudio-server-remediation-$(date +%Y%m%d-%H%M%S) \
+  --apply \
+  --replay-analysis-id <analysis-id>
+
+# Optional: focus diagnostics for a single analysis lifecycle (includes stale na counts)
+./scripts/openstudio-reliability --mode check \
+  --analysis-id <analysis-id> \
+  --stale-minutes 70
 
 # Collect a timed scale baseline (repeated snapshots + timeline TSV)
 ./scripts/openstudio-reliability --mode scale-baseline \
@@ -784,19 +856,70 @@ Use `scripts/openstudio-reliability` to standardize triage and recovery steps:
   --interval-seconds 30 \
   --snapshot-dir ./incident-snapshots/openstudio-server-scale-$(date +%Y%m%d-%H%M%S)
 
+# Optional: clean failed/evicted worker pod artifacts during ramp sampling
+./scripts/openstudio-reliability --mode scale-baseline \
+  --duration-seconds 1200 \
+  --interval-seconds 30 \
+  --cleanup-failed-worker-pods \
+  --cleanup-max-delete 200 \
+  --apply
+
+# Optional: enable per-sample probe diagnostics + safe blocked-probe remediation hooks
+./scripts/openstudio-reliability --mode ceiling-probe \
+  --probe-diagnostics \
+  --snapshot-on-block \
+  --cleanup-failed-worker-pods \
+  --cleanup-stale-terminating-worker-pods \
+  --cleanup-stale-max-delete 100 \
+  --apply
+
 # Reconcile Helm only for managed-field conflict failures
 ./scripts/openstudio-reliability --mode reconcile-helm --apply --allow-chart-apply
 
-# Recover stuck analyses (stale started jobs/datapoints; apply-gated)
+# Recover stuck analyses (stale started jobs/datapoints + terminal post-processing jobs; apply-gated)
 ./scripts/openstudio-reliability --mode recover-stuck --stale-minutes 70 --apply
 ```
+
+Blocker-first triage order (run in this order):
+
+1. Platform blockers: pod sandbox/network failures, image pull/auth failures (including `FailedToRetrieveImagePullSecret`), and sustained external metric retrieval failures.
+2. Worker readiness: ensure worker deployment readiness is converged before any mutation run.
+3. Core/queue/app-state blockers: only after (1) and (2) are clear.
+
+No-mutation conditions (hard hold):
+
+- `platform_blockers_active=true` in `baseline_signals.json`.
+- Worker readiness blocker active in baseline (`worker_readiness.blocker=1`).
+- `ceiling-probe` returns `RECOMMENDATION=hold`.
+
+When held, **do not run** `recover-stuck --apply` or `openstudio-analysis-remediator --apply`. Resolve platform blockers first.
 
 Design notes:
 
 - Script defaults to read-only mode.
 - Mutating operations require explicit `--apply`.
-- Ceiling probe mode is read-only and emits deterministic recommendation lines (`RECOMMENDATION=advance|hold`, `SUGGESTED_NEXT_MAX_REPLICAS=<n>`).
-- Snapshot mode captures queue depths and app job status for incident auditability.
+- Ceiling probe mode is read-only by default and emits deterministic recommendation lines (`RECOMMENDATION=advance|hold`, `SUGGESTED_NEXT_MAX_REPLICAS=<n>`).
+- Ceiling probe decisions are thresholded and windowed: node health remains strict, event blockers are evaluated over `--event-window-seconds`, and pod blockers require `--problem-pod-threshold`.
+- Terminating pods only count as blockers when they are stale (`--stale-terminating-minutes`).
+- Probe output includes `HOLD_REASON_CODES=<csv>` for direct operator action mapping.
+- Probe output includes deterministic hold-reason mapping lines (`HOLD_REASON_MAP <code>=<description>`).
+- Probe ceiling defaults to `1200` unless `--probe-max-replicas-limit` is overridden.
+- Failed/evicted worker pod cleanup during ramp checks is opt-in (`--cleanup-failed-worker-pods`) and apply-gated.
+- Stale terminating worker cleanup during blocked probes is opt-in (`--cleanup-stale-terminating-worker-pods`) and apply-gated.
+- Snapshot mode captures queue depths, app status counts, and stale started/na datapoints for incident auditability.
+- Snapshot/review artifacts now include failed-queue triage outputs (`failed_queue_triage.md`, `failed_queue_signature_counts.tsv`, `failed_queue_analysis_counts.tsv`) for replay-vs-manual decisions.
+- Review-non-completed mode captures a timestamped incident directory with `non_completed_summary.md` (status/blocker counts + remediation guidance), `non_completed_analysis_details.json` (per-analysis diagnostics/blocker classification), `non_completed_job_inventory.json` (per-job status/recovery classification), and baseline raw evidence files.
+- `openstudio-analysis-remediator` generates deterministic, timestamped artifacts (`remediation_summary.md`, `remediation_plan.json`) grouped by blocker category and job recovery path.
+- `openstudio-analysis-remediator` is dry-run by default, consumes `review-non-completed` data when present (or regenerates it), and only mutates with explicit `--apply`.
+- Apply mode is lock-protected (Redis lock) and idempotent (action log at `.health-remediation-state/openstudio-analysis-remediator/action-log.jsonl`).
+- Apply mode can opt-in to replay previously applied targeted actions for specific analyses via `--replay-analysis-id <id>` (repeatable); default behavior remains idempotent skip.
+- Remediation apply paths are blocked when platform blockers or worker-readiness blockers are active; skip reasons are explicit in artifacts.
+- Unknown/post-processing analyses now use a deterministic policy (`no-op`, `escalate`, `guarded_auto_apply`) with explicit per-analysis policy state in remediator artifacts, and terminal `post-processing finished` jobs are promoted safely once their datapoints are terminal.
+- Skip outcomes now include a taxonomy and per-skip recommended manual next step:
+  - `idempotent_previously_applied`: action already executed previously; use replay override only if still non-converged.
+  - `policy_noop_ineligible_status`: status is outside unknown/post-processing policy eligibility and needs manual reclassification.
+  - `mutation_hold_global_blockers`: apply blocked until platform/worker preconditions are clear.
+  - escalation/no-op policy classes (`policy_escalation_*`, `policy_noop_recent_age`) route operators to the correct prerequisite workflow.
 - Scale-baseline mode captures repeated snapshots plus `scale_timeline.tsv` (HPA/deployment replicas, node readiness, and queue depths) for scale-up latency decomposition.
 
 ### Helm Failed-State Reconcile Playbook (SSA Conflicts)
@@ -843,18 +966,109 @@ If analyses remain in `started` while queues are empty or `requeued` backlog exi
   --stale-minutes 70 \
   --snapshot-dir ./incident-snapshots/openstudio-server-$(date +%Y%m%d-%H%M%S)
 
+# Optional: focus one analysis when UI shows persistent na/started datapoints
+./scripts/openstudio-reliability --mode check \
+  --analysis-id <analysis-id> \
+  --stale-minutes 70
+
 # 2) Apply guarded recovery
-./scripts/openstudio-reliability --mode recover-stuck --stale-minutes 70 --apply
+./scripts/openstudio-reliability --mode recover-stuck \
+  --analysis-id <analysis-id> \
+  --stale-minutes 70 \
+  --apply
 
 # 3) Re-check health and convergence
 ./scripts/openstudio-reliability --mode check --stale-minutes 70
 ```
 
+Phased remediation sequence:
+
+1. **Classify first**: run `review-non-completed`; inspect `baseline_signals.json` for platform blocker classes/counts.
+2. **Stabilize platform**: clear blocker classes until `platform_blockers_active=false` and worker readiness blocker clears.
+3. **Dry-run plan**: run `openstudio-analysis-remediator` (no `--apply`) and review blocker-category actions.
+4. **Apply in phase**: run `openstudio-analysis-remediator --apply`; use `recover-stuck --apply` only for targeted residuals.
+5. **Post-change validation**: re-run `check` + `review-non-completed`; classify remaining non-completed analyses as platform-level vs analysis-level.
+6. **Failed queue triage**: inspect `failed_queue_signature_counts.tsv` and `failed_queue_analysis_counts.tsv`; replay only `safe_retry_candidate` signatures after blocker gates are clear.
+
+Application-level acceptance gates (treat as closure criteria):
+
+1. Stale `started` analyses and stale started/na datapoint cohorts trend down across at least two consecutive review snapshots.
+2. Failed queue depth remains bounded and top signatures stop re-accumulating after targeted replay/manual handling.
+3. Worker lifecycle events no longer show recurring `FailedPreStopHook` bursts during normal scale/roll windows.
+4. Unknown/post-processing residuals are either auto-cleared under guarded policy or explicitly escalated with documented reason codes.
+
 Guardrails:
 
 - Recovery is apply-gated and uses a Redis lock to prevent concurrent remediation runs.
-- Recovery only mutates stale entries older than the configured threshold.
+- Recovery only mutates stale entries older than the configured threshold (including stale `na` datapoints).
 - Batch-run jobs are finalized only when all datapoints are terminal.
+
+### Wedged Worker Drain Playbook (analysis_zip Receipt Deadlock)
+
+If `simulations`/`requeued` queue depth is high and flat (not draining) despite full
+worker readiness and no platform blockers, suspect the documented `analysis_zip.lock`
+/`analysis_zip.receipt` race (see `values.yaml` worker.resque.lockJanitor comment): a
+worker's forked child can get stuck polling "waiting for receipt file to appear" for
+up to `analysis.initialize_worker_timeout` (default 8h) if the pod that was supposed to
+extract the analysis zip and write the receipt died mid-extraction. The pod stays
+Running/Ready with near-zero CPU. If `worker.resque.receiptWaitTimeoutSeconds` is unset
+(0/disabled) on the deployment in question, the liveness probe won't catch this, since by
+default it only checks for a live `openstudio` binary, which never starts in this state.
+At fleet scale this can silently pin most of the worker fleet and starve `requeued`
+(workers only poll it after `simulations` is empty, per `QUEUE=simulations,requeued`
+priority order).
+
+```bash
+# 1) Read-only: identify wedged worker candidates (job age > threshold AND near-zero CPU)
+./scripts/openstudio-worker-drain --mode check
+
+# 2) Kill only the wedged child process in each candidate pod (not the pod itself).
+#    Resque's own supervisor detects the DirtyExit, immediately re-forks to pick up a
+#    new job, and the existing transient-failure-replayer CronJob (every 2m) requeues
+#    the aborted datapoint automatically. No pod restart, no KEDA/HPA disruption.
+./scripts/openstudio-worker-drain --mode apply --apply
+
+# 3) Re-check; repeat 1-2 until wedged candidates reach 0 and queue depth trends down.
+./scripts/openstudio-worker-drain --mode check
+
+# 4) Once queues are empty, catch any stale Mongo-level DataPoint/Job "started" records
+#    left behind (killing the child does not update Mongo, only the Resque-side state).
+./scripts/openstudio-reliability --mode recover-stuck --stale-minutes 70 --apply
+```
+
+Detection heuristic: `run_at` age (`--stale-age-seconds`, default 2400s/40min) AND pod
+CPU usage from `metrics.k8s.io` (`--cpu-threshold-nanocores`, default 20m). Tune the age
+threshold up if the workload's genuine simulation runtimes exceed it.
+
+Known interaction: `recover-stuck` re-enqueues stale datapoints for previously-stuck
+analyses onto fresh pods, which can trigger a smaller secondary wave of this same race
+(first-time zip extraction on a pod that has never handled that analysis before). This
+is bounded by the remaining datapoint count for those analyses — repeat steps 1-2 until
+it clears rather than treating a non-zero count after `recover-stuck` as a regression.
+
+Guardrails:
+
+- Apply mode requires `--apply` and holds a Redis lock
+  (`openstudio:recovery:worker-drain:<ns>:<release>`) to prevent concurrent runs.
+- Only kills the forked *child* PID (`Processing <queue> since ...`), never the parent
+  resque master (`Forked <pid> at ...`) — killing the master would kill the worker slot
+  with no auto-respawn.
+- Never deletes queue entries or uses the resque-web "Clear queue" UI action — that
+  discards real simulation jobs. Draining is normal worker processing after unwedging.
+
+Permanent fix (chart/app-level, shipped): `worker.resque.receiptWaitTimeoutSeconds`
+(env `WORKER_RECEIPT_WAIT_TIMEOUT_SECONDS`, default `0`/disabled) extends the same
+liveness probe used for `jobTimeoutSeconds`. When set, the probe additionally scans for
+resque children stuck `Processing ... [ResqueJobs::RunSimulateDataPoint]` with no
+`openstudio` subprocess yet forked — the process-tree signature of this exact deadlock,
+since a real datapoint always forks `openstudio` within seconds. Past the threshold it
+kills only that child (never the pod, never the resque master), letting Resque's own
+supervisor re-fork and `transient-failure-replayer` requeue the datapoint — the in-pod
+equivalent of the manual `openstudio-worker-drain --apply` pass above, running
+automatically every `livenessProbe.periodSeconds`. Enabled in production at `2400`
+(40min) via `values.azimuth-july1v2.local.yaml`. This script and its wider fleet-scan
+remain useful for a one-shot bulk drain (e.g. after a mass-wedge incident) or for
+clusters where the probe is left disabled.
 
 ### Quick Retrospective: Pull Failures and Low Effective Worker Concurrency
 
@@ -972,7 +1186,7 @@ helm upgrade keda kedacore/keda -n keda --wait --timeout 10m
 helm uninstall keda -n keda
 ```
 
-Worker termination remains drain-safe via the [preStop hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/) (`worker.container.preStop.*`) so scale-down does not abruptly kill long-running simulations.
+Worker termination remains drain-safe via the [preStop hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/) (`worker.container.preStop.*`). The hook now follows a fast-terminate bias: bounded graceful drain, explicit TERM fallback, optional KILL fallback, and structured log lines (`phase=...`) for incident diagnostics.
 
 ### Scale-up SLOs (recommended)
 
@@ -1000,6 +1214,38 @@ Rollback checkpoints:
 - Autoscaling rollback: set `worker_autoscaling.mode=hpa` and redeploy.
 - Node-strategy rollback: set `autoscaler.expander=least-waste` (or previous setting) and remove `priorityExpander` config.
 - Full release rollback: `helm rollback <release> <revision> -n <namespace>`.
+
+### Degraded infrastructure safety overlay (optional)
+
+When platform blockers are active (registry/auth/network/external-metric instability), apply a safer autoscaling overlay:
+
+```bash
+helm upgrade --install <release> ./openstudio-server -n <namespace> \
+  -f openstudio-server/values.yaml \
+  -f openstudio-server/values.degraded-infra.yaml
+```
+
+This profile slows scale-up, increases cooldown, and uses conservative KEDA fallback while infrastructure is degraded. Remove the overlay after blocker classes remain below thresholds for a sustained window.
+
+**Incident-mode trigger criteria (any sustained 10-15 minutes):**
+
+- `NotReady` nodes > 0.
+- Worker `Pending` or `Unschedulable` pods are rising and not clearing.
+- Scheduler events include repeated `Too many pods` or untolerated taints.
+- Worker restart/OOM trends are rising while queue drain stalls.
+
+**Incident-mode exit criteria (all sustained >=30 minutes):**
+
+- `NotReady` node count returns to 0.
+- Worker pending/unschedulable counts remain near baseline.
+- Worker readiness gap (`ready < desired`) remains below 10%.
+- Queue depth trend is decreasing without elevated restart/OOM churn.
+
+If the incident profile introduces regressions, roll back immediately:
+
+```bash
+helm rollback <release> <last-good-revision> -n <namespace>
+```
 
 ### Worker HPA scaling profiles
 
@@ -1048,7 +1294,7 @@ any blocker event appears.
 Prerequisites:
 - Ceiling probe passed with zero blocked samples in the observation window.
 - All core services (`web`, `web-background`, `redis`, `rserve`) are Ready.
-- No `FailedCreatePodSandBox`, `failed to sync secret cache`, or node pressure events.
+- No sustained (`threshold` in window) `FailedCreatePodSandBox`, `failed to sync secret cache`, OOM, or node pressure blockers.
 
 ```yaml
 worker_hpa:
@@ -1114,9 +1360,9 @@ helm upgrade openstudio-server ./openstudio-server \
   -n openstudio-server \
   --reuse-values \
   -f openstudio-server/values.registry-live.yaml \
-  -f /path/to/your/profile-override.yaml
+  -f openstudio-server/values.profile-stable.yaml   # or values.profile-ramp.yaml / values.profile-burst.yaml
 ```
 
 To revert to **stable** from any profile, apply the stable `worker_hpa.behavior` block
-above and run `helm upgrade` with `--reuse-values`. The HPA will begin enforcing the
+above (or apply `openstudio-server/values.profile-stable.yaml`) and run `helm upgrade` with `--reuse-values`. The HPA will begin enforcing the
 new policy within one polling cycle (typically under 30 seconds).

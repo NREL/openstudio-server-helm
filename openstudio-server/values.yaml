@@ -162,12 +162,11 @@ nfs-server-provisioner:
     # Keep nfs_pvc.storage below this value to avoid NFS provisioning failures.
     # OpenStack preflight (required): ensure this + db.persistence.size +
     # redis.persistence.size + existing Cinder usage remains below your quota.
-    # Targeting ~5.3 TiB total Cinder allocation across DB/Redis/NFS backend.
-    # 5100Gi (this) + 192Gi (db) + 96Gi (redis) = 5388Gi total.
-    size: 5100Gi
+    # 4000Gi (this) + 192Gi (db) + 96Gi (redis) = 4288Gi total.
+    size: 4000Gi
     # Explicitly pin OpenStack backend class to avoid drift on upgrades.
     storageClass: "csi-cinder"
-  # Pull from the local zot mirror endpoint instead of Docker Hub.
+  # Pull from Docker Hub by default; override in env-specific values files when needed.
   image:
     repository: "erezsh2/nfs-provisioner"
     tag: "v2.3.0"
@@ -191,24 +190,37 @@ db:
       requests:
         cpu: 4          # Large-template sizing for high job throughput
         memory: "22Gi"  # Large-template sizing for larger queue/concurrency spikes
+      limits:
+        cpu: 8          # 2x request: burst headroom for index builds/compaction
+        memory: "44Gi"  # 2x request: caps WiredTiger's cgroup-aware cache sizing (was unbounded --
+                        # observed growing to 156Gi/half of node RAM with no limit set) while still
+                        # giving mongod ~(limit-1Gi)*0.5 ~= 21Gi of cache, matching the "large-template" intent.
   persistence:
     # Keep MongoDB on block storage. NFS is unsafe for WiredTiger in this cluster.
     storageClass: "csi-cinder"
     size: 192Gi
 
-load_balancer:
-  # Keep provider defaults unless explicitly required.
-  # OpenStack default externalTrafficPolicy is Cluster.
-  # sourceRanges may be ignored by some OpenStack Octavia providers.
-  externalTrafficPolicy: ""
-  annotations: {}
-  sourceRanges: []
+ingress:
+  # Single external exposure path for web traffic.
+  enabled: true
+  name: "web-external-ingress"
+  className: "nginx"
+  host: ""
+  path: "/"
+  pathType: "Prefix"
+  servicePort: 80
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+  tls: []
 
 nfs_pvc:
   storageClass: "nfs"
   # Frontend shared RWX claim consumed by web/rserve/background pods.
   # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
-  storage: "4700Gi"
+  storage: "3600Gi"
 
 # Redis - Enhanced for production at scale (10k+ workers)
 redis:
@@ -226,6 +238,16 @@ redis:
     maxclients: 50000
     tcpBacklog: 511
     timeoutSeconds: 0
+    # Bounds Redis's own memory usage so it self-manages before the container limit
+    # forces a kernel OOM-kill (which would drop every in-flight/unflushed job with no
+    # warning). Kept below container.resources.limits.memory (24Gi) to leave headroom
+    # for BGREWRITEAOF fork() copy-on-write.
+    maxmemory: "14gb"
+    # noeviction (not allkeys-lru/-lfu): this Redis instance is the Resque queue's
+    # system of record, not a cache. Evicting keys under pressure silently discards
+    # queued/in-flight jobs. noeviction instead makes writes fail loudly with an OOM
+    # error once maxmemory is hit, surfacing the problem instead of hiding data loss.
+    maxmemoryPolicy: "noeviction"
     # Persistence tuning for high-throughput workloads.
     # "everysec" balances durability with performance; "no" for pure throughput at risk of data loss.
     appendfsync: "everysec"
@@ -260,6 +282,9 @@ redis:
       requests:
         cpu: 8          # 2.7x increase: handle 50k connections + AOF + replication
         memory: "16Gi"  # 4x increase: larger queue buffers, in-flight job payloads
+      limits:
+        cpu: 16         # 2x request: burst headroom for AOF rewrite/fork
+        memory: "24Gi"  # 1.5x request: room for BGREWRITEAOF fork() COW without OOM
   persistence:
     # Keep Redis on block storage; reserve NFS for shared artifacts only.
     storageClass: "csi-cinder"
@@ -278,6 +303,9 @@ rserve:
       requests:
         cpu: 2          # Increased from 1 for better R performance
         memory: "4Gi"   # Increased from 2Gi for larger R workloads
+      limits:
+        cpu: 4          # 2x request: burst headroom for concurrent R analysis jobs
+        memory: "8Gi"   # 2x request: burst headroom without masking a real leak
 
 rserve_svc:
   {}
@@ -298,8 +326,11 @@ web_background:
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 4          # 2x increase: more worker processes need more CPU
-        memory: "8Gi"   # 2x increase: larger Resque worker memory footprint
+        cpu: 1          # right-sized for horizontal scaling; avoids scheduler request bottlenecks
+        memory: "4Gi"   # tuned from observed ~3-4Gi usage with headroom
+      limits:
+        cpu: 4          # burst headroom above steady-state request
+        memory: "8Gi"   # cap to protect nodes while allowing transient spikes
     startup:
       maxRetries: 12
       retryDelaySeconds: 10
@@ -331,7 +362,9 @@ web:
     # Reduce endpoint flapping during rollout by requiring brief readiness soak.
     minReadySeconds: 15
   runtimeOverrides:
-    # Optional runtime monkey-patch initializer for requeue behavior.
+    # Optional runtime monkey-patch initializers for:
+    # - seed_zip start guards (prevent zero-datapoint runs from missing uploads)
+    # - safe requeue behavior
     # Keep disabled unless this override is explicitly required.
     enabled: false
   container:
@@ -342,6 +375,12 @@ web:
       requests:
         cpu: 6
         memory: "50Gi"
+      limits:
+        cpu: 12         # 2x request: burst headroom for concurrent request spikes
+        memory: "60Gi"  # Sized above the MAX_POOL formula's target working set
+                        # ((requests.memory×1024×0.75)/passenger_memory_per_process ~= 37.5Gi
+                        # at a fully-saturated 154-process pool), leaving headroom for Rails/
+                        # Passenger boot overhead beyond the per-process budget.
 
 # Web HPA - Configured for production scaling
 # web_hpa:
@@ -370,17 +409,40 @@ web_hpa:
     # Redis key prefix for lock resources
     keyPrefix: "os-web-lock"
 
-# Web-background HPA - scales the analysis pipeline proportionally to job queue
+# Web-background autoscaling mode:
+# - hpa: memory-based HPA (default)
+# - keda: Redis queue-depth-based autoscaling (recommended when analyses backlog is primary driver)
+web_background_autoscaling:
+  mode: "hpa"
+  keda:
+    pollingIntervalSeconds: 15
+    cooldownPeriodSeconds: 300
+    queueNames:
+      - analyses
+    # jobs per web-background pod target
+    queueLengthPerPod: 12
+    # do not scale from floor until queue has this many jobs
+    activationQueueLength: 3
+    # optional explicit Redis address override
+    redisAddress: ""
+    fallback:
+      failureThreshold: 3
+      replicas: 3
+    advanced:
+      restoreToOriginalReplicaCount: false
+
+# Web-background HPA (used when web_background_autoscaling.mode=hpa)
 web_background_hpa:
   name: "web-background"
-  minReplicas: 8
+  minReplicas: 1
   maxReplicas: 32            # Allow up to 32 bg pods during large job submission bursts
-  targetCPUUtilizationPercentage: 60
+  targetMemoryUtilizationPercentage: 60
   stabilizationWindowSeconds: 300
 
 # Worker - Enhanced for production at scale
 worker:
   queues: "simulations,requeued"
+  podAnnotations: {}
   # Optional explicit node selector override for worker pods.
   nodeSelector: {}
   # Worker pod topology spread controls.
@@ -426,6 +488,45 @@ worker:
     # longer than this value, allowing KEDA to schedule a fresh replacement.
     # Recommended for production: 14400 (4 hours). 0 = disabled (no timeout).
     jobTimeoutSeconds: 0
+    # Stale analysis_zip.lock janitor. Fixes a real deadlock: initialize_worker (in the
+    # Rails app) has each worker download+extract analysis.zip once per (pod, analysis)
+    # under a local flock, then write analysis_zip.receipt so later datapoints for the
+    # same analysis on the same pod skip straight through. If the downloading process
+    # dies mid-extract (OOM, node eviction, forced pod termination) before writing the
+    # receipt, the lock FILE is orphaned -- the kernel releases the flock itself, but
+    # nobody deletes the file -- and every future datapoint for that analysis dispatched
+    # to this pod polls "waiting for receipt file to appear" every 3s, for up to
+    # analysis.initialize_worker_timeout (defaults to 28800s/8h), holding a worker slot
+    # the whole time. This does NOT unstick a datapoint already wedged in that poll loop
+    # (it never re-checks the lock); it only prevents the SAME dead lock from wedging the
+    # NEXT datapoint dispatched to this pod for that analysis, by proving via non-blocking
+    # flock -n (kernel-authoritative: never true while any process actually holds the
+    # lock) that no live holder remains, then deleting the file so the next arrival
+    # re-downloads and writes a fresh receipt.
+    #
+    # receiptWaitTimeoutSeconds closes the other half of this gap: it does NOT prevent
+    # the race, it self-heals a datapoint ALREADY wedged in the poll loop above. When > 0
+    # (and container.livenessProbe.enabled is true), the liveness probe additionally scans
+    # for resque children that have been "Processing ... [ResqueJobs::RunSimulateDataPoint]"
+    # longer than this many seconds with NO openstudio subprocess as a child (the signature
+    # of this exact deadlock -- a real simulation always forks openstudio within seconds)
+    # and kills only that child process. Resque's own worker supervisor detects the
+    # resulting DirtyExit and re-forks immediately to pick up a new job; the existing
+    # transient-failure-replayer CronJob requeues the aborted datapoint automatically.
+    # This never restarts the pod (unlike jobTimeoutSeconds above) and never touches a
+    # datapoint that is genuinely still running. Recommended: 2400 (40min) -- real
+    # datapoints observed forking openstudio well under this; 0 = disabled.
+    # See "Wedged Worker Drain Playbook" in README.md for the manual/backfill equivalent
+    # (scripts/openstudio-worker-drain), which uses the same detection heuristic.
+    receiptWaitTimeoutSeconds: 0
+    lockJanitor:
+      enabled: false
+      # How often to sweep /mnt/openstudio for orphaned locks.
+      intervalSeconds: 60
+      # Skip locks younger than this even if flock -n says free; pure defense-in-depth
+      # against the sub-millisecond window between a writer opening the lock file and
+      # acquiring flock on it. flock -n itself is what actually proves "no live holder".
+      minAgeSeconds: 120
   container:
     # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
@@ -433,10 +534,13 @@ worker:
     resources:
       requests:
         cpu: 400m      # Reduced from 600m: allows ~2 workers per 1-core slice (better density)
-        memory: "1Gi"  # Increased from 700Mi: observed peak 1.3GB, 1Gi provides safer headroom
+        memory: "512Mi"  # Right-sized 2026-07-07: observed actual RSS 230-412Mi across 8493 running pods (avg ~253Mi); 1Gi request was 3-4x actual usage, capping nodes at 78 pods/node on memory before CPU (400m request -> ~155 pods/node ceiling) became binding. 512Mi matches the CPU-bound ceiling almost exactly (80313Mi allocatable / 512Mi ~= 156 pods/node), roughly doubling schedulable worker density with no CPU waste. 2Gi limit unchanged -- burst/OOM safety valve untouched.
       limits:
-        cpu: 2         # Cap burst to prevent CPU starvation of other pods on node
-        memory: "2Gi"  # Hard limit to prevent OOM on node; OOMKill single pod instead of node
+        cpu: 500m         # Cap burst to prevent CPU starvation of other pods on node
+        memory: "700Mi"  # Hard limit to prevent OOM on node; OOMKill single pod instead of node
+    # Optional cap for worker scratch space under /mnt/openstudio (EmptyDir).
+    # Keep unset for no per-pod cap; set (for example "8Gi") to prevent single-pod disk runaway.
+    emptyDirSizeLimit: ""
     terminationGracePeriodSeconds: 660  # Keep above preStop maxWait+TERM grace to avoid hook truncation
     startup:
       maxRetries: 12
@@ -449,9 +553,13 @@ worker:
       fastTerminateSeconds: 120 # Fast-terminate bias: bounded graceful attempt before deterministic fallback
       forceTerminateGraceSeconds: 20 # Wait after TERM before optional KILL fallback
       forceKillEnabled: true # If true, send KILL when TERM fallback still leaves worker processes
-    # Subprocess-age liveness probe: restarts the worker pod when an openstudio simulation
-    # subprocess has been running longer than worker.resque.jobTimeoutSeconds.
-    # Has no effect when jobTimeoutSeconds is 0. Enable in production to auto-recover hung workers.
+    # Two independent checks, gated on worker.resque.jobTimeoutSeconds and
+    # worker.resque.receiptWaitTimeoutSeconds respectively (either one > 0 activates this
+    # probe): (1) restarts the pod when an openstudio simulation subprocess has run longer
+    # than jobTimeoutSeconds; (2) self-heals (kills the wedged child, no pod restart) a
+    # resque worker stuck in the analysis_zip receipt-wait deadlock longer than
+    # receiptWaitTimeoutSeconds. Both default to 0 (disabled). Enable in production to
+    # auto-recover hung workers.
     livenessProbe:
       enabled: false
       # How often to run the check. Keep ≥ the expected job startup time to avoid false positives.
@@ -482,11 +590,11 @@ worker_hpa:
           value: 200
           periodSeconds: 15
     scaleDown:
-      stabilizationWindowSeconds: 600
+      stabilizationWindowSeconds: 1800
       selectPolicy: Max
       policies:
         - type: Percent
-          value: 25
+          value: 10
           periodSeconds: 60
 
 # Worker autoscaling mode:
@@ -499,7 +607,7 @@ worker_autoscaling:
     # Poll Redis every 10s for queue depth changes
     pollingIntervalSeconds: 10
     # Wait 5 minutes before scaling down after queue is empty
-    cooldownPeriodSeconds: 300
+    cooldownPeriodSeconds: 1800
     # Redis address for KEDA to query queue lengths
     redisAddress: ""
     # Queues to monitor for scaling decisions

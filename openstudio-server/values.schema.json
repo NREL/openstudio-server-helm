@@ -34,7 +34,8 @@
         },
         "imagePullSecrets": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
         },
         "images": {
           "type": "object",
@@ -60,9 +61,11 @@
           "type": "object",
           "additionalProperties": { "type": "string" }
         },
+        "validateImagePullSecrets": { "type": "boolean" },
         "imagePullSecrets": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
         }
       }
     },
@@ -108,7 +111,58 @@
           "properties": {
             "maxclients": { "type": "integer", "minimum": 1 },
             "tcpBacklog": { "type": "integer", "minimum": 1 },
-            "timeoutSeconds": { "type": "integer", "minimum": 0 }
+            "timeoutSeconds": { "type": "integer", "minimum": 0 },
+            "appendfsync": { "type": "string", "enum": ["no", "everysec", "always"] },
+            "save": { "type": "string" }
+          }
+        },
+        "ha": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "mode": { "type": "string", "enum": ["standalone", "sentinel"] },
+            "sentinel": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "replicas": { "type": "integer", "minimum": 1, "maximum": 9 },
+                "quorum": { "type": "integer", "minimum": 1 },
+                "failoverTimeoutMs": { "type": "integer", "minimum": 1000 },
+                "parallelSyncs": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "name": { "type": "string", "minLength": 1 },
+        "className": { "type": "string" },
+        "host": { "type": "string" },
+        "path": { "type": "string", "minLength": 1 },
+        "pathType": { "type": "string", "enum": ["Prefix", "Exact", "ImplementationSpecific"] },
+        "servicePort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "tls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "secretName": { "type": "string", "minLength": 1 },
+              "hosts": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              }
+            }
           }
         }
       }
@@ -119,7 +173,33 @@
       "properties": {
         "secret_key_value": { "type": "string" },
         "nodeSelector": { "$ref": "#/definitions/stringMap" },
-        "passenger_memory_per_process": { "type": "number", "exclusiveMinimum": 0 }
+        "passenger_memory_per_process": { "type": "number", "exclusiveMinimum": 0 },
+        "initContainer": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "image": { "type": "string" },
+            "imagePullPolicy": { "type": "string" },
+            "waitForDb": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "maxAttempts": { "type": "integer", "minimum": 1 },
+                "retryDelaySeconds": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        },
+        "strategy": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "maxSurge": { "type": ["integer", "string"], "minimum": 0 },
+            "maxUnavailable": { "type": ["integer", "string"], "minimum": 0 },
+            "progressDeadlineSeconds": { "type": "integer", "minimum": 1 },
+            "minReadySeconds": { "type": "integer", "minimum": 0 }
+          }
+        }
       }
     },
     "web_background": {
@@ -131,6 +211,50 @@
         "nodeSelector": { "$ref": "#/definitions/stringMap" }
       }
     },
+    "web_background_hpa": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minReplicas": { "type": "integer", "minimum": 1 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "targetMemoryUtilizationPercentage": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "targetCPUUtilizationPercentage": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "stabilizationWindowSeconds": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "web_hpa": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "minReplicas": { "type": "integer", "minimum": 1 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "targetCPUUtilizationPercentage": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "stabilizationWindowSeconds": { "type": "integer", "minimum": 0 },
+        "distributedLocking": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "lockMode": { "type": "string", "enum": ["redis", "db"] },
+            "lockTTLSeconds": { "type": "integer", "minimum": 1 },
+            "retryIntervalMs": { "type": "integer", "minimum": 10 }
+          }
+        }
+      }
+    },
     "worker": {
       "type": "object",
       "additionalProperties": true,
@@ -138,12 +262,58 @@
         "queues": { "type": "string", "minLength": 1 },
         "nodeSelector": { "$ref": "#/definitions/stringMap" },
         "topologySpread": { "$ref": "#/definitions/topologySpreadConfig" },
+        "antiAffinity": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "type": { "type": "string", "enum": ["required", "preferred"] },
+            "topologyKey": { "type": "string", "minLength": 1 }
+          }
+        },
+        "podDisruptionBudget": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minAvailable": { "type": ["integer", "string"] },
+            "maxUnavailable": { "type": ["integer", "string"] }
+          }
+        },
         "strategy": {
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "maxSurge": { "type": "integer", "minimum": 0 },
-            "maxUnavailable": { "type": "integer", "minimum": 0 }
+            "maxSurge": { "type": ["integer", "string"], "minimum": 0 },
+            "maxUnavailable": { "type": ["integer", "string"], "minimum": 0 }
+          }
+        },
+        "container": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "resources": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "requests": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "cpu": { "type": ["string", "number"] },
+                    "memory": { "type": ["string", "number"] }
+                  }
+                },
+                "limits": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "cpu": { "type": ["string", "number"] },
+                    "memory": { "type": ["string", "number"] }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -189,7 +359,7 @@
               "minItems": 1
             },
             "enableCpuTrigger": { "type": "boolean" },
-            "redisAddress": { "type": "string", "minLength": 1 },
+            "redisAddress": { "type": "string" },
             "pollingIntervalSeconds": { "type": "integer", "minimum": 1 },
             "cooldownPeriodSeconds": { "type": "integer", "minimum": 0 },
             "fallback": {

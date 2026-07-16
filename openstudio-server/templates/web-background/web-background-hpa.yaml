@@ -1,0 +1,40 @@
+{{- $bgHpa := default (dict) .Values.web_background_hpa -}}
+{{- if and (default false (get $bgHpa "enabled")) (eq (include "openstudio.webBackgroundAutoscalingMode" .) "hpa") -}}
+{{- $bgHpaMin := default 8 (get $bgHpa "minReplicas") -}}
+{{- $bgHpaMax := default 32 (get $bgHpa "maxReplicas") -}}
+{{- $bgHpaMemoryTarget := default 60 (get $bgHpa "targetMemoryUtilizationPercentage") -}}
+{{- $bgHpaStabilization := default 300 (get $bgHpa "stabilizationWindowSeconds") -}}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "openstudio.webBackgroundName" . }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "openstudio.webBackgroundName" . }}
+  minReplicas: {{ $bgHpaMin }}
+  maxReplicas: {{ $bgHpaMax }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ default 60 $bgHpaStabilization }}
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: {{ $bgHpaStabilization }}
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+      selectPolicy: Max
+  metrics:
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ $bgHpaMemoryTarget }}
+{{- end }}

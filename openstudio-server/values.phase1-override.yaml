@@ -1,0 +1,32 @@
+# Phase 1: Resource Optimization & Density Improvement
+# Applied on top of Phase 0 changes via --reuse-values.
+
+worker:
+  topologySpread:
+    enabled: true
+    maxSkew: 1
+    topologyKey: "kubernetes.io/hostname"
+    whenUnsatisfiable: "DoNotSchedule"
+    nodeAffinityPolicy: "Honor"
+    nodeTaintsPolicy: "Ignore"
+  strategy:
+    # Conservative rollout while high-scale worker churn is being stabilized.
+    maxSurge: 1
+    maxUnavailable: 0
+  container:
+    resources:
+      requests:
+        cpu: 200m       # Reduced from 600m: matches actual ~1m usage with 200x headroom
+        memory: "500Mi" # Reduced from 700Mi: matches actual ~213Mi usage with 2.3x headroom
+        # Scheduler-enforced disk budget used to constrain worker density per node.
+        ephemeral-storage: "2Gi"
+      limits:
+        cpu: 1          # Cap burst to prevent CPU starvation of other pods on node
+        memory: "1Gi"   # Hard limit to prevent OOM on node; OOMKill single pod instead of node
+        ephemeral-storage: "8Gi"
+    terminationGracePeriodSeconds: 600
+    preStop:
+      enabled: true
+      signal: "3"
+      pollIntervalSeconds: 10
+      maxWaitSeconds: 600

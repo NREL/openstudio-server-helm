@@ -7,6 +7,11 @@ users:
     ssh_authorized_keys:
       - ${public_key}
 
+# Seed Calico host state as early as possible so kubelet never races ahead of
+# the first pod sandbox setup on a fresh node.
+bootcmd:
+  - [bash, -lc, 'mkdir -p /var/lib/calico && if [ ! -f /var/lib/calico/nodename ]; then hostname > /var/lib/calico/nodename; fi && chown -R root:root /var/lib/calico && chmod 755 /var/lib/calico && chmod 644 /var/lib/calico/nodename']
+
 # Corporate firewall detection and workaround setup
 write_files:
   - path: /usr/local/bin/detect-corporate-firewall.sh

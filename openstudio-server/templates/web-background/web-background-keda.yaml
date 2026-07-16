@@ -1,26 +1,22 @@
-{{- if eq (include "openstudio.workerAutoscalingMode" .) "keda-hybrid" }}
+{{- if eq (include "openstudio.webBackgroundAutoscalingMode" .) "keda" }}
 {{- $root := . -}}
-{{- $workerAutoscaling := default (dict) .Values.worker_autoscaling -}}
-{{- $keda := default (dict) (get $workerAutoscaling "keda") -}}
-{{- $workerHpa := default (dict) .Values.worker_hpa -}}
-{{- $behavior := default (dict) (get $workerHpa "behavior") -}}
+{{- $bgAutoscaling := default (dict) .Values.web_background_autoscaling -}}
+{{- $keda := default (dict) (get $bgAutoscaling "keda") -}}
+{{- $bgHpa := default (dict) .Values.web_background_hpa -}}
+{{- $behavior := default (dict) (get $bgHpa "behavior") -}}
 {{- $scaleUp := default (dict) (get $behavior "scaleUp") -}}
 {{- $scaleDown := default (dict) (get $behavior "scaleDown") -}}
-{{- $defaultScaleUpPolicies := list (dict "type" "Pods" "value" 32 "periodSeconds" 15) (dict "type" "Percent" "value" 200 "periodSeconds" 15) -}}
+{{- $defaultScaleUpPolicies := list (dict "type" "Pods" "value" 2 "periodSeconds" 30) -}}
 {{- $defaultScaleDownPolicies := list (dict "type" "Percent" "value" 25 "periodSeconds" 60) -}}
 {{- $scaleUpPolicies := default $defaultScaleUpPolicies (get $scaleUp "policies") -}}
 {{- $scaleDownPolicies := default $defaultScaleDownPolicies (get $scaleDown "policies") -}}
-{{- $enableCpuTrigger := false -}}
-{{- if hasKey $keda "enableCpuTrigger" -}}
-{{- $enableCpuTrigger = (get $keda "enableCpuTrigger") -}}
-{{- end -}}
-{{- $queueNames := default (list "simulations" "requeued") (get $keda "queueNames") -}}
+{{- $queueNames := default (list "analyses") (get $keda "queueNames") -}}
 {{- $kedaAddress := default (printf "%s.%s.svc.cluster.local:6379" (include "openstudio.redisServiceName" .) .Release.Namespace) (get $keda "redisAddress") -}}
 ---
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication
 metadata:
-  name: {{ include "openstudio.workerName" . }}-keda-redis-auth
+  name: {{ include "openstudio.webBackgroundName" . }}-keda-redis-auth
 spec:
   secretTargetRef:
     - parameter: password
@@ -30,28 +26,28 @@ spec:
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ include "openstudio.workerName" . }}
+  name: {{ include "openstudio.webBackgroundName" . }}
 spec:
   scaleTargetRef:
     kind: Deployment
-    name: {{ include "openstudio.workerName" . }}
-  minReplicaCount: {{ .Values.worker_hpa.minReplicas }}
-  maxReplicaCount: {{ .Values.worker_hpa.maxReplicas }}
+    name: {{ include "openstudio.webBackgroundName" . }}
+  minReplicaCount: {{ default 3 (get $bgHpa "minReplicas") }}
+  maxReplicaCount: {{ default 32 (get $bgHpa "maxReplicas") }}
   pollingInterval: {{ default 15 (get $keda "pollingIntervalSeconds") }}
   cooldownPeriod: {{ default 300 (get $keda "cooldownPeriodSeconds") }}
   {{- $advanced := default (dict) (get $keda "advanced") }}
   advanced:
     restoreToOriginalReplicaCount: {{ default false (get $advanced "restoreToOriginalReplicaCount") }}
     horizontalPodAutoscalerConfig:
-      name: {{ include "openstudio.workerHpaName" . }}
+      name: {{ include "openstudio.webBackgroundName" . }}
       behavior:
         scaleUp:
-          stabilizationWindowSeconds: {{ default 10 (get $scaleUp "stabilizationWindowSeconds") }}
+          stabilizationWindowSeconds: {{ default 60 (get $scaleUp "stabilizationWindowSeconds") }}
           policies:
 {{ toYaml $scaleUpPolicies | nindent 10 }}
           selectPolicy: {{ default "Max" (get $scaleUp "selectPolicy") }}
         scaleDown:
-          stabilizationWindowSeconds: {{ default .Values.worker_hpa.stabilizationWindowSeconds (get $scaleDown "stabilizationWindowSeconds") }}
+          stabilizationWindowSeconds: {{ default (get $bgHpa "stabilizationWindowSeconds") (get $scaleDown "stabilizationWindowSeconds") }}
           policies:
 {{ toYaml $scaleDownPolicies | nindent 10 }}
           selectPolicy: {{ default "Max" (get $scaleDown "selectPolicy") }}
@@ -67,15 +63,9 @@ spec:
       metadata:
         address: {{ $kedaAddress | quote }}
         listName: {{ printf "resque:queue:%s" $queueName | quote }}
-        listLength: {{ default "1" (get $keda "queueLengthPerWorker") | quote }}
-        activationListLength: {{ default "1" (get $keda "activationQueueLength") | quote }}
+        listLength: {{ default "12" (get $keda "queueLengthPerPod") | quote }}
+        activationListLength: {{ default "3" (get $keda "activationQueueLength") | quote }}
       authenticationRef:
-        name: {{ include "openstudio.workerName" $root }}-keda-redis-auth
-    {{- end }}
-    {{- if $enableCpuTrigger }}
-    - type: cpu
-      metricType: Utilization
-      metadata:
-        value: {{ .Values.worker_hpa.targetCPUUtilizationPercentage | quote }}
+        name: {{ include "openstudio.webBackgroundName" $root }}-keda-redis-auth
     {{- end }}
 {{- end }}

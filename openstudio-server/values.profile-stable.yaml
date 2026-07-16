@@ -1,0 +1,25 @@
+# Stable worker scaling profile.
+# Use as an additional overlay during normal operation and after any hold signal.
+#
+# Example:
+# helm upgrade openstudio-server ./openstudio-server -n openstudio-server \
+#   --reuse-values \
+#   -f openstudio-server/values.registry-live.yaml \
+#   -f openstudio-server/values.profile-stable.yaml
+
+worker_hpa:
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120
+      selectPolicy: Min
+      policies:
+        - type: Pods
+          value: 20
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 15
+          periodSeconds: 60

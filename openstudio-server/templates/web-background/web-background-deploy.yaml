@@ -11,8 +11,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 1
+      maxSurge: {{ default 1 (get (default (dict) (get .Values.web_background "strategy")) "maxSurge") }}
+      maxUnavailable: {{ default 1 (get (default (dict) (get .Values.web_background "strategy")) "maxUnavailable") }}
   template:
     metadata:
       labels:
@@ -34,6 +34,22 @@ spec:
       {{- if (default true (get $priorityClasses "enabled")) }}
       priorityClassName: {{ default "high-priority" (get $priorityClasses "highName") }}
       {{- end }}
+      initContainers:
+        - name: init-fix-shared-storage-perms
+          image: {{ default (include "openstudio.serverImage" .) .Values.web_background.container.image }}
+          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) .Values.web_background.container.imagePullPolicy }}
+          volumeMounts:
+            - name: nfs
+              mountPath: "/mnt/openstudio"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /mnt/openstudio/server/assets/analyses
+              chmod 2775 /mnt/openstudio/server
+              chmod 2777 /mnt/openstudio/server/assets /mnt/openstudio/server/assets/analyses
+              echo "init-fix-shared-storage-perms: ensured writable permissions on /mnt/openstudio/server/assets/analyses"
       containers:
         - name:  {{ default "web-background" .Values.web_background.container.name }}
           image: {{ default (include "openstudio.serverImage" .) .Values.web_background.container.image }}
@@ -42,6 +58,10 @@ spec:
             requests:
               cpu:  {{  .Values.web_background.container.resources.requests.cpu  }}
               memory:  {{  .Values.web_background.container.resources.requests.memory  }}
+            {{- if (get (default (dict) .Values.web_background.container.resources) "limits") }}
+            limits:
+{{ toYaml .Values.web_background.container.resources.limits | nindent 14 }}
+            {{- end }}
           volumeMounts:
             - name: nfs
               mountPath: "/mnt/openstudio"
@@ -51,7 +71,7 @@ spec:
             - name: COUNT
               value: {{ default 6 .Values.web_background.workerCount | quote }}
             - name: QUEUES
-              value: background,analyses
+              value: background,analyses,analysis_wrappers
             - name: SECRET_KEY_BASE
               valueFrom:
                 secretKeyRef:
@@ -87,13 +107,20 @@ spec:
               delay="${STARTUP_RETRY_DELAY_SECONDS:-10}"
               attempt=0
               while true; do
-                /usr/local/bin/start-web-background && exit 0
+                (
+                  echo "Waiting for Mongo to start"
+                  /usr/local/bin/wait-for-it --strict -t 0 db:27017
+                  echo "Waiting for Redis to start"
+                  /usr/local/bin/wait-for-it --strict -t 0 queue:6379
+                  echo "Starting ${COUNT:-6} resque workers"
+                  cd /opt/openstudio/server && bundle exec rake environment resque:workers
+                ) && exit 0
                 attempt="$((attempt + 1))"
                 if [ "$attempt" -ge "$retries" ]; then
-                  echo "start-web-background failed after ${attempt} attempts; exiting"
+                  echo "resque:workers startup failed after ${attempt} attempts; exiting"
                   exit 1
                 fi
-                echo "start-web-background failed; retry ${attempt}/${retries} in ${delay}s"
+                echo "resque:workers startup failed; retry ${attempt}/${retries} in ${delay}s"
                 sleep "$delay"
               done
           livenessProbe:

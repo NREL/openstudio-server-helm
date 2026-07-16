@@ -1,7 +1,9 @@
-# Default values for openstudio-server.
-# This is a YAML-formatted file.
+# Large-scale values for openstudio-server.
+# This is a YAML-formatted file optimized for deployments targeting ~2,000-5,000 worker pods.
 # Declare variables to be passed into your templates.
 
+# About scaling: These values are tuned for large deployments.
+# Each bottleneck category is annotated with its scaling ceiling.
 
 global:
   provider:
@@ -70,6 +72,9 @@ nfs-server-provisioner:
     allowVolumeExpansion: false
     mountOptions:
       - vers=4
+
+# 🔴 CRITICAL B2: Single MongoDB instance — ceiling ~3k-5k workers.
+# Beyond this ceiling, deploy MongoDB replica set (3+ pods with primary/secondary/arbiter).
 db:
   # Required when secrets.create=true.
   username: ""
@@ -84,12 +89,16 @@ db:
   persistence:
     size: 200Gi
 
+# 🔴 CRITICAL B3: Single NFS server — ceiling ~1k-2k workers.
+# Beyond this ceiling, migrate simulation artifact storage to S3/MinIO.
 nfs_pvc:
   # Frontend shared RWX claim consumed by web/rserve/background pods.
   # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
   storage: "500Gi"
 
-
+# 🔴 CRITICAL B1: Single Redis instance — ceiling ~2k-3k workers.
+# The single-threaded event loop becomes CPU-saturated at ~10k concurrent connections.
+# Beyond this ceiling, deploy Redis Sentinel or Redis Cluster.
 redis:
   # Required when secrets.create=true.
   password: ""
@@ -101,10 +110,16 @@ redis:
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 3
-        memory: "4Gi"
+        cpu: 8          # Increased from 3: 10k BRPOP connections need CPU headroom
+        memory: "16Gi"  # Increased from 4Gi: AOF rewrite + queue data in memory
   persistence:
     size: 200Gi
+  config:
+    maxclients: 50000  # 10k workers + 96 bg workers + headroom
+    tcpBacklog: 511
+    timeoutSeconds: 0
+    appendfsync: "everysec"  # Balance durability vs. latency (B13)
+    save: ""                 # Disable auto RDB saves to avoid fork() spikes (B13)
 
 rserve:
   number_of_workers: "1"
@@ -118,22 +133,31 @@ rserve:
 rserve_svc:
   {}
 
+# 🟠 HIGH B5: Queue pipeline — 96 workers (8×12) can sustain ~5k+ consumers.
 web_background:
-  replicas: 1
+  replicas: 8           # Increased from 1: more simulation producers
+  workerCount: 12       # Increased from 6: each pod runs 12 Resque workers
   container:
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 2
-        memory: "4Gi"
+        cpu: 4          # Increased from 2 for background/analysis processing
+        memory: "8Gi"   # Increased from 4Gi for analysis payloads
 
+# Web background HPA — autoscale 8→32 based on CPU utilization
+web_background_hpa:
+  enabled: true
+  minReplicas: 8
+  maxReplicas: 32
+  targetMemoryUtilizationPercentage: 70
+  stabilizationWindowSeconds: 300
+
+# 🔴 CRITICAL B4: Web Passenger connection pool — ceiling ~5k-7k workers.
+# For >7k workers, enable distributed locking and scale web to 3+ replicas.
 web:
   # Required when secrets.create=true.
   secret_key_value: ""
-  # passenger_max_request_queue_size: "1600"
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
-  # passenger_max_pool_size: "21"
-  # This value is typically between 150 and 400, find this by ssh into web pod and doing `passenger-status`
   passenger_memory_per_process: 250
   container:
     imagePullPolicy: "IfNotPresent"
@@ -142,37 +166,67 @@ web:
         cpu: 6
         memory: "50Gi"
 
-# For this to work and have more than 1 web pod we'll need to implement
-# a distributed file locking scheme such a https://github.com/antirez/redlock-rbs
-# as even with using NFS via sync it cannot guarantee file locking using multiple clients
+# Web HPA with distributed locking support (prevents race conditions in multi-web deployments)
 web_hpa:
-  minReplicas: 1
-  maxReplicas: 1
+  minReplicas: 2        # Increased from 1 for baseline redundancy
+  maxReplicas: 6        # Increased from 1 for callback load distribution
   targetCPUUtilizationPercentage: 50
+  distributedLocking:
+    enabled: false      # Set true only after application-level redlock is validated
+    lockMode: "redis"
+    lockTTLSeconds: 30
+    retryIntervalMs: 100
 
 web_svc:
   {}
 
 worker:
   queues: "simulations,requeued"
+  # Distribute workers across nodes to avoid single-node saturation (B10)
+  topologySpread:
+    enabled: true
+    maxSkew: 1
+    topologyKey: "kubernetes.io/hostname"
+    whenUnsatisfiable: ScheduleAnyway
+  # Spread pods across nodes (preferred) to reduce blast radius (B10)
+  antiAffinity:
+    enabled: true
+    type: "preferred"
+    topologyKey: "kubernetes.io/hostname"
+  # Protect against voluntary disruptions during rolling updates (B10)
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
   container:
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 700m
-        memory: "900Mi"
-    terminationGracePeriodSeconds: 5200
+        cpu: "400m"     # Reduced from 700m: better pod density (~2 per 1-core slice) (B8)
+        memory: "1Gi"   # Increased from 900Mi: observed peak 1.3GB with headroom (B8)
+      limits:
+        cpu: 2          # Cap burst to prevent node OOM (B8)
+        memory: "2Gi"   # Hard limit for memory safety (B8)
+    # PreStop reduced from 5200s to 600s for faster scale-in (B12)
+    terminationGracePeriodSeconds: 600
+    preStop:
+      enabled: true
+      maxWaitSeconds: 600       # 10 min max drain (was 85 min)
+      pollIntervalSeconds: 10   # Faster detection of job completion (was 30s)
+      signal: 3                 # SIGQUIT
+      fastTerminateSeconds: 120 # Bounded graceful wait before deterministic TERM/KILL fallback
+      forceTerminateGraceSeconds: 20
+      forceKillEnabled: true
 
 worker_hpa:
   minReplicas: 2
-  maxReplicas: 3800
+  maxReplicas: 800
   targetCPUUtilizationPercentage: 50
-  stabilizationWindowSeconds: 3600
+  stabilizationWindowSeconds: 1800
 
 worker_autoscaling:
-  mode: "hpa"
+  mode: "keda-hybrid"   # Changed from "hpa": queue-depth + CPU hybrid (B6)
   keda:
-    pollingIntervalSeconds: 15
+    pollingIntervalSeconds: 10   # React to queue backlog within 10s
     cooldownPeriodSeconds: 300
     redisAddress: ""
     queueNames:
@@ -180,9 +234,21 @@ worker_autoscaling:
       - requeued
     queueLengthPerWorker: 1
     activationQueueLength: 1
-    enableCpuTrigger: true
+    enableCpuTrigger: false
     advanced:
       restoreToOriginalReplicaCount: false
+
+# Image prepull — enabled by default for large worker fleets (B9)
+prepull:
+  enabled: true
+  role: "worker"
+  spreadSeconds: 600
+  warmMode: "once"
+  intervalSeconds: 3600
+  failOnAnyPullError: true
+  includeRserve: true
+  includeWebInit: false
+  additionalImages: []
 
 hooks:
   preDeleteCleanup:

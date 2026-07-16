@@ -126,12 +126,31 @@ affinity:
 
 {{- define "openstudio.tolerationsForRole" -}}
 {{- $mode := include "openstudio.nodeGroupAffinityModeForRole" . -}}
+{{- $nodeGroups := default (dict) .root.Values.global.nodeGroups -}}
+{{- $roleTolerations := default (dict) (get $nodeGroups "roleTolerations") -}}
+{{- $extraTolerations := default (list) (get $nodeGroups "extraTolerations") -}}
+{{- $extraRoleTolerations := default (list) (get $roleTolerations .role) -}}
+{{- $renderTolerations := list -}}
 {{- if ne $mode "disabled" -}}
+{{- $renderTolerations = append $renderTolerations (dict "key" (include "openstudio.nodeGroupLabelKey" .root) "operator" "Equal" "value" (include "openstudio.nodeGroupValueForRole" .) "effect" "NoSchedule") -}}
+{{- end -}}
+{{- range $tol := $extraTolerations -}}
+{{- $renderTolerations = append $renderTolerations $tol -}}
+{{- end -}}
+{{- range $tol := $extraRoleTolerations -}}
+{{- $renderTolerations = append $renderTolerations $tol -}}
+{{- end -}}
+{{- if gt (len $renderTolerations) 0 -}}
 tolerations:
-  - key: {{ include "openstudio.nodeGroupLabelKey" .root | quote }}
-    operator: Equal
-    value: {{ include "openstudio.nodeGroupValueForRole" . | quote }}
-    effect: NoSchedule
+{{ toYaml $renderTolerations | nindent 2 }}
+{{- end -}}
+{{- end -}}
+
+{{- define "openstudio.defaultLoadBalancerExternalTrafficPolicy" -}}
+{{- if eq (include "openstudio.providerName" .) "openstack" -}}
+{{- "Cluster" -}}
+{{- else -}}
+{{- "Local" -}}
 {{- end -}}
 {{- end -}}
 
@@ -154,14 +173,6 @@ tolerations:
 {{- include "openstudio.openstackBlockStorageClass" . -}}
 {{- else -}}
 {{- "ssd" -}}
-{{- end -}}
-{{- end -}}
-
-{{- define "openstudio.defaultLoadBalancerExternalTrafficPolicy" -}}
-{{- if eq (include "openstudio.providerName" .) "openstack" -}}
-{{- "Cluster" -}}
-{{- else -}}
-{{- "Local" -}}
 {{- end -}}
 {{- end -}}
 
@@ -346,15 +357,35 @@ false
 {{- end -}}
 {{- end -}}
 
-{{- define "openstudio.podImagePullSecrets" -}}
+{{- define "openstudio.workloadImagePullSecrets" -}}
 {{- $global := default (dict) .Values.global -}}
-{{- $imagePullSecrets := default (list) (get $global "imagePullSecrets") -}}
+{{- $serviceAccount := default (dict) .Values.serviceAccount -}}
+{{- $globalSecrets := default (list) (get $global "imagePullSecrets") -}}
+{{- $serviceAccountSecrets := default (list) (get $serviceAccount "imagePullSecrets") -}}
+{{- $seen := dict -}}
+{{- $imagePullSecrets := list -}}
+{{- range $secretName := $globalSecrets -}}
+{{- if and (ne $secretName "") (not (hasKey $seen $secretName)) -}}
+{{- $_ := set $seen $secretName true -}}
+{{- $imagePullSecrets = append $imagePullSecrets $secretName -}}
+{{- end -}}
+{{- end -}}
+{{- range $secretName := $serviceAccountSecrets -}}
+{{- if and (ne $secretName "") (not (hasKey $seen $secretName)) -}}
+{{- $_ := set $seen $secretName true -}}
+{{- $imagePullSecrets = append $imagePullSecrets $secretName -}}
+{{- end -}}
+{{- end -}}
 {{- if gt (len $imagePullSecrets) 0 -}}
 imagePullSecrets:
 {{- range $secretName := $imagePullSecrets }}
   - name: {{ $secretName | quote }}
 {{- end }}
 {{- end -}}
+{{- end -}}
+
+{{- define "openstudio.podImagePullSecrets" -}}
+{{- include "openstudio.workloadImagePullSecrets" . -}}
 {{- end -}}
 
 {{- define "openstudio.podHostAliases" -}}
@@ -394,6 +425,15 @@ Always
 {{- $mode := lower (default "hpa" (get $workerAutoscaling "mode")) -}}
 {{- if not (has $mode (list "hpa" "keda-hybrid")) -}}
 {{- fail (printf "worker_autoscaling.mode=%q is unsupported. Supported values: hpa, keda-hybrid." $mode) -}}
+{{- end -}}
+{{- $mode -}}
+{{- end -}}
+
+{{- define "openstudio.webBackgroundAutoscalingMode" -}}
+{{- $bgAutoscaling := default (dict) .Values.web_background_autoscaling -}}
+{{- $mode := lower (default "hpa" (get $bgAutoscaling "mode")) -}}
+{{- if not (has $mode (list "hpa" "keda")) -}}
+{{- fail (printf "web_background_autoscaling.mode=%q is unsupported. Supported values: hpa, keda." $mode) -}}
 {{- end -}}
 {{- $mode -}}
 {{- end -}}

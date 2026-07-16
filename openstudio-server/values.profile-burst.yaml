@@ -1,0 +1,28 @@
+# Burst worker scaling profile.
+# Use only on a known-stable cluster for confirmed large batches.
+#
+# Example:
+# helm upgrade openstudio-server ./openstudio-server -n openstudio-server \
+#   --reuse-values \
+#   -f openstudio-server/values.registry-live.yaml \
+#   -f openstudio-server/values.profile-burst.yaml
+
+worker_hpa:
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 10
+      selectPolicy: Max
+      policies:
+        - type: Pods
+          value: 100
+          periodSeconds: 15
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60

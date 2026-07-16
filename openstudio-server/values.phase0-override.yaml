@@ -1,0 +1,10 @@
+# Phase 0: Immediate Firefighting Overrides
+# Applied on top of existing deployment values.
+
+global:
+  nodeGroups:
+    workerAffinityMode: "required"
+
+worker:
+  nodeSelector:
+    capi.stackhpc.com/node-group: "worker"

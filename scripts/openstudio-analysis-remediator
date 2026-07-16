@@ -1,0 +1,871 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NAMESPACE="openstudio-server"
+RELEASE="openstudio-server"
+STALE_THRESHOLD_MINUTES=70
+APPLY=false
+OUTPUT_DIR=""
+REVIEW_DIR=""
+REPLAY_ANALYSIS_IDS=()
+LOCK_TTL_SECONDS=1800
+FAILED_QUEUE_AUTO_ACTION_BLOCK_THRESHOLD=25
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RELIABILITY_SCRIPT="${SCRIPT_DIR}/openstudio-reliability"
+STATE_DIR=".health-remediation-state/openstudio-analysis-remediator"
+ACTION_LOG_FILE="${STATE_DIR}/action-log.jsonl"
+LOCK_KEY=""
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  scripts/openstudio-analysis-remediator [options]
+
+Description:
+  Category-driven remediation workflow for non-completed analyses.
+  Defaults to dry-run planning and artifact generation.
+
+Options:
+  -n, --namespace <ns>      Kubernetes namespace (default: openstudio-server)
+  -r, --release <name>      Helm release name (default: openstudio-server)
+      --stale-minutes <m>   Stale cutoff minutes (default: 70)
+      --review-dir <path>   Existing review-non-completed artifact directory to consume
+      --output-dir <path>   Output directory for remediation artifacts
+      --replay-analysis-id <id>
+                            Opt-in replay for a previously applied action on a specific analysis ID (repeatable; apply mode only)
+      --lock-ttl-seconds <s>
+                            Redis lock TTL for apply mode (default: 1800)
+      --apply               Execute guarded mutation actions
+  -h, --help                Show help
+
+Artifacts:
+  remediation_summary.md
+  remediation_plan.json
+USAGE
+}
+
+log() { echo "[INFO] $*"; }
+warn() { echo "[WARN] $*" >&2; }
+die() { echo "[ERROR] $*" >&2; exit 1; }
+
+require_bin() {
+  command -v "$1" >/dev/null 2>&1 || die "Missing required binary: $1"
+}
+
+get_single_running_pod_by_label() {
+  local selector=$1
+  local -a pods
+  mapfile -t pods < <(
+    kubectl -n "$NAMESPACE" get pods -l "$selector" -o json 2>/dev/null \
+      | jq -r '.items[] | select(.status.phase == "Running") | .metadata.name' || true
+  )
+  if [[ ${#pods[@]} -eq 0 ]]; then
+    die "No running pods found for selector: $selector"
+  fi
+  if [[ ${#pods[@]} -gt 1 ]]; then
+    warn "Selector matched multiple running pods (${#pods[@]}): $selector; using ${pods[0]}"
+  fi
+  echo "${pods[0]}"
+}
+
+get_redis_pod() {
+  get_single_running_pod_by_label "app=redis,release=${RELEASE}"
+}
+
+acquire_apply_lock() {
+  local redis_pod lock_value lock_result
+  redis_pod="$(get_redis_pod)"
+  LOCK_KEY="openstudio:recovery:analysis-remediator:${NAMESPACE}:${RELEASE}"
+  lock_value="$(date +%s)-$$"
+  lock_result="$(
+    kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc "
+      PW=\"\${REDIS_PASSWORD:-}\"
+      AUTH=\"\"
+      [ -n \"\$PW\" ] && AUTH=\"-a \$PW --no-auth-warning\"
+      redis-cli \$AUTH SET '${LOCK_KEY}' '${lock_value}' NX EX '${LOCK_TTL_SECONDS}'
+    " | tr -d '\r'
+  )"
+  [[ "$lock_result" == "OK" ]] || die "Could not acquire remediation lock (${LOCK_KEY}); another remediation may be running"
+  log "Acquired remediation lock (${LOCK_KEY})"
+}
+
+release_apply_lock() {
+  local redis_pod
+  [[ -n "$LOCK_KEY" ]] || return 0
+  redis_pod="$(get_redis_pod)"
+  kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc "
+    PW=\"\${REDIS_PASSWORD:-}\"
+    AUTH=\"\"
+    [ -n \"\$PW\" ] && AUTH=\"-a \$PW --no-auth-warning\"
+    redis-cli \$AUTH DEL '${LOCK_KEY}' >/dev/null
+  " >/dev/null 2>&1 || true
+  log "Released remediation lock (${LOCK_KEY})"
+}
+
+ensure_state_dir() {
+  mkdir -p "$STATE_DIR"
+  if [[ ! -f "$ACTION_LOG_FILE" ]]; then
+    : > "$ACTION_LOG_FILE"
+  fi
+}
+
+action_already_applied() {
+  local action_key=$1
+  if [[ ! -s "$ACTION_LOG_FILE" ]]; then
+    return 1
+  fi
+  jq -s -e --arg action_key "$action_key" '
+    map(select(.action_key == $action_key and .result == "applied")) | length > 0
+  ' "$ACTION_LOG_FILE" >/dev/null 2>&1
+}
+
+append_action_log() {
+  local action_key=$1
+  local analysis_id=$2
+  local blocker_category=$3
+  local action_type=$4
+  local result=$5
+  local reason=$6
+  local command_string=$7
+  local output_snippet=$8
+
+  jq -nc \
+    --arg timestamp "$(date -Iseconds)" \
+    --arg namespace "$NAMESPACE" \
+    --arg release "$RELEASE" \
+    --arg action_key "$action_key" \
+    --arg analysis_id "$analysis_id" \
+    --arg blocker_category "$blocker_category" \
+    --arg action_type "$action_type" \
+    --arg result "$result" \
+    --arg reason "$reason" \
+    --arg command "$command_string" \
+    --arg output_snippet "$output_snippet" \
+    '{
+      timestamp: $timestamp,
+      namespace: $namespace,
+      release: $release,
+      action_key: $action_key,
+      analysis_id: $analysis_id,
+      blocker_category: $blocker_category,
+      action_type: $action_type,
+      result: $result,
+      reason: $reason,
+      command: $command,
+      output_snippet: $output_snippet
+    }' >> "$ACTION_LOG_FILE"
+}
+
+sanitize_snippet() {
+  tr '\n' ' ' | tr '\r' ' ' | sed 's/[[:space:]]\+/ /g' | cut -c1-800
+}
+
+should_replay_analysis() {
+  local analysis_id=$1
+  local replay_id
+  for replay_id in "${REPLAY_ANALYSIS_IDS[@]}"; do
+    if [[ "$replay_id" == "$analysis_id" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+resolve_skip_taxonomy() {
+  local run_reason=$1
+  local action_type=$2
+  local guard_reason=$3
+  local analysis_id=$4
+  local skip_class=""
+  local next_step=""
+
+  if [[ "$run_reason" == idempotent\ skip:* ]]; then
+    skip_class="idempotent_previously_applied"
+    next_step="If still non-converged, rerun with --apply --replay-analysis-id ${analysis_id} after confirming mutation holds are clear."
+  elif [[ "$run_reason" == mutation\ hold:* ]]; then
+    skip_class="mutation_hold_global_blockers"
+    next_step="Clear platform/worker blockers from baseline_signals.json, then rerun with --apply."
+  elif [[ "$run_reason" == policy\ no-op:\ status\ not\ eligible* ]]; then
+    skip_class="policy_noop_ineligible_status"
+    next_step="Reclassify this analysis into the correct blocker workflow and run that targeted path."
+  elif [[ "$run_reason" == policy\ no-op:\ analysis\ age\ below\ stale\ threshold* ]]; then
+    skip_class="policy_noop_recent_age"
+    next_step="Wait until stale threshold is exceeded or lower --stale-minutes for a targeted replay."
+  elif [[ "$run_reason" == policy\ escalation:\ stale\ datapoints\ present* ]]; then
+    skip_class="policy_escalation_data_divergence"
+    next_step="Treat as data divergence and run targeted recover-stuck once mutation preconditions are clear."
+  elif [[ "$run_reason" == policy\ escalation:\ global\ blocker\ preconditions\ failed* ]]; then
+    skip_class="policy_escalation_global_blockers"
+    next_step="Resolve queue/core/node/problem-pod/event blockers before applying remediation."
+  elif [[ "$run_reason" == policy\ escalation:\ failed\ queue\ backlog\ high* ]]; then
+    skip_class="policy_escalation_failed_queue_backlog"
+    next_step="Triage failed queue signatures first, then rerun this analysis path."
+  elif [[ "$action_type" == manual_* ]]; then
+    skip_class="manual_route_required"
+    next_step="$guard_reason"
+  elif [[ "$run_reason" == no\ stale* || "$run_reason" == no\ actionable* ]]; then
+    skip_class="no_action_needed"
+    next_step="No mutation required for this analysis under current evidence."
+  else
+    skip_class="other_skipped"
+    next_step="$guard_reason"
+  fi
+
+  printf '%s\n%s\n' "$skip_class" "$next_step"
+}
+
+require_files() {
+  [[ -x "$RELIABILITY_SCRIPT" ]] || die "Missing or non-executable reliability script: $RELIABILITY_SCRIPT"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n|--namespace)
+      NAMESPACE="$2"; shift 2 ;;
+    -r|--release)
+      RELEASE="$2"; shift 2 ;;
+    --stale-minutes)
+      STALE_THRESHOLD_MINUTES="$2"; shift 2 ;;
+    --review-dir)
+      REVIEW_DIR="$2"; shift 2 ;;
+    --output-dir)
+      OUTPUT_DIR="$2"; shift 2 ;;
+    --replay-analysis-id)
+      REPLAY_ANALYSIS_IDS+=("$2"); shift 2 ;;
+    --lock-ttl-seconds)
+      LOCK_TTL_SECONDS="$2"; shift 2 ;;
+    --apply)
+      APPLY=true; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *)
+      die "Unknown argument: $1" ;;
+  esac
+done
+
+require_bin kubectl
+require_bin helm
+require_bin jq
+require_files
+[[ "$STALE_THRESHOLD_MINUTES" =~ ^[0-9]+$ ]] || die "--stale-minutes must be an integer"
+(( STALE_THRESHOLD_MINUTES >= 10 )) || die "--stale-minutes must be >= 10"
+[[ "$LOCK_TTL_SECONDS" =~ ^[0-9]+$ ]] || die "--lock-ttl-seconds must be an integer"
+(( LOCK_TTL_SECONDS >= 60 )) || die "--lock-ttl-seconds must be >= 60"
+if (( ${#REPLAY_ANALYSIS_IDS[@]} > 0 )) && [[ "$APPLY" != "true" ]]; then
+  warn "--replay-analysis-id has no effect without --apply"
+fi
+
+ts="$(date +%Y%m%d-%H%M%S)"
+OUTPUT_DIR="${OUTPUT_DIR:-./incident-snapshots/${RELEASE}-analysis-remediation-${ts}}"
+mkdir -p "$OUTPUT_DIR"
+
+REVIEW_SOURCE=""
+if [[ -n "$REVIEW_DIR" ]]; then
+  detail_json="${REVIEW_DIR}/non_completed_analysis_details.json"
+  baseline_json="${REVIEW_DIR}/baseline_signals.json"
+  job_inventory_json="${REVIEW_DIR}/non_completed_job_inventory.json"
+  [[ -f "$detail_json" ]] || die "Expected review detail file not found: $detail_json"
+  [[ -f "$baseline_json" ]] || die "Expected baseline file not found: $baseline_json"
+  REVIEW_SOURCE="$REVIEW_DIR"
+  log "Using existing review artifacts from ${REVIEW_DIR}"
+else
+  REVIEW_SOURCE="${OUTPUT_DIR}/review-non-completed"
+  mkdir -p "$REVIEW_SOURCE"
+  log "Generating review artifacts with scripts/openstudio-reliability"
+  "$RELIABILITY_SCRIPT" --mode review-non-completed \
+    --namespace "$NAMESPACE" \
+    --release "$RELEASE" \
+    --stale-minutes "$STALE_THRESHOLD_MINUTES" \
+    --snapshot-dir "$REVIEW_SOURCE"
+  detail_json="${REVIEW_SOURCE}/non_completed_analysis_details.json"
+  baseline_json="${REVIEW_SOURCE}/baseline_signals.json"
+  job_inventory_json="${REVIEW_SOURCE}/non_completed_job_inventory.json"
+fi
+
+[[ -f "$detail_json" ]] || die "Missing detail JSON: $detail_json"
+[[ -f "$baseline_json" ]] || die "Missing baseline JSON: $baseline_json"
+if [[ ! -f "$job_inventory_json" ]]; then
+  log "Job inventory missing from review artifacts; regenerating review snapshot"
+  "$RELIABILITY_SCRIPT" --mode review-non-completed \
+    --namespace "$NAMESPACE" \
+    --release "$RELEASE" \
+    --stale-minutes "$STALE_THRESHOLD_MINUTES" \
+    --snapshot-dir "$REVIEW_SOURCE" >/dev/null
+fi
+
+[[ -f "$job_inventory_json" ]] || die "Missing job inventory JSON: $job_inventory_json"
+
+queue_blockers="$(jq -r '.queue_pipeline_blockers // 0' "$baseline_json")"
+core_blockers="$(jq -r '.core_service_blockers // 0' "$baseline_json")"
+node_blockers="$(jq -r '.node_health_blockers // 0' "$baseline_json")"
+problem_pod_total="$(jq -r '.problem_pod_total // 0' "$baseline_json")"
+problem_pod_threshold="$(jq -r '.problem_pod_threshold // 1' "$baseline_json")"
+hard_event_total="$(jq -r '.hard_warning_event_total // 0' "$baseline_json")"
+soft_event_total="$(jq -r '.soft_warning_event_total // 0' "$baseline_json")"
+failed_queue_depth="$(jq -r '.failed_queue_depth // 0' "$baseline_json")"
+event_hard_threshold="$(jq -r '.event_hard_threshold // 1' "$baseline_json")"
+event_soft_threshold="$(jq -r '.event_soft_threshold // 1' "$baseline_json")"
+platform_pod_sandbox_network="$(jq -r '.platform_blocker_classes.pod_sandbox_network_failures // 0' "$baseline_json")"
+platform_image_pull_auth="$(jq -r '.platform_blocker_classes.image_pull_auth_failures // 0' "$baseline_json")"
+platform_external_metric="$(jq -r '.platform_blocker_classes.external_metric_failures // 0' "$baseline_json")"
+platform_blockers_active="$(jq -r '.platform_blockers_active // false' "$baseline_json")"
+platform_blocker_reason_codes="$(jq -r '(.platform_blocker_reason_codes // []) | join(",")' "$baseline_json")"
+worker_desired_replicas="$(jq -r '.worker_readiness.desired_replicas // 0' "$baseline_json")"
+worker_ready_replicas="$(jq -r '.worker_readiness.ready_replicas // 0' "$baseline_json")"
+worker_available_replicas="$(jq -r '.worker_readiness.available_replicas // 0' "$baseline_json")"
+worker_ready_ratio_percent="$(jq -r '.worker_readiness.ready_ratio_percent // 0' "$baseline_json")"
+worker_readiness_blocker="$(jq -r '.worker_readiness.blocker // 0' "$baseline_json")"
+job_inventory_total="$(jq 'length' "$job_inventory_json")"
+terminal_job_total="$(jq '[.[] | select(.status_bucket == "terminal_but_not_completed")] | length' "$job_inventory_json")"
+actionable_job_total="$(jq '[.[] | select(.status_bucket == "actionable")] | length' "$job_inventory_json")"
+manual_review_job_total="$(jq '[.[] | select(.status_bucket == "manual_review")] | length' "$job_inventory_json")"
+terminal_job_ids_json="$(jq -c '[.[] | select(.status_bucket == "terminal_but_not_completed") | .job_id] | sort' "$job_inventory_json")"
+
+baseline_clear=true
+if (( queue_blockers > 0 )) || (( core_blockers > 0 )) || (( node_blockers > 0 )) || (( problem_pod_total >= problem_pod_threshold )) || (( hard_event_total >= event_hard_threshold )) || (( soft_event_total >= event_soft_threshold )); then
+  baseline_clear=false
+fi
+
+global_mutation_hold_reason=""
+if [[ "$platform_blockers_active" == "true" ]]; then
+  global_mutation_hold_reason="platform blockers active (codes=${platform_blocker_reason_codes:-none}; pod_sandbox_network=${platform_pod_sandbox_network}; image_pull_auth=${platform_image_pull_auth}; external_metric=${platform_external_metric})"
+elif (( worker_readiness_blocker > 0 )); then
+  global_mutation_hold_reason="worker readiness blocker active (desired=${worker_desired_replicas} ready=${worker_ready_replicas} available=${worker_available_replicas} ratio=${worker_ready_ratio_percent}%)"
+fi
+
+categories=(
+  core_service_blocker
+  worker_capacity_blocker
+  queue_pipeline_blocker
+  data_divergence_blocker
+  no_explicit_blocker_detected
+)
+
+ensure_state_dir
+if [[ "$APPLY" == "true" ]]; then
+  acquire_apply_lock
+  trap 'release_apply_lock' EXIT
+fi
+
+terminal_batch_run_state="dry_run"
+terminal_batch_run_reason="dry-run mode (use --apply to mutate)"
+terminal_batch_command=""
+terminal_batch_output_snippet=""
+terminal_batch_skip_class=""
+terminal_batch_recommended_manual_next_step=""
+
+if [[ "$APPLY" == "true" ]]; then
+  if [[ -n "$global_mutation_hold_reason" ]]; then
+    terminal_batch_run_state="skipped"
+    terminal_batch_run_reason="mutation hold: ${global_mutation_hold_reason}"
+  elif (( terminal_job_total > 0 )); then
+    web_pod="$(get_web_pod)"
+    cmd=(
+      kubectl
+      -n
+      "$NAMESPACE"
+      exec
+      "$web_pod"
+      --
+      bash
+      -lc
+      "cd /opt/openstudio/server
+      bundle exec rails runner '
+        promoted = 0
+        Job.where(:status.ne => %q(completed), status_message: %q(post-processing finished)).each do |job|
+          remaining = DataPoint.where(analysis_id: job.analysis_id, :status.in => [%q(na), %q(queued), %q(started)]).count
+          total_datapoints = DataPoint.where(analysis_id: job.analysis_id).count
+          next unless remaining == 0
+          next unless total_datapoints > 0
+          job.status = %q(completed)
+          job.end_time ||= Time.now
+          job.save!
+          promoted += 1
+        end
+        puts %(terminal_jobs_promoted=#{promoted})
+      '"
+    )
+    printf -v terminal_batch_command '%q ' "${cmd[@]}"
+    terminal_batch_command="${terminal_batch_command% }"
+    if cmd_output="$("${cmd[@]}" 2>&1)"; then
+      terminal_batch_run_state="applied"
+      terminal_batch_run_reason="terminal post-processing jobs promoted"
+      terminal_batch_output_snippet="$(printf '%s' "$cmd_output" | sanitize_snippet)"
+      append_action_log "${NAMESPACE}|${RELEASE}|terminal-post-processing-batch|${terminal_job_total}" "terminal-batch" "terminal_post_processing_finished" "finalize_terminal_jobs" "$terminal_batch_run_state" "$terminal_batch_run_reason" "$terminal_batch_command" "$terminal_batch_output_snippet"
+    else
+      terminal_batch_run_state="failed"
+      terminal_batch_run_reason="terminal job promotion failed"
+      terminal_batch_output_snippet="$(printf '%s' "$cmd_output" | sanitize_snippet)"
+      append_action_log "${NAMESPACE}|${RELEASE}|terminal-post-processing-batch|${terminal_job_total}" "terminal-batch" "terminal_post_processing_finished" "finalize_terminal_jobs" "$terminal_batch_run_state" "$terminal_batch_run_reason" "$terminal_batch_command" "$terminal_batch_output_snippet"
+    fi
+  else
+    terminal_batch_run_reason="no terminal post-processing jobs found"
+  fi
+fi
+
+if [[ "$terminal_batch_run_state" == "skipped" ]]; then
+  mapfile -t terminal_skip_taxonomy < <(resolve_skip_taxonomy "$terminal_batch_run_reason" "finalize_terminal_jobs" "" "terminal-batch")
+  terminal_batch_skip_class="${terminal_skip_taxonomy[0]:-}"
+  terminal_batch_recommended_manual_next_step="${terminal_skip_taxonomy[1]:-}"
+fi
+
+analysis_entries='[]'
+for category in "${categories[@]}"; do
+  while IFS= read -r row; do
+    [[ -z "$row" ]] && continue
+
+    analysis_id="$(jq -r '.analysis_id' <<<"$row")"
+    analysis_status="$(jq -r '.analysis_status // "unknown"' <<<"$row")"
+    age_minutes="$(jq -r '.age_minutes // 0' <<<"$row")"
+    stale_started="$(jq -r '.stale_started_datapoints // 0' <<<"$row")"
+    stale_na="$(jq -r '.stale_na_datapoints // 0' <<<"$row")"
+    datapoint_total="$(jq -r '((.datapoint_statuses // {}) | to_entries | map(.value // 0) | add) // 0' <<<"$row")"
+    divergence_cohort="$(jq -r '
+      .divergence_cohort //
+      (
+        if ((.stale_started_datapoints // 0) + (.stale_na_datapoints // 0)) > 0 then
+          if (.analysis_status // "") == "started" then "active_stalled_datapoints" else "orphaned_stale_datapoints" end
+        else
+          "none"
+        end
+      )
+    ' <<<"$row")"
+    high_priority="$(jq -r '.high_priority // false' <<<"$row")"
+
+    action_type=""
+    handler_name=""
+    guard_passed=false
+    guard_reason=""
+    unknown_policy_state="not_applicable"
+
+    case "$category" in
+      data_divergence_blocker)
+        handler_name="data_divergence_handler"
+        action_type="recover_stuck_targeted"
+        if (( stale_started + stale_na == 0 )); then
+          guard_reason="no stale started/na datapoints detected"
+        elif [[ "$divergence_cohort" == "none" ]]; then
+          guard_reason="no actionable divergence cohort assigned"
+        else
+          guard_passed=true
+          guard_reason="actionable divergence cohort=${divergence_cohort}"
+        fi
+        ;;
+      queue_pipeline_blocker)
+        handler_name="queue_pipeline_handler"
+        action_type="manual_pipeline_investigation"
+        guard_reason="automatic mutation disabled: verify analyses->analysis_wrappers->simulations flow first"
+        ;;
+      worker_capacity_blocker)
+        handler_name="worker_capacity_handler"
+        action_type="manual_capacity_investigation"
+        guard_reason="automatic mutation disabled: resolve node/pod/event pressure signals first"
+        ;;
+      core_service_blocker)
+        handler_name="core_service_handler"
+        action_type="manual_core_service_recovery"
+        guard_reason="automatic mutation disabled: restore Ready pods for core services first"
+        ;;
+      no_explicit_blocker_detected)
+        handler_name="unknown_post_processing_handler"
+        action_type="manual_investigation"
+        if [[ "$analysis_status" != "unknown" && "$analysis_status" != "post-processing" ]]; then
+          unknown_policy_state="ineligible_status"
+          guard_reason="policy no-op: status not eligible for unknown/post-processing handler"
+        elif [[ "$analysis_status" == "post-processing" && "$datapoint_total" =~ ^[0-9]+$ ]] && (( datapoint_total == 0 )); then
+          unknown_policy_state="zero_datapoint_post_processing_anomaly"
+          guard_passed=true
+          action_type="recover_stuck_targeted"
+          guard_reason="zero-datapoint anomaly detected for post-processing analysis"
+        elif (( age_minutes < STALE_THRESHOLD_MINUTES )); then
+          unknown_policy_state="no_op_recent_age"
+          guard_reason="policy no-op: analysis age below stale threshold"
+        elif (( stale_started + stale_na > 0 )); then
+          unknown_policy_state="escalate_data_divergence"
+          guard_reason="policy escalation: stale datapoints present; reclassify as data_divergence_blocker"
+        elif [[ "$baseline_clear" != "true" ]]; then
+          unknown_policy_state="escalate_global_blockers"
+          guard_reason="policy escalation: global blocker preconditions failed (queue/core/node/problem pods/events)"
+        elif (( failed_queue_depth >= FAILED_QUEUE_AUTO_ACTION_BLOCK_THRESHOLD )); then
+          unknown_policy_state="escalate_failed_queue_backlog"
+          guard_reason="policy escalation: failed queue backlog high (failed=${failed_queue_depth}, threshold=${FAILED_QUEUE_AUTO_ACTION_BLOCK_THRESHOLD})"
+        else
+          unknown_policy_state="guarded_auto_apply"
+          guard_passed=true
+          action_type="recover_stuck_targeted"
+          guard_reason="policy guarded auto-action path satisfied for unknown/post-processing"
+        fi
+        ;;
+      *)
+        die "Unhandled category: $category"
+        ;;
+    esac
+
+    run_state="dry_run"
+    run_reason="dry-run mode (use --apply to mutate)"
+    command_string=""
+    output_snippet=""
+    skip_class=""
+    recommended_manual_next_step=""
+    action_key="${NAMESPACE}|${RELEASE}|${analysis_id}|${category}|${action_type}|stale=${STALE_THRESHOLD_MINUTES}"
+
+    if [[ "$APPLY" == "true" ]]; then
+      if [[ -n "$global_mutation_hold_reason" ]]; then
+        run_state="skipped"
+        run_reason="mutation hold: ${global_mutation_hold_reason}"
+      elif [[ "$guard_passed" != "true" ]]; then
+        run_state="skipped"
+        run_reason="$guard_reason"
+      elif [[ "$action_type" != "recover_stuck_targeted" ]]; then
+        run_state="skipped"
+        run_reason="$guard_reason"
+      elif action_already_applied "$action_key" && ! should_replay_analysis "$analysis_id"; then
+        run_state="skipped"
+        run_reason="idempotent skip: action already applied in previous run"
+        append_action_log "$action_key" "$analysis_id" "$category" "$action_type" "$run_state" "$run_reason" "" ""
+      else
+        cmd=(
+          "$RELIABILITY_SCRIPT"
+          --mode recover-stuck
+          --namespace "$NAMESPACE"
+          --release "$RELEASE"
+          --stale-minutes "$STALE_THRESHOLD_MINUTES"
+          --analysis-id "$analysis_id"
+          --apply
+        )
+        printf -v command_string '%q ' "${cmd[@]}"
+        command_string="${command_string% }"
+        if cmd_output="$("${cmd[@]}" 2>&1)"; then
+          run_state="applied"
+          if action_already_applied "$action_key" && should_replay_analysis "$analysis_id"; then
+            run_reason="recover-stuck action executed (idempotent replay override)"
+          else
+            run_reason="recover-stuck action executed"
+          fi
+          output_snippet="$(printf '%s' "$cmd_output" | sanitize_snippet)"
+          append_action_log "$action_key" "$analysis_id" "$category" "$action_type" "$run_state" "$run_reason" "$command_string" "$output_snippet"
+        else
+          run_state="failed"
+          if action_already_applied "$action_key" && should_replay_analysis "$analysis_id"; then
+            run_reason="recover-stuck command failed (idempotent replay override)"
+          else
+            run_reason="recover-stuck command failed"
+          fi
+          output_snippet="$(printf '%s' "$cmd_output" | sanitize_snippet)"
+          append_action_log "$action_key" "$analysis_id" "$category" "$action_type" "$run_state" "$run_reason" "$command_string" "$output_snippet"
+        fi
+      fi
+    fi
+
+    if [[ "$run_state" == "skipped" ]]; then
+      mapfile -t skip_taxonomy < <(resolve_skip_taxonomy "$run_reason" "$action_type" "$guard_reason" "$analysis_id")
+      skip_class="${skip_taxonomy[0]:-}"
+      recommended_manual_next_step="${skip_taxonomy[1]:-}"
+    fi
+
+    analysis_entries="$(
+      jq -nc \
+        --argjson entries "$analysis_entries" \
+        --argjson row "$row" \
+        --arg handler_name "$handler_name" \
+        --arg action_type "$action_type" \
+        --arg guard_reason "$guard_reason" \
+        --argjson guard_passed "$guard_passed" \
+        --arg divergence_cohort "$divergence_cohort" \
+        --arg unknown_policy_state "$unknown_policy_state" \
+        --arg run_state "$run_state" \
+        --arg run_reason "$run_reason" \
+        --arg skip_class "$skip_class" \
+        --arg recommended_manual_next_step "$recommended_manual_next_step" \
+        --arg action_key "$action_key" \
+        --arg command "$command_string" \
+        --arg output_snippet "$output_snippet" \
+        '$entries + [
+          ($row + {
+            handler: {
+              name: $handler_name,
+              action_type: $action_type,
+              divergence_cohort: $divergence_cohort,
+              unknown_post_processing_policy_state: $unknown_policy_state,
+              apply_guard_passed: $guard_passed,
+              apply_guard_reason: $guard_reason,
+              action_key: $action_key
+            },
+            outcome: {
+              state: $run_state,
+              reason: $run_reason,
+              skip_class: (if ($skip_class | length) > 0 then $skip_class else null end),
+              recommended_manual_next_step: (if ($recommended_manual_next_step | length) > 0 then $recommended_manual_next_step else null end),
+              command: $command,
+              output_snippet: $output_snippet
+            }
+          })
+        ]'
+    )"
+  done < <(
+    jq -c --arg category "$category" '
+      [.[] | select(.blocker_category == $category)]
+      | sort_by(.analysis_status, .analysis_id)
+      | .[]
+    ' "$detail_json"
+  )
+done
+
+plan_json="${OUTPUT_DIR}/remediation_plan.json"
+summary_md="${OUTPUT_DIR}/remediation_summary.md"
+
+jq -n \
+  --arg generated_at "$(date -Iseconds)" \
+  --arg namespace "$NAMESPACE" \
+  --arg release "$RELEASE" \
+  --argjson stale_minutes "$STALE_THRESHOLD_MINUTES" \
+  --argjson apply_mode "$APPLY" \
+  --argjson replay_analysis_ids "$(printf '%s\n' "${REPLAY_ANALYSIS_IDS[@]:-}" | jq -R . | jq -s '. | map(select(length > 0))')" \
+  --arg review_source "$REVIEW_SOURCE" \
+  --arg detail_json "$detail_json" \
+  --arg baseline_json "$baseline_json" \
+  --arg job_inventory_json "$job_inventory_json" \
+  --argjson baseline_signals "$(jq -c . "$baseline_json")" \
+  --arg global_mutation_hold_reason "$global_mutation_hold_reason" \
+  --argjson job_inventory_total "$job_inventory_total" \
+  --argjson terminal_job_total "$terminal_job_total" \
+  --argjson actionable_job_total "$actionable_job_total" \
+  --argjson manual_review_job_total "$manual_review_job_total" \
+  --arg terminal_batch_state "$terminal_batch_run_state" \
+  --arg terminal_batch_reason "$terminal_batch_run_reason" \
+  --arg terminal_batch_skip_class "$terminal_batch_skip_class" \
+  --arg terminal_batch_recommended_manual_next_step "$terminal_batch_recommended_manual_next_step" \
+  --arg terminal_batch_command "$terminal_batch_command" \
+  --arg terminal_batch_output_snippet "$terminal_batch_output_snippet" \
+  --argjson analyses "$analysis_entries" \
+  '
+  {
+    generated_at: $generated_at,
+    namespace: $namespace,
+    release: $release,
+    stale_minutes: $stale_minutes,
+    apply_mode: $apply_mode,
+    replay_overrides: {
+      analysis_ids: $replay_analysis_ids
+    },
+    review_source: {
+      directory: $review_source,
+      detail_json: $detail_json,
+      baseline_json: $baseline_json,
+      job_inventory_json: $job_inventory_json
+    },
+    job_inventory: {
+      total: $job_inventory_total,
+      actionable: $actionable_job_total,
+      terminal_but_not_completed: $terminal_job_total,
+      manual_review: $manual_review_job_total,
+      terminal_batch: {
+        state: $terminal_batch_state,
+        reason: $terminal_batch_reason,
+        skip_class: (if ($terminal_batch_skip_class | length) > 0 then $terminal_batch_skip_class else null end),
+        recommended_manual_next_step: (if ($terminal_batch_recommended_manual_next_step | length) > 0 then $terminal_batch_recommended_manual_next_step else null end),
+        command: $terminal_batch_command,
+        output_snippet: $terminal_batch_output_snippet
+      }
+    },
+    category_order: [
+      "core_service_blocker",
+      "worker_capacity_blocker",
+      "queue_pipeline_blocker",
+      "data_divergence_blocker",
+      "no_explicit_blocker_detected"
+    ],
+    baseline_signals: $baseline_signals,
+    mutation_preconditions: {
+      hold_active: (($global_mutation_hold_reason | length) > 0),
+      hold_reason: $global_mutation_hold_reason
+    },
+    totals: {
+      analyses: ($analyses | length),
+      by_category: (
+        ["core_service_blocker","worker_capacity_blocker","queue_pipeline_blocker","data_divergence_blocker","no_explicit_blocker_detected"]
+        | map(. as $category | {key: $category, value: ($analyses | map(select(.blocker_category == $category)) | length)})
+        | from_entries
+      ),
+      by_outcome_state: (
+        ($analyses | sort_by(.outcome.state))
+        | group_by(.outcome.state)
+        | map({key: .[0].outcome.state, value: length})
+        | from_entries
+      )
+    },
+    category_groups: (
+      ["core_service_blocker","worker_capacity_blocker","queue_pipeline_blocker","data_divergence_blocker","no_explicit_blocker_detected"]
+      | map(. as $category | {
+          category: $category,
+          count: ($analyses | map(select(.blocker_category == $category)) | length),
+          analyses: ($analyses | map(select(.blocker_category == $category)) | sort_by(.analysis_status, .analysis_id))
+        })
+    ),
+    analyses: ($analyses | sort_by(.blocker_category, .analysis_status, .analysis_id))
+  }
+  ' > "$plan_json"
+
+{
+  echo "# Analysis Remediation Summary"
+  echo
+  echo "- Generated at: $(date -Iseconds)"
+  echo "- Namespace: ${NAMESPACE}"
+  echo "- Release: ${RELEASE}"
+  echo "- Apply mode: ${APPLY}"
+  echo "- Stale threshold (minutes): ${STALE_THRESHOLD_MINUTES}"
+  echo "- Review source directory: ${REVIEW_SOURCE}"
+  echo "- Failed queue depth (baseline): ${failed_queue_depth}"
+  if [[ -n "$global_mutation_hold_reason" ]]; then
+    echo "- Mutation precondition hold: ${global_mutation_hold_reason}"
+  else
+    echo "- Mutation precondition hold: none"
+  fi
+  echo
+  echo "## Counts by blocker category"
+  echo
+  for category in "${categories[@]}"; do
+    echo "- ${category}: $(jq --arg category "$category" '[.analyses[] | select(.blocker_category == $category)] | length' "$plan_json")"
+  done
+  echo
+  echo "## Outcome counts"
+  echo
+  for state in dry_run skipped applied failed; do
+    echo "- ${state}: $(jq --arg state "$state" '[.analyses[] | select(.outcome.state == $state)] | length' "$plan_json")"
+  done
+  echo
+  echo "## Job inventory"
+  echo
+  echo "- Total non-completed jobs: ${job_inventory_total}"
+  echo "- Actionable jobs: ${actionable_job_total}"
+  echo "- Terminal-but-not-completed jobs: ${terminal_job_total}"
+  echo "- Manual-review jobs: ${manual_review_job_total}"
+  echo "- Terminal batch state: ${terminal_batch_run_state}"
+  echo "- Terminal batch reason: ${terminal_batch_run_reason}"
+  echo
+  echo "### Recovery-path counts"
+  jq -r '
+    map(.recovery_path)
+    | sort
+    | group_by(.)
+    | map({path: .[0], count: length})
+    | sort_by(.path)
+    | .[]
+    | "- \(.path): \(.count)"
+  ' "$job_inventory_json"
+  echo
+  echo "### Terminal records eligible for completion"
+  if [[ "$terminal_job_total" == "0" ]]; then
+    echo "- None"
+  else
+    jq -r '
+      [.[] | select(.status_bucket == "terminal_but_not_completed")]
+      | sort_by(.analysis_id, .job_id)
+      | .[]
+      | "- \(.job_id) analysis=\(.analysis_id) status=\(.job_status) recovery=\(.recovery_path)"
+    ' "$job_inventory_json"
+  fi
+  echo
+  echo "## Explicit skip reasons"
+  echo
+  if [[ "$(jq '[.analyses[] | select(.outcome.state == "skipped")] | length' "$plan_json")" == "0" ]]; then
+    echo "- None"
+  else
+    jq -r '
+      [.analyses[] | select(.outcome.state == "skipped") | {reason: .outcome.reason, analysis_id: .analysis_id}]
+      | group_by(.reason)
+      | sort_by(.[0].reason)
+      | .[]
+      | "- \(.[0].reason): \(length)"
+    ' "$plan_json"
+  fi
+  echo
+  echo "## Skip taxonomy"
+  echo
+  if [[ "$(jq '[.analyses[] | select(.outcome.state == "skipped")] | length' "$plan_json")" == "0" && "$terminal_batch_run_state" != "skipped" ]]; then
+    echo "- None"
+  else
+    jq -r '
+      (
+        [.analyses[]
+         | select(.outcome.state == "skipped" and .outcome.skip_class != null)
+         | {skip_class: .outcome.skip_class}]
+        +
+        (if (.job_inventory.terminal_batch.state == "skipped" and .job_inventory.terminal_batch.skip_class != null)
+          then [{skip_class: .job_inventory.terminal_batch.skip_class}]
+          else []
+        end)
+      )
+      | group_by(.skip_class)
+      | sort_by(.[0].skip_class)
+      | .[]
+      | "- \(.[0].skip_class): \(length)"
+    ' "$plan_json"
+  fi
+  echo
+  echo "## Recommended manual next steps for skipped outcomes"
+  echo
+  if [[ "$(jq '[.analyses[] | select(.outcome.state == "skipped" and .outcome.recommended_manual_next_step != null)] | length' "$plan_json")" == "0" && "$terminal_batch_run_state" != "skipped" ]]; then
+    echo "- None"
+  else
+    jq -r '
+      (
+        [.analyses[]
+         | select(.outcome.state == "skipped" and .outcome.recommended_manual_next_step != null)
+         | {next_step: .outcome.recommended_manual_next_step}]
+        +
+        (if (.job_inventory.terminal_batch.state == "skipped" and .job_inventory.terminal_batch.recommended_manual_next_step != null)
+          then [{next_step: .job_inventory.terminal_batch.recommended_manual_next_step}]
+          else []
+        end)
+      )
+      | group_by(.next_step)
+      | sort_by(.[0].next_step)
+      | .[]
+      | "- \(.[0].next_step): \(length)"
+    ' "$plan_json"
+  fi
+  echo
+  echo "## Unknown/post-processing handling"
+  echo
+  if [[ "$(jq '[.analyses[] | select(.analysis_status == "unknown" or .analysis_status == "post-processing")] | length' "$plan_json")" == "0" ]]; then
+    echo "- No analyses with unknown/post-processing status in this run."
+  else
+    jq -r '
+      [.analyses[] | select(.analysis_status == "unknown" or .analysis_status == "post-processing")]
+      | sort_by(.analysis_status, .analysis_id)
+      | .[]
+      | "- \(.analysis_id) status=\(.analysis_status) guard=\(.handler.apply_guard_passed) outcome=\(.outcome.state) reason=\(.outcome.reason)"
+    ' "$plan_json"
+    echo
+    echo "### Unknown/post-processing policy outcomes"
+    jq -r '
+      [.analyses[]
+       | select(.analysis_status == "unknown" or .analysis_status == "post-processing")
+       | .handler.unknown_post_processing_policy_state]
+      | sort
+      | group_by(.)
+      | .[]
+      | "- \(.[0]): \(length)"
+    ' "$plan_json"
+  fi
+  echo
+  echo "## Data divergence cohorts"
+  echo
+  jq -r '
+    [.analyses[] | .handler.divergence_cohort]
+    | sort
+    | group_by(.)
+    | .[]
+    | "- \(.[0]): \(length)"
+  ' "$plan_json"
+  echo
+  echo "## Artifacts"
+  echo
+  echo "- Remediation plan JSON: $(basename "$plan_json")"
+  echo "- Remediation summary Markdown: $(basename "$summary_md")"
+} > "$summary_md"
+
+log "Remediation workflow complete"
+log "Summary: ${summary_md}"
+log "Plan JSON: ${plan_json}"

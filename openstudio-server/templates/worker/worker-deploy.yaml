@@ -17,6 +17,10 @@ spec:
       labels:
         app: {{ default "worker" .Values.worker.label }}
         release: {{ .Release.Name }}
+      {{- with .Values.worker.podAnnotations }}
+      annotations:
+{{ toYaml . | nindent 8 }}
+      {{- end }}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     {{ $redis := default (dict) .Values.redis }}
     {{ $worker := default (dict) .Values.worker }}
@@ -25,6 +29,7 @@ spec:
     {{ $workerPreStop := default (dict) (get $workerContainer "preStop") }}
     {{ $workerLiveness := default (dict) (get $workerContainer "livenessProbe") }}
     {{ $workerResque := default (dict) (get $worker "resque") }}
+    {{ $workerLockJanitor := default (dict) (get $workerResque "lockJanitor") }}
     {{ $workerTopologySpread := default (dict) (get $worker "topologySpread") }}
     {{ $workerAntiAffinity := default (dict) (get $worker "antiAffinity") }}
     {{- $antiAffinityEnabled := not (empty (default "" (get $workerAntiAffinity "type"))) -}}
@@ -183,7 +188,7 @@ spec:
             limits:
 {{ toYaml .Values.worker.container.resources.limits | nindent 14 }}
             {{- end }}
-{{- if and (default false (get $workerLiveness "enabled")) (gt (int (default 0 (get $workerResque "jobTimeoutSeconds"))) 0) }}
+{{- if and (default false (get $workerLiveness "enabled")) (or (gt (int (default 0 (get $workerResque "jobTimeoutSeconds"))) 0) (gt (int (default 0 (get $workerResque "receiptWaitTimeoutSeconds"))) 0)) }}
           livenessProbe:
             exec:
               command:
@@ -191,15 +196,37 @@ spec:
                 - -c
                 - |
                   timeout_secs="${WORKER_JOB_TIMEOUT_SECONDS:-0}"
-                  [ "$timeout_secs" -le 0 ] && exit 0
-                  for pid in $(pgrep -x openstudio 2>/dev/null); do
-                    elapsed=$(ps -p "$pid" -o etimes= 2>/dev/null | tr -d ' ')
-                    [ -z "$elapsed" ] && continue
-                    if [ "$elapsed" -gt "$timeout_secs" ]; then
-                      echo "LIVENESS_FAIL: openstudio pid=$pid running ${elapsed}s > timeout ${timeout_secs}s"
-                      exit 1
-                    fi
-                  done
+                  if [ "$timeout_secs" -gt 0 ]; then
+                    for pid in $(pgrep -x openstudio 2>/dev/null); do
+                      elapsed=$(ps -p "$pid" -o etimes= 2>/dev/null | tr -d ' ')
+                      [ -z "$elapsed" ] && continue
+                      if [ "$elapsed" -gt "$timeout_secs" ]; then
+                        echo "LIVENESS_FAIL: openstudio pid=$pid running ${elapsed}s > timeout ${timeout_secs}s"
+                        exit 1
+                      fi
+                    done
+                  fi
+                  # Self-heal the analysis_zip.lock/receipt deadlock in place (see
+                  # worker.resque.receiptWaitTimeoutSeconds docs in values.yaml): a resque
+                  # child stuck polling "waiting for receipt file to appear" never spawns
+                  # an openstudio subprocess. Kill just that child -- Resque's own
+                  # supervisor detects the DirtyExit and re-forks immediately, and
+                  # transient-failure-replayer requeues the aborted datapoint -- instead
+                  # of failing this probe and restarting the whole pod.
+                  receipt_timeout="${WORKER_RECEIPT_WAIT_TIMEOUT_SECONDS:-0}"
+                  if [ "$receipt_timeout" -gt 0 ]; then
+                    now="$(date +%s)"
+                    for pid in $(pgrep -f 'resque-[0-9.]+: Processing .* \[ResqueJobs::RunSimulateDataPoint\]' 2>/dev/null); do
+                      pgrep -P "$pid" -x openstudio >/dev/null 2>&1 && continue
+                      since_epoch=$(ps -p "$pid" -o args= 2>/dev/null | sed -n 's/.*[Ss]ince \([0-9][0-9]*\).*/\1/p')
+                      [ -z "$since_epoch" ] && continue
+                      age=$((now - since_epoch))
+                      if [ "$age" -gt "$receipt_timeout" ]; then
+                        echo "LIVENESS_SELF_HEAL: killing wedged resque child pid=$pid age=${age}s (no openstudio subprocess after ${receipt_timeout}s, suspected analysis_zip receipt-wait deadlock)"
+                        kill -9 "$pid" 2>/dev/null || true
+                      fi
+                    done
+                  fi
                   exit 0
             initialDelaySeconds: {{ default 300 (get $workerLiveness "initialDelaySeconds") }}
             periodSeconds: {{ default 300 (get $workerLiveness "periodSeconds") }}
@@ -248,6 +275,14 @@ spec:
 {{- end }}
             - name: WORKER_JOB_TIMEOUT_SECONDS
               value: {{ default 0 (get $workerResque "jobTimeoutSeconds") | quote }}
+            - name: WORKER_RECEIPT_WAIT_TIMEOUT_SECONDS
+              value: {{ default 0 (get $workerResque "receiptWaitTimeoutSeconds") | quote }}
+{{- if (default false (get $workerLockJanitor "enabled")) }}
+            - name: WORKER_LOCK_JANITOR_INTERVAL_SECONDS
+              value: {{ default 60 (get $workerLockJanitor "intervalSeconds") | quote }}
+            - name: WORKER_LOCK_JANITOR_MIN_AGE_SECONDS
+              value: {{ default 120 (get $workerLockJanitor "minAgeSeconds") | quote }}
+{{- end }}
             - name: MONGO_USER
               valueFrom:
                 secretKeyRef:
@@ -263,6 +298,31 @@ spec:
             - -c
             - |
               set -eu
+{{- if (default false (get $workerLockJanitor "enabled")) }}
+              (
+                interval="${WORKER_LOCK_JANITOR_INTERVAL_SECONDS:-60}"
+                min_age="${WORKER_LOCK_JANITOR_MIN_AGE_SECONDS:-120}"
+                case "$interval" in ''|*[!0-9]*) interval=60 ;; esac
+                case "$min_age" in ''|*[!0-9]*) min_age=120 ;; esac
+                while true; do
+                  sleep "$interval"
+                  now="$(date +%s)"
+                  for lock in /mnt/openstudio/analysis_*/analysis_zip.lock; do
+                    [ -e "$lock" ] || continue
+                    dir="$(dirname "$lock")"
+                    receipt="$dir/analysis_zip.receipt"
+                    [ -f "$receipt" ] && continue
+                    mtime="$(stat -c %Y "$lock" 2>/dev/null || echo "$now")"
+                    age="$((now - mtime))"
+                    [ "$age" -lt "$min_age" ] && continue
+                    if flock -n -x "$lock" -c true 2>/dev/null; then
+                      [ -f "$receipt" ] && continue
+                      rm -f "$lock" 2>/dev/null && echo "lock-janitor: removed stale ${lock} (age ${age}s, no live holder, no receipt)"
+                    fi
+                  done
+                done
+              ) &
+{{- end }}
               retries="${STARTUP_MAX_RETRIES:-12}"
               delay="${STARTUP_RETRY_DELAY_SECONDS:-10}"
               attempt=0
@@ -279,4 +339,9 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs.
       volumes:
         - name: osdata-worker
-          emptyDir: {}
+          emptyDir:
+            {{- if .Values.worker.container.emptyDirSizeLimit }}
+            sizeLimit: {{ .Values.worker.container.emptyDirSizeLimit | quote }}
+            {{- else }}
+            {}
+            {{- end }}

@@ -53,6 +53,9 @@ secrets:
     redisPassword: "redis-password"
     webSecret: "web-secret-key"
 
+# About scaling: These values are tuned for deployments targeting ~2,000-5,000 worker pods.
+# Each bottleneck category is annotated with its scaling ceiling.
+
 # NFS Server Provisioner - Increased storage for production workloads
 nfs-server-provisioner:
   persistence:
@@ -72,6 +75,8 @@ nfs-server-provisioner:
       - vers=4
 
 # Database - Enhanced for production
+# 🔴 CRITICAL B2: Single MongoDB instance — ceiling ~3k-5k workers.
+# Beyond this ceiling, deploy MongoDB replica set (3+ pods with primary/secondary/arbiter).
 db:
   # Required when secrets.create=true.
   username: ""
@@ -81,8 +86,8 @@ db:
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 2          # Increased from 1 for better performance
-        memory: "8Gi"   # Increased from 4Gi for production workloads
+        cpu: 4          # Increased from 2 for 2k+ worker workloads
+        memory: "22Gi"  # Increased from 8Gi for WiredTiger cache headroom
   persistence:
     # Keep MongoDB on block storage. Do NOT switch to nfs:
     # WiredTiger may fail with "Operation not permitted" when creating collections.
@@ -90,12 +95,17 @@ db:
     size: 20Gi        # Increased from 2Gi for production data
 
 # NFS PVC - Increased storage for production
+# 🔴 CRITICAL B3: Single NFS server — ceiling ~1k-2k workers.
+# Beyond this ceiling, migrate simulation artifact storage to S3/MinIO.
 nfs_pvc:
   # Frontend shared RWX claim consumed by web/rserve/background pods.
   # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
   storage: "900Gi"
 
 # Redis - Enhanced for production
+# 🔴 CRITICAL B1: Single Redis instance — ceiling ~2k-3k workers.
+# The single-threaded event loop becomes CPU-saturated at ~10k concurrent connections.
+# Beyond this ceiling, deploy Redis Sentinel or Redis Cluster.
 redis:
   # Required when secrets.create=true.
   password: ""
@@ -107,12 +117,18 @@ redis:
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 0.5        # Increased from 0.25 for better queue performance
-        memory: "2Gi"   # Increased from 1Gi for larger queues
+        cpu: 8          # Increased from 0.5: 10k BRPOP connections need CPU headroom
+        memory: "16Gi"  # Increased from 2Gi: AOF rewrite + queue data in memory
   persistence:
     # Keep Redis on block storage; reserve nfs for shared artifacts only.
     storageClass: "csi-cinder"
-    size: 5Gi         # Increased from 1Gi for production queues
+    size: 20Gi         # Increased from 5Gi for deep queue buffers
+  config:
+    maxclients: 50000  # 10k workers + 96 bg workers + headroom (B1)
+    tcpBacklog: 511
+    timeoutSeconds: 0
+    appendfsync: "everysec"  # Balance durability vs. latency (B13)
+    save: ""                 # Disable auto RDB saves to avoid fork() spikes (B13)
 
 # RServe - Enhanced for production
 rserve:
@@ -128,16 +144,29 @@ rserve_svc:
   {}
 
 # Web Background - Enhanced for production
+# 🟠 HIGH B5: Queue pipeline bottleneck — 96 workers (8×12) can sustain ~5k+ consumers.
 web_background:
-  replicas: 2           # Increased from 1 for redundancy
+  replicas: 8           # Increased from 2: more simulation producers (B5)
+  workerCount: 12       # Increased from 6: each pod runs 12 Resque workers
   container:
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 0.5        # Increased from 0.25 for better background processing
-        memory: "1Gi"   # Increased from 512Mi
+        cpu: 4          # Increased from 0.5 for background/analysis processing
+        memory: "8Gi"   # Increased from 1Gi for analysis payloads
+
+# Web background HPA — autoscale 8→32 based on memory utilization
+web_background_hpa:
+  enabled: true
+  minReplicas: 8
+  maxReplicas: 32
+  targetMemoryUtilizationPercentage: 70
+  stabilizationWindowSeconds: 300
 
 # Web - Enhanced for production with proper passenger configuration
+# 🔴 CRITICAL B4: Web Passenger connection pool — ceiling ~5k-7k workers.
+# The 85:1 connection-to-process ratio means HTTP queueing under load.
+# For >7k workers, enable distributed locking and scale web to 3+ replicas.
 web:
   # Required when secrets.create=true.
   secret_key_value: ""
@@ -147,15 +176,22 @@ web:
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 2          # Increased from 1 for better web performance
-        memory: "8Gi"   # Increased from 2Gi for production load
+        cpu: 6          # Increased from 2 for 10k worker callback handling
+        memory: "50Gi"  # Increased from 8Gi for Passenger process pool
 
 # Web HPA - Configured for production scaling
+# Enable distributed locking before scaling beyond 1 replica.
 web_hpa:
-  minReplicas: 1
-  maxReplicas: 1
-  targetCPUUtilizationPercentage: 70  # Slightly higher threshold for stability
-  # Note: Distributed file locking still needed for >1 replica
+  minReplicas: 2        # Increased from 1 for baseline redundancy
+  maxReplicas: 6        # Increased from 1 for callback load distribution
+  targetCPUUtilizationPercentage: 70
+  # Distributed locking prevents race conditions in multi-web deployments.
+  # Requires the application to implement Redis redlock (B4).
+  distributedLocking:
+    enabled: false      # Set true only after application-level redlock is validated
+    lockMode: "redis"   # "redis" | "db"
+    lockTTLSeconds: 30
+    retryIntervalMs: 100
 
 web_svc:
   {}
@@ -163,25 +199,52 @@ web_svc:
 # Worker - Enhanced for production
 worker:
   queues: "simulations,requeued"
+  # Distribute workers across nodes to avoid single-node saturation (B10)
+  topologySpread:
+    enabled: true
+    maxSkew: 1
+    topologyKey: "kubernetes.io/hostname"
+    whenUnsatisfiable: ScheduleAnyway
+  # Spread pods across nodes (preferred) to reduce blast radius (B10)
+  antiAffinity:
+    enabled: true
+    type: "preferred"
+    topologyKey: "kubernetes.io/hostname"
+  # Protect against voluntary disruptions during rolling updates (B10)
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
   container:
     imagePullPolicy: "IfNotPresent"
     resources:
       requests:
-        cpu: 1          # Increased from 700m for better performance
-        memory: "2Gi"   # Increased from 900Mi for larger simulations
-    terminationGracePeriodSeconds: 5200
+        cpu: "400m"     # Reduced from 1: better pod density (~2 per 1-core slice) (B8)
+        memory: "1Gi"   # Reduced from 2Gi: observed peak 1.3GB with headroom (B8)
+      limits:
+        cpu: 2          # Cap burst to prevent node OOM (B8)
+        memory: "2Gi"   # Hard limit for memory safety (B8)
+    # PreStop reduced from 5200s to 600s for faster scale-in (B12)
+    terminationGracePeriodSeconds: 600
+    preStop:
+      enabled: true
+      maxWaitSeconds: 600       # 10 min max drain (was 85 min)
+      pollIntervalSeconds: 10   # Faster detection of job completion (was 30s)
+      signal: 3                 # SIGQUIT
+      fastTerminateSeconds: 120 # Bounded graceful wait before deterministic TERM/KILL fallback
+      forceTerminateGraceSeconds: 20
+      forceKillEnabled: true
 
 # Worker HPA - Optimized for production workloads
 worker_hpa:
   minReplicas: 5        # Increased from 2 for baseline production capacity
-  maxReplicas: 1443     # Increased from 20 for larger simulation batches
-  targetCPUUtilizationPercentage: 60  # Slightly higher for stability
-  stabilizationWindowSeconds: 1800    # Reduced from 3600 for faster scaling response
+  maxReplicas: 800      # Safety cap to limit churn while node-group health is unstable
+  targetCPUUtilizationPercentage: 60
+  stabilizationWindowSeconds: 1800
 
 worker_autoscaling:
-  mode: "hpa"
+  mode: "keda-hybrid"   # Changed from "hpa": queue-depth + CPU hybrid (B6)
   keda:
-    pollingIntervalSeconds: 15
+    pollingIntervalSeconds: 10   # React to queue backlog within 10s (was 15)
     cooldownPeriodSeconds: 300
     redisAddress: ""
     queueNames:
@@ -189,9 +252,21 @@ worker_autoscaling:
       - requeued
     queueLengthPerWorker: 1
     activationQueueLength: 1
-    enableCpuTrigger: true
+    enableCpuTrigger: false
     advanced:
       restoreToOriginalReplicaCount: false
+
+# Image prepull — enabled by default for 10k+ worker fleets (B9)
+prepull:
+  enabled: true
+  role: "worker"            # Pre-pull on worker nodes
+  spreadSeconds: 600        # Stagger across nodes to avoid registry stampede
+  warmMode: "once"          # Pull once on node startup
+  intervalSeconds: 3600     # Re-check every hour
+  failOnAnyPullError: true  # Make pull failures visible in pod status
+  includeRserve: true
+  includeWebInit: false
+  additionalImages: []
 
 hooks:
   preDeleteCleanup:

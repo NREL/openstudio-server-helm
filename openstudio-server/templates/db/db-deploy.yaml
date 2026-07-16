@@ -45,6 +45,10 @@ spec:
             requests:
               cpu:  {{  .Values.db.container.resources.requests.cpu  }}
               memory:  {{  .Values.db.container.resources.requests.memory  }}
+            {{- if (get (default (dict) .Values.db.container.resources) "limits") }}
+            limits:
+{{ toYaml .Values.db.container.resources.limits | nindent 14 }}
+            {{- end }}
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
               valueFrom:

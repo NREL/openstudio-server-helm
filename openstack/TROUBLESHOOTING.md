@@ -203,6 +203,36 @@ kubectl get secret cloud-config -n kube-system -o yaml
 kubectl exec -n kube-system <csi-pod-name> -- curl -k <openstack-auth-url>
 ```
 
+#### For `openstack-cinder-csi-nodeplugin` CrashLoop/OOM on worker nodes
+
+**Symptoms:**
+
+- `openstack-cinder-csi-nodeplugin-*` pods restart repeatedly on one or more nodes.
+- Node events include `SystemOOM`, `NodeNotReady`, or repeated liveness/readiness failures.
+- Workload PVC attach/mount operations intermittently fail even when StorageClass/PVC config is correct.
+
+**Diagnosis:**
+
+```bash
+kubectl get pods -n openstack-system -l app=openstack-cinder-csi-nodeplugin -o wide
+kubectl describe pod -n openstack-system <nodeplugin-pod-name>
+kubectl logs -n openstack-system <nodeplugin-pod-name> --previous --tail=200
+kubectl describe node <node-name> | grep -E "MemoryPressure|DiskPressure|PIDPressure|Ready"
+kubectl get events -A --sort-by=.lastTimestamp | grep -E "SystemOOM|NodeNotReady|cinder-csi|FailedMount|FailedAttachVolume"
+```
+
+**Infrastructure remediation sequence (platform-owned):**
+
+1. Cordon/drain affected nodes and restore node memory headroom (instance flavor or node count).
+2. Restart or roll out the `openstack-cinder-csi-nodeplugin` DaemonSet after node pressure clears.
+3. Validate OpenStack API reachability and credentials from CSI pods.
+4. Uncordon nodes only after CSI pods are stable and kubelet reports `Ready`.
+
+**Repo vs platform ownership boundary:**
+
+- **This chart/repo can do:** reduce workload churn (worker cap/rollout pressure, spread policy, pull behavior) so CSI pressure is less likely to cascade.
+- **This chart/repo cannot do:** repair Cinder CSI driver binaries, node OS/kernel state, kubelet health, or OpenStack control-plane endpoint failures.
+
 #### For Cinder Quota Exhaustion (`413 VolumeSizeExceedsAvailableQuota`)
 
 This is a claim-sizing issue, not a scheduler issue.
@@ -327,7 +357,13 @@ When validating worker scale changes, also watch `ingress-load-balancer` service
 ./scripts/openstudio-reliability --mode ceiling-probe \
   --quiet-window-seconds 900 \
   --quiet-interval-seconds 30 \
-  --probe-step-replicas 50
+  --event-window-seconds 900 \
+  --event-hard-threshold 3 \
+  --event-soft-threshold 5 \
+  --problem-pod-threshold 3 \
+  --stale-terminating-minutes 10 \
+  --probe-step-replicas 50 \
+  --probe-max-replicas-limit 1200
 ```
 
 #### Pre-pull Critical Images:
@@ -492,25 +528,34 @@ helm rollback openstudio-server <last-good-revision> -n openstudio-server
 ./scripts/openstudio-reliability --mode snapshot \
   --stale-minutes 70 \
   --snapshot-dir ./incident-snapshots/openstudio-server-$(date +%Y%m%d-%H%M%S)
+
+# Optional: analysis-focused lifecycle diagnostics (captures stale na/started counts)
+./scripts/openstudio-reliability --mode check \
+  --analysis-id <analysis-id> \
+  --stale-minutes 70
 ```
 
 **Guarded Recovery (apply-gated):**
 
 ```bash
-./scripts/openstudio-reliability --mode recover-stuck --stale-minutes 70 --apply
+./scripts/openstudio-reliability --mode recover-stuck \
+  --analysis-id <analysis-id> \
+  --stale-minutes 70 \
+  --apply
 ```
 
 What recovery does:
 
 - Ensures worker queue subscriptions include `simulations,requeued`.
-- Requeues stale started datapoints for stale started analyses.
+- Requeues stale started/`na` datapoints for stale started analyses.
 - Finalizes stale started `batch_run` jobs only if all datapoints are terminal.
+- Promotes `post-processing finished` jobs to `completed` once their datapoints are terminal, so historical terminal records stop counting as work.
 - Prints post-recovery queue and divergence checks.
 
 **Prevention:**
 
 - Keep worker queues configured with `simulations,requeued`.
-- Add alerts for stale started jobs/datapoints and non-zero `requeued` backlog.
+- Add alerts for stale started/`na` datapoints and non-zero `requeued` backlog.
 
 ### 8. Worker Ceiling Probe Requires Sustained Quiet Window
 
@@ -524,20 +569,141 @@ What recovery does:
 ./scripts/openstudio-reliability --mode ceiling-probe \
   --quiet-window-seconds 900 \
   --quiet-interval-seconds 30 \
-  --probe-step-replicas 50
+  --event-window-seconds 900 \
+  --event-hard-threshold 3 \
+  --event-soft-threshold 5 \
+  --problem-pod-threshold 3 \
+  --calico-qos-threshold 3 \
+  --stale-terminating-minutes 10 \
+  --probe-step-replicas 50 \
+  --probe-max-replicas-limit 1200
 ```
 
 **Interpretation:**
 
 1. `RECOMMENDATION=advance`: manually raise `worker_hpa.maxReplicas` by the recommended step and monitor convergence.
-2. `RECOMMENDATION=hold`: do not raise ceiling; investigate blocker summaries (`HARD_BLOCKER_SAMPLES`, `QUEUE_BLOCKERS_TOTAL`, `CORE_SERVICE_BLOCKERS_TOTAL`).
+2. `RECOMMENDATION=hold`: do not raise ceiling; investigate `HOLD_REASON_CODES` and blocker summaries (`HARD_BLOCKER_SAMPLES`, `QUEUE_BLOCKERS_TOTAL`, `CORE_SERVICE_BLOCKERS_TOTAL`). A `calico_qos_drift_detected` code means the tigera `Installation` CR's calico-node/init-container resource hardening (see section 10) was reverted, or calico-node pods regressed below Guaranteed QoS — re-apply the patch before advancing.
+3. Use `--probe-diagnostics` when you need per-sample window bounds and blocker-source counts.
 
 **Operator sequence per ramp step:**
 
 1. Run `--mode check`.
-2. Run `--mode ceiling-probe`.
+2. Run `--mode ceiling-probe` (optionally with `--probe-diagnostics --snapshot-on-block`; use `--cleanup-failed-worker-pods --cleanup-stale-terminating-worker-pods --apply` during active ramp operations).
 3. If probe recommends advance, apply one cap step and allow a settle window.
 4. Re-run probe before the next cap step.
+
+**Platform node-supply checklist before each cap step:**
+
+1. Worker node-group min/max is pre-raised for the next replica step plus headroom.
+2. No worker node is `Ready,SchedulingDisabled`.
+3. Node scale-out latency is within the current probe quiet-window expectations.
+4. `prepull` pods are healthy and no sustained image-pull auth/network warnings are present.
+5. Proceed only when both node-supply and quiet-window gates are green.
+
+**Reusable HPA behavior overlays:**
+
+- `openstudio-server/values.profile-stable.yaml`
+- `openstudio-server/values.profile-ramp.yaml`
+- `openstudio-server/values.profile-burst.yaml`
+- `openstudio-server/values.degraded-infra.yaml` (incident/rollback profile)
+
+### 9. Incident-Mode Overlay Activation (July1v2)
+
+Use the degraded overlay when platform instability is amplifying workload churn.
+
+**Trigger criteria (sustained 10-15 minutes):**
+
+- `kubectl get nodes` shows one or more `NotReady` nodes.
+- Worker `Pending`/`Unschedulable` pods continue increasing.
+- Scheduler events repeatedly include `Too many pods` or untolerated taints.
+- Worker restart/OOM trends rise while queue depth does not drain.
+
+**Activate incident mode:**
+
+```bash
+helm upgrade openstudio-server ./openstudio-server \
+  -n openstudio-server \
+  -f openstudio-server/values.yaml \
+  -f openstudio-server/values.azimuth-july1v2.local.yaml \
+  -f openstudio-server/values.degraded-infra.yaml
+```
+
+This keeps `worker_hpa.maxReplicas` at the environment ceiling while enforcing slower ramp,
+longer cooldown, and tolerant prepull behavior during degraded infrastructure.
+
+**Exit criteria (all sustained >=30 minutes):**
+
+- `NotReady` node count is 0.
+- Worker pending/unschedulable pods return near baseline.
+- Worker readiness deficit (`desired - ready`) remains below 10%.
+- Queue depth trends down without elevated restart/OOM churn.
+
+**Deactivate incident mode (return to standard local overlay):**
+
+```bash
+helm upgrade openstudio-server ./openstudio-server \
+  -n openstudio-server \
+  -f openstudio-server/values.yaml \
+  -f openstudio-server/values.azimuth-july1v2.local.yaml
+```
+
+If behavior regresses, immediately roll back to the last known-good release revision:
+
+```bash
+helm rollback openstudio-server <last-good-revision> -n openstudio-server
+```
+
+### 10. calico-node QoS Hardening and Drift Detection (Tigera Installation CR)
+
+**Background:**
+
+calico-node runs as a Tigera-operator-managed DaemonSet (`calico-system` namespace). By
+default it has no resource requests/limits (BestEffort QoS), so under node memory
+pressure the kernel OOM-killer can kill calico-node before it kills anything else,
+causing `FailedCreatePodSandBox` errors and `NodeNotReady` cascades that stall worker
+scale-up. Editing the `DaemonSet` directly does not stick — the operator reconciles it
+back from the `Installation` CR (`operator.tigera.io/v1`, name `default`).
+
+**Durable fix (apply via `kubectl patch`, not a direct DaemonSet edit):**
+
+```bash
+kubectl patch installation default --type=merge -p '{"spec":{"calicoNodeDaemonSet":{"spec":{"template":{"spec":{
+  "containers":[{"name":"calico-node","resources":{"requests":{"cpu":"1","memory":"300Mi"},"limits":{"cpu":"1","memory":"300Mi"}}}],
+  "initContainers":[
+    {"name":"install-cni","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"50m","memory":"64Mi"}}},
+    {"name":"flexvol-driver","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"50m","memory":"64Mi"}}}
+  ]
+}}}}}}'
+```
+
+`requests == limits` on **every** container including init containers is required for
+Guaranteed QoS (any container without matching requests/limits drops the whole pod to
+Burstable, which is only marginally more OOM-protected than BestEffort on large nodes).
+
+**This has no IaC backing — it is live cluster state only.** It is not in this repo, not
+in a values file, and not applied by any GitOps controller (none is running in this
+workload cluster). Two things can silently revert it:
+
+1. A `helm upgrade` of the `cni-calico` release (Calico version bump, config change) —
+   Helm will merge `spec.calicoNodeDaemonSet` back to whatever that release's values
+   produce.
+2. An Azimuth/CAPI-side addon reconcile from the cluster's management/seed cluster,
+   which is outside this repo's visibility and access.
+
+**Escalate to the OpenStack/Azimuth platform admins** to persist this hardening in
+whatever tracks the `cni-calico` Helm values for this cluster template, so it survives
+a Calico upgrade and applies to future clusters built from the same template.
+
+**Drift detection (automated):** `scripts/openstudio-reliability` checks both the
+`Installation` CR (does it still carry the resource overrides above?) and live
+calico-node pod QoS on every `--mode check`, `--mode ceiling-probe`, and
+`--mode scale-baseline` run. A revert surfaces as:
+
+- `--mode check` output: `CALICO_NODE_QOS ... cr_hardened=0` and/or
+  `non_guaranteed=<n>` above `--calico-qos-threshold` (default 3), with a `[WARN]` line.
+- `--mode ceiling-probe` / `--mode scale-baseline`: `HOLD_REASON_CODES` includes
+  `calico_qos_drift_detected`, which blocks the `advance` recommendation until the
+  Installation CR patch above is re-applied.
 
 ## 📊 Diagnostic Commands Reference
 

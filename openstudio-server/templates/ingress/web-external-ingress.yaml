@@ -1,0 +1,36 @@
+{{- $ingress := (get .Values "ingress") | default (dict) -}}
+{{- $annotations := (get $ingress "annotations") | default (dict) -}}
+{{- $className := default "" (get $ingress "className") -}}
+{{- $host := default "" (get $ingress "host") -}}
+{{- $tls := (get $ingress "tls") | default (list) -}}
+{{- if (default true (get $ingress "enabled")) }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ default "web-external-ingress" (get $ingress "name") }}
+{{- if gt (len $annotations) 0 }}
+  annotations:
+{{ toYaml $annotations | nindent 4 }}
+{{- end }}
+spec:
+{{- if ne $className "" }}
+  ingressClassName: {{ $className | quote }}
+{{- end }}
+  rules:
+    - {{- if ne $host "" }}
+      host: {{ $host | quote }}
+      {{- end }}
+      http:
+        paths:
+          - path: {{ default "/" (get $ingress "path") | quote }}
+            pathType: {{ default "Prefix" (get $ingress "pathType") | quote }}
+            backend:
+              service:
+                name: {{ include "openstudio.webServiceName" . }}
+                port:
+                  number: {{ default 80 (get $ingress "servicePort") }}
+{{- if gt (len $tls) 0 }}
+  tls:
+{{ toYaml $tls | nindent 4 }}
+{{- end }}
+{{- end }}

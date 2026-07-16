@@ -3,6 +3,15 @@ kind: Deployment
 metadata:
   name: {{ include "openstudio.webName" . }}
 spec:
+  {{- $webStrategy := default (dict) (get .Values.web "strategy") }}
+  {{- $webMaxSurge := 1 }}
+  {{- if hasKey $webStrategy "maxSurge" }}
+  {{- $webMaxSurge = get $webStrategy "maxSurge" }}
+  {{- end }}
+  {{- $webMaxUnavailable := 0 }}
+  {{- if hasKey $webStrategy "maxUnavailable" }}
+  {{- $webMaxUnavailable = get $webStrategy "maxUnavailable" }}
+  {{- end }}
   selector:
     matchLabels:
       app: {{ default "web" .Values.web.label }}
@@ -10,8 +19,14 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      maxSurge: {{ $webMaxSurge }}
+      maxUnavailable: {{ $webMaxUnavailable }}
+  {{- with (get $webStrategy "minReadySeconds") }}
+  minReadySeconds: {{ . }}
+  {{- end }}
+  {{- with (get $webStrategy "progressDeadlineSeconds") }}
+  progressDeadlineSeconds: {{ . }}
+  {{- end }}
   template:
     metadata:
       labels:
@@ -20,8 +35,11 @@ spec:
     {{ $dbContainer := (get .Values.db "container") | default (dict) }}
     {{ $dbContainerPorts := (get $dbContainer "ports") | default (dict) }}
     {{ $webContainer := (get .Values.web "container") | default (dict) }}
+    {{ $webReadinessProbe := (get $webContainer "readinessProbe") | default (dict) }}
     {{ $webContainerPorts := (get $webContainer "port") | default (dict) }}
     {{ $webRuntimeOverrides := default (dict) (get .Values.web "runtimeOverrides") }}
+    {{ $webInitContainer := default (dict) (get .Values.web "initContainer") }}
+    {{ $webInitWaitForDb := default (dict) (get $webInitContainer "waitForDb") }}
     {{ $redis := default (dict) .Values.redis }}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     spec:
@@ -38,16 +56,35 @@ spec:
       {{- end }}
       initContainers:
           - name: init-wait-for-db
-            image: {{ default (include "openstudio.serverImage" .) .Values.web.initContainer.image }}
-            imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) .Values.web.initContainer.imagePullPolicy }}
+            image: {{ default (include "openstudio.serverImage" .) (get $webInitContainer "image") }}
+            imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $webInitContainer "imagePullPolicy") }}
+            volumeMounts:
+              - name: nfs
+                mountPath: "/mnt/openstudio"
             command:
               - /bin/bash
               - -lc
               - |
-                for i in $(seq 1 300); do
-                  (echo > /dev/tcp/{{ include "openstudio.dbName" . }}/{{ default 27017 (get $dbContainerPorts "db_port") }}) >/dev/null 2>&1 && exit 0 || sleep 3
+                attempts="{{ default 300 (get $webInitWaitForDb "maxAttempts") }}"
+                delay_seconds="{{ default 3 (get $webInitWaitForDb "retryDelaySeconds") }}"
+                db_host="{{ include "openstudio.dbName" . }}"
+                db_port="{{ default 27017 (get $dbContainerPorts "db_port") }}"
+                echo "init-wait-for-db: waiting for ${db_host}:${db_port} (attempts=${attempts}, delay=${delay_seconds}s)"
+                for i in $(seq 1 "${attempts}"); do
+                  if (echo > /dev/tcp/${db_host}/${db_port}) >/dev/null 2>&1; then
+                    echo "init-wait-for-db: db reachable on attempt ${i}"
+                    break
+                  fi
+                  if [ "${i}" -eq "${attempts}" ]; then
+                    echo "init-wait-for-db: timed out waiting for ${db_host}:${db_port} after ${attempts} attempts"
+                    exit 1
+                  fi
+                  sleep "${delay_seconds}"
                 done
-                exit 1
+                mkdir -p /mnt/openstudio/server/assets/analyses
+                chmod 2775 /mnt/openstudio/server
+                chmod 2777 /mnt/openstudio/server/assets /mnt/openstudio/server/assets/analyses
+                echo "init-wait-for-db: ensured writable permissions on /mnt/openstudio/server/assets/analyses"
       containers:
         - name:  {{ default "web" .Values.web.container.name }}
           image: {{ default (include "openstudio.serverImage" .) .Values.web.container.image }}
@@ -56,6 +93,10 @@ spec:
             requests:
               cpu:  {{  .Values.web.container.resources.requests.cpu  }}
               memory:  {{  .Values.web.container.resources.requests.memory  }}
+            {{- if (get (default (dict) .Values.web.container.resources) "limits") }}
+            limits:
+{{ toYaml .Values.web.container.resources.limits | nindent 14 }}
+            {{- end }}
           ports:
             - containerPort: {{ default 80 (get $webContainerPorts "http") }}
             - containerPort: {{ default 443 (get $webContainerPorts "https") }}
@@ -63,6 +104,10 @@ spec:
             - name: nfs
               mountPath: "/mnt/openstudio"
             {{- if (default false (get $webRuntimeOverrides "enabled")) }}
+            - name: web-runtime-overrides
+              mountPath: "/opt/openstudio/server/config/initializers/98_seed_zip_guard.rb"
+              subPath: 98_seed_zip_guard.rb
+              readOnly: true
             - name: web-runtime-overrides
               mountPath: "/opt/openstudio/server/config/initializers/99_resque_requeue_fix.rb"
               subPath: 99_resque_requeue_fix.rb
@@ -104,12 +149,17 @@ spec:
               value: {{ (ceil (divf (mulf (trimSuffix "Gi" .Values.web.container.resources.requests.memory) 1024 0.75) .Values.web.passenger_memory_per_process)) | quote }}
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
           readinessProbe:
+            {{- if (get $webReadinessProbe "tcpSocketPort") }}
+            tcpSocket:
+              port: {{ get $webReadinessProbe "tcpSocketPort" }}
+            {{- else }}
             httpGet:
-              path: /resque
+              path: {{ default "/resque" (get $webReadinessProbe "path") }}
               port: 80
+            {{- end }}
             initialDelaySeconds: 30
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: {{ default 30 (get $webReadinessProbe "timeoutSeconds") }}
             failureThreshold: 6
           livenessProbe:
             exec:

@@ -1,0 +1,19 @@
+{{- $worker := default (dict) .Values.worker -}}
+{{- $pdb := default (dict) (get $worker "podDisruptionBudget") -}}
+{{- if (default false (get $pdb "enabled")) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "openstudio.workerName" . }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ default "worker" .Values.worker.label }}
+      release: {{ .Release.Name }}
+  {{- if (hasKey $pdb "minAvailable") }}
+  minAvailable: {{ get $pdb "minAvailable" }}
+  {{- end }}
+  {{- if (hasKey $pdb "maxUnavailable") }}
+  maxUnavailable: {{ get $pdb "maxUnavailable" }}
+  {{- end }}
+{{- end }}

@@ -1,3 +1,6 @@
+{{- $redisConfig := default (dict) .Values.redis.config -}}
+{{- $appendfsync := default "everysec" (get $redisConfig "appendfsync") -}}
+{{- $save := default "" (get $redisConfig "save") -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,8 +20,11 @@ spec:
       labels:
         app: {{ default "redis" .Values.redis.label }}
         release: {{ .Release.Name }}
+    {{ $redis := default (dict) .Values.redis -}}
+    {{ $ha := default (dict) (get $redis "ha") -}}
+    {{ $haMode := default "standalone" (get $ha "mode") -}}
+    {{ $sentinel := default (dict) (get $ha "sentinel") -}}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
-    {{ $redisConfig := default (dict) .Values.redis.config }}
     spec:
       {{- if .Values.redis.affinity }}
       affinity:
@@ -32,6 +38,7 @@ spec:
       {{- else }}
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
       {{- end }}
+      {{- include "openstudio.tolerationsForRole" (dict "root" . "role" "web") | nindent 6 }}
       {{- if eq (include "openstudio.workloadServiceAccountUse" .) "true" }}
       serviceAccountName: {{ include "openstudio.workloadServiceAccountName" . }}
       {{- end }}
@@ -49,6 +56,10 @@ spec:
             requests:
               cpu:  {{  .Values.redis.container.resources.requests.cpu  }}
               memory:  {{  .Values.redis.container.resources.requests.memory  }}
+            {{- if (get (default (dict) .Values.redis.container.resources) "limits") }}
+            limits:
+{{ toYaml .Values.redis.container.resources.limits | nindent 14 }}
+            {{- end }}
           ports:
             - containerPort: {{ default 6379 .Values.redis.container.port }}
           volumeMounts:
@@ -60,13 +71,60 @@ spec:
                 secretKeyRef:
                   name: {{ include "openstudio.secretName" . }}
                   key: {{ include "openstudio.secretKeyRedisPassword" . }}
+            - name: REDIS_APPENDFSYNC
+              value: {{ $appendfsync | quote }}
+            {{- if and (ne $haMode "sentinel") (ne $save "") }}
+            - name: REDIS_SAVE
+              value: {{ $save | quote }}
+            {{- end }}
           command: ["/bin/sh", "-c"]
           args:
             - >-
-              exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"
+              exec redis-server --appendonly yes --appendfsync {{ $appendfsync }} --requirepass "$REDIS_PASSWORD"
               {{- if (get $redisConfig "maxclients") }} --maxclients {{ get $redisConfig "maxclients" }}{{- end }}
               {{- if (get $redisConfig "tcpBacklog") }} --tcp-backlog {{ get $redisConfig "tcpBacklog" }}{{- end }}
               {{- if (get $redisConfig "timeoutSeconds") }} --timeout {{ get $redisConfig "timeoutSeconds" }}{{- end }}
+              {{- if (get $redisConfig "maxmemory") }} --maxmemory {{ get $redisConfig "maxmemory" }}{{- end }}
+              {{- if (get $redisConfig "maxmemoryPolicy") }} --maxmemory-policy {{ get $redisConfig "maxmemoryPolicy" }}{{- end }}
+              {{- if and (ne $haMode "sentinel") (ne $save "") }} --save "" {{ $save }}{{- end }}
+              {{- if eq $haMode "sentinel" }} --save "" --slave-read-only yes{{- end }}
+        {{- if eq $haMode "sentinel" }}
+        - name: sentinel
+          image: {{ default (include "openstudio.imageWithRegistry" (dict "root" . "image" .Values.redis.container.image)) (get $sentinel "container.image") }}
+          imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $sentinel "container.imagePullPolicy") }}
+          resources:
+            requests:
+              cpu: {{ default "500m" (get $sentinel "container.resources.requests.cpu") }}
+              memory: {{ default "512Mi" (get $sentinel "container.resources.requests.memory") }}
+          ports:
+            - containerPort: {{ default 26379 (get $sentinel "port") }}
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyRedisPassword" . }}
+            - name: SENTINEL_QUORUM
+              value: {{ default 2 (get $sentinel "quorum") | quote }}
+            - name: SENTINEL_FAILOVER_TIMEOUT
+              value: {{ default 60000 (get $sentinel "failoverTimeoutMs") | quote }}
+            - name: SENTINEL_PARALLEL_SYNCS
+              value: {{ default 1 (get $sentinel "parallelSyncs") | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              cat > /tmp/sentinel.conf <<EOF
+              port {{ default 26379 (get $sentinel "port") }}
+              sentinel monitor mymaster 127.0.0.1 6379 {{ default 2 (get $sentinel "quorum") }}
+              sentinel auth-pass mymaster $REDIS_PASSWORD
+              sentinel down-after-milliseconds mymaster 5000
+              sentinel failover-timeout mymaster {{ default 60000 (get $sentinel "failoverTimeoutMs") }}
+              sentinel parallel-syncs mymaster {{ default 1 (get $sentinel "parallelSyncs") }}
+              sentinel resolve-hostnames no
+              sentinel announce-hostnames no
+              EOF
+              exec redis-sentinel /tmp/sentinel.conf
+        {{- end }}
       volumes:
         - name: redis
           persistentVolumeClaim:

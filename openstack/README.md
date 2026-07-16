@@ -710,6 +710,18 @@ kubectl get pvc -n openstudio-server
 
 #### LoadBalancer Issues
 
+If Octavia cannot create a floating IP because of project policy, configure the chart with a pre-allocated address instead of relying on dynamic LB IP creation:
+
+```yaml
+load_balancer:
+  openstack:
+    address: "<preallocated-floating-ip>"
+    securityGroups:
+      - "<openstack-security-group-id-or-name>"
+```
+
+Raw annotations are still supported as an escape hatch, but the structured values above are the preferred path for OpenStack LB recovery.
+
 ```bash
 # Check cloud provider configuration
 kubectl get configmap -n kube-system cloud-config -o yaml

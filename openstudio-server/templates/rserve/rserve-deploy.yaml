@@ -40,6 +40,10 @@ spec:
             requests:
               cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
               memory:  {{  .Values.rserve.container.resources.requests.memory  }}
+            {{- if (get (default (dict) .Values.rserve.container.resources) "limits") }}
+            limits:
+{{ toYaml .Values.rserve.container.resources.limits | nindent 14 }}
+            {{- end }}
           volumeMounts:
             - name: osdata
               mountPath: "/mnt/openstudio"

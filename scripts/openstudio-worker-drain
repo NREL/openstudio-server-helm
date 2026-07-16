@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Detects and remediates worker pods wedged in the documented analysis_zip
+# lock/receipt deadlock (see values.yaml:459-473): a resque worker's forked
+# child polls "waiting for receipt file to appear" indefinitely (up to
+# analysis.initialize_worker_timeout, default 8h) because the process that
+# was supposed to write the receipt already died. The pod stays Running with
+# near-zero CPU, the in-container liveness probe never fires (it only checks
+# for a live `openstudio` binary, which never starts in this state), and the
+# worker's single COUNT=1 slot is unavailable to the simulations/requeued
+# queues for hours. At fleet scale this silently stalls queue drain even
+# though HPA/KEDA reports full desired-replica readiness.
+#
+# Remediation is surgical: kill only the wedged child process (identified via
+# Redis resque:worker:<id> run_at age + live pod CPU from metrics.k8s.io), not
+# the pod. Resque's own worker supervisor detects the dead child (DirtyExit),
+# records a Resque::Failure entry, and immediately re-forks to pick up a new
+# job -- no pod reschedule, no image pull, no node churn. The existing
+# transient-failure-replayer CronJob (every 2m) already sweeps
+# PruneDeadWorkerDirtyExit failures for ResqueJobs::RunSimulateDataPoint back
+# into the requeued queue (skipping stopped analyses), so the aborted
+# datapoint gets a fresh attempt automatically.
+
+NAMESPACE="openstudio-server"
+RELEASE="openstudio-server"
+MODE="check"
+APPLY=false
+STALE_AGE_SECONDS=2400
+CPU_IDLE_THRESHOLD_NANOCORES=20000000
+CONCURRENCY=25
+SNAPSHOT_DIR=""
+LOCK_TTL_SECONDS=1800
+LOCK_KEY=""
+STATE_DIR=".health-remediation-state/openstudio-worker-drain"
+ACTION_LOG_FILE="${STATE_DIR}/action-log.jsonl"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/openstudio-worker-drain [options]
+
+Modes (default: check):
+  --mode check   Read-only: report wedged worker candidates and queue depths.
+  --mode apply   Kill wedged workers' forked child processes (requires --apply).
+
+Options:
+  -n, --namespace <ns>       Kubernetes namespace (default: openstudio-server)
+  -r, --release <name>       Helm release name (default: openstudio-server)
+      --stale-age-seconds <s>
+                              Min job age before a worker is a wedge candidate
+                              (default: 2400 = 40min; observed real simulation
+                              jobs never exceed ~1400s, wedged jobs observed
+                              at 5600s+, so this has a large safety margin).
+      --cpu-threshold-nanocores <n>
+                              Max current pod CPU usage (nanocores, from
+                              metrics.k8s.io) to still count as wedged
+                              (default: 20000000 = 20m; active jobs observed
+                              at 300m-1000m).
+      --concurrency <n>      Parallel kubectl exec kills during apply (default: 25).
+      --snapshot-dir <d>     Pre/post snapshot output directory.
+      --apply                Required for mode apply.
+  -h, --help                  Show this help.
+
+Examples:
+  scripts/openstudio-worker-drain --mode check
+  scripts/openstudio-worker-drain --mode apply --apply
+EOF
+}
+
+log() { echo "[INFO] $*"; }
+warn() { echo "[WARN] $*" >&2; }
+die() { echo "[ERROR] $*" >&2; exit 1; }
+
+require_bin() {
+  command -v "$1" >/dev/null 2>&1 || die "Missing required binary: $1"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --mode) MODE="$2"; shift 2 ;;
+    -n|--namespace) NAMESPACE="$2"; shift 2 ;;
+    -r|--release) RELEASE="$2"; shift 2 ;;
+    --stale-age-seconds) STALE_AGE_SECONDS="$2"; shift 2 ;;
+    --cpu-threshold-nanocores) CPU_IDLE_THRESHOLD_NANOCORES="$2"; shift 2 ;;
+    --concurrency) CONCURRENCY="$2"; shift 2 ;;
+    --snapshot-dir) SNAPSHOT_DIR="$2"; shift 2 ;;
+    --apply) APPLY=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "Unknown option: $1" ;;
+  esac
+done
+
+require_bin kubectl
+require_bin jq
+require_bin date
+
+get_single_running_pod_by_label() {
+  local selector=$1
+  local -a pods
+  mapfile -t pods < <(
+    kubectl -n "$NAMESPACE" get pods -l "$selector" -o json 2>/dev/null \
+      | jq -r '.items[] | select(.status.phase == "Running") | .metadata.name' || true
+  )
+  [[ ${#pods[@]} -gt 0 ]] || die "No running pods found for selector: $selector"
+  echo "${pods[0]}"
+}
+
+get_redis_pod() { get_single_running_pod_by_label "app=redis,release=${RELEASE}"; }
+
+acquire_lock() {
+  local redis_pod lock_value lock_result
+  redis_pod="$(get_redis_pod)"
+  LOCK_KEY="openstudio:recovery:worker-drain:${NAMESPACE}:${RELEASE}"
+  lock_value="$(date +%s)-$$"
+  lock_result="$(
+    kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc "
+      PW=\"\${REDIS_PASSWORD:-}\"
+      AUTH=\"\"
+      [ -n \"\$PW\" ] && AUTH=\"-a \$PW --no-auth-warning\"
+      redis-cli \$AUTH SET '${LOCK_KEY}' '${lock_value}' NX EX '${LOCK_TTL_SECONDS}'
+    " | tr -d '\r'
+  )"
+  [[ "$lock_result" == "OK" ]] || die "Could not acquire drain lock (${LOCK_KEY}); another drain may be running"
+  log "Acquired drain lock (${LOCK_KEY})"
+}
+
+release_lock() {
+  local redis_pod
+  [[ -n "$LOCK_KEY" ]] || return 0
+  redis_pod="$(get_redis_pod)"
+  kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc "
+    PW=\"\${REDIS_PASSWORD:-}\"
+    AUTH=\"\"
+    [ -n \"\$PW\" ] && AUTH=\"-a \$PW --no-auth-warning\"
+    redis-cli \$AUTH DEL '${LOCK_KEY}' >/dev/null
+  " >/dev/null 2>&1 || true
+  log "Released drain lock (${LOCK_KEY})"
+}
+
+read_queue_depths() {
+  local redis_pod=$1
+  kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+    PW="${REDIS_PASSWORD:-}"
+    AUTH=""
+    [ -n "$PW" ] && AUTH="-a $PW --no-auth-warning"
+    for q in simulations requeued; do
+      printf "%s=" "$q"
+      redis-cli $AUTH LLEN "resque:queue:$q"
+    done
+    printf "failed="
+    redis-cli $AUTH LLEN resque:failed
+  '
+}
+
+dump_worker_states() {
+  # One exec round-trip: emit JSON-lines of {"worker":"<id>","data":<raw resque worker json>}
+  # for every currently-busy worker registered in Redis.
+  local redis_pod=$1
+  kubectl -n "$NAMESPACE" exec -i "$redis_pod" -- sh -s <<'EOF'
+PW="${REDIS_PASSWORD:-}"
+AUTH=""
+[ -n "$PW" ] && AUTH="-a $PW --no-auth-warning"
+redis-cli $AUTH SMEMBERS resque:workers | while IFS= read -r w; do
+  v=$(redis-cli $AUTH GET "resque:worker:$w")
+  if [ -n "$v" ]; then printf '{"worker":"%s","data":%s}\n' "$w" "$v"; fi
+done
+true
+EOF
+}
+
+find_wedge_candidates() {
+  # Emits TSV: pod  ppid  queue  job_class  age_seconds  cpu_nanocores
+  local redis_pod=$1
+  local workers_file metrics_file now
+  workers_file="$(mktemp)"
+  metrics_file="$(mktemp)"
+  trap 'rm -f "$workers_file" "$metrics_file"' RETURN
+
+  dump_worker_states "$redis_pod" > "$workers_file"
+  kubectl get --raw "/apis/metrics.k8s.io/v1beta1/namespaces/${NAMESPACE}/pods" > "$metrics_file" 2>/dev/null \
+    || die "metrics.k8s.io unavailable; metrics-server required for wedge detection"
+  now="$(date +%s)"
+
+  jq -r -n \
+    --slurpfile workers "$workers_file" \
+    --slurpfile metrics_raw "$metrics_file" \
+    --argjson now "$now" \
+    --argjson stale_age "$STALE_AGE_SECONDS" \
+    --argjson cpu_threshold_n "$CPU_IDLE_THRESHOLD_NANOCORES" '
+    ($metrics_raw[0].items // []) as $items
+    | (reduce $items[] as $it ({};
+        . + { ($it.metadata.name): (
+          $it.containers[0].usage.cpu
+          | if test("n$") then (rtrimstr("n") | tonumber)
+            elif test("u$") then (rtrimstr("u") | tonumber) * 1000
+            elif test("m$") then (rtrimstr("m") | tonumber) * 1000000
+            else (tonumber) * 1000000000
+            end
+        ) }
+      )) as $cpu_by_pod
+    | $workers[]
+    | ( .worker | split(":") ) as $parts
+    | ($parts[0]) as $pod
+    | ($parts[1]) as $ppid
+    | select($pod | startswith("worker-"))
+    | (.data.run_at | fromdateiso8601) as $run_at
+    | ($now - $run_at) as $age
+    | ($cpu_by_pod[$pod] // null) as $cpu_n
+    | select($cpu_n != null and $age > $stale_age and $cpu_n <= $cpu_threshold_n)
+    | [$pod, $ppid, (.data.queue // "unknown"), (.data.payload.class // "unknown"), ($age | tostring), ($cpu_n | tostring)]
+    | @tsv
+  '
+}
+
+run_check_mode() {
+  local redis_pod candidates count
+  redis_pod="$(get_redis_pod)"
+  log "Queue depths (${NAMESPACE}/${RELEASE})"
+  read_queue_depths "$redis_pod"
+  echo "---"
+  log "Scanning for wedged worker candidates (age>${STALE_AGE_SECONDS}s, cpu<=${CPU_IDLE_THRESHOLD_NANOCORES}n)"
+  candidates="$(find_wedge_candidates "$redis_pod")"
+  count="$(grep -c . <<<"$candidates" || true)"
+  [[ -z "$candidates" ]] && count=0
+  log "Wedged candidates: ${count}"
+  if [[ "$count" -gt 0 ]]; then
+    echo -e "pod\tppid\tqueue\tjob_class\tage_seconds\tcpu_nanocores"
+    { sort -t$'\t' -k5 -rn <<<"$candidates" | head -20 || true; }
+    [[ "$count" -gt 20 ]] && echo "... (${count} total, showing top 20 by age)"
+  fi
+}
+
+run_apply_mode() {
+  [[ "$APPLY" == "true" ]] || die "Refusing to mutate without --apply"
+  local redis_pod candidates count ts out_dir
+  local -a pids=()
+  local active_count=0
+
+  redis_pod="$(get_redis_pod)"
+  ts="$(date +%Y%m%d-%H%M%S)"
+  out_dir="${SNAPSHOT_DIR:-./incident-snapshots/worker-drain-${ts}}"
+  mkdir -p "$out_dir" "$STATE_DIR"
+  [[ -f "$ACTION_LOG_FILE" ]] || : > "$ACTION_LOG_FILE"
+
+  acquire_lock
+  trap 'release_lock' EXIT
+
+  log "Pre-drain queue depths"
+  read_queue_depths "$redis_pod" | tee "${out_dir}/queue_depths_before.txt"
+
+  candidates="$(find_wedge_candidates "$redis_pod")"
+  count="$(grep -c . <<<"$candidates" || true)"
+  [[ -z "$candidates" ]] && count=0
+  echo "$candidates" > "${out_dir}/wedge_candidates.tsv"
+  log "Found ${count} wedged worker candidates; killing forked children with concurrency ${CONCURRENCY}"
+
+  if [[ "$count" -eq 0 ]]; then
+    log "Nothing to do"
+    return 0
+  fi
+
+  while IFS=$'\t' read -r pod ppid queue job_class age cpu; do
+    [[ -z "$pod" ]] && continue
+    (
+      kubectl -n "$NAMESPACE" exec "$pod" -- sh -c "k=\$(pgrep -P ${ppid}); [ -n \"\$k\" ] && kill -9 \$k" >/dev/null 2>&1
+      rc=$?
+      printf '{"ts":"%s","pod":"%s","ppid":"%s","queue":"%s","job_class":"%s","age_seconds":%s,"result_rc":%d}\n' \
+        "$(date -u +%FT%TZ)" "$pod" "$ppid" "$queue" "$job_class" "$age" "$rc" >> "$ACTION_LOG_FILE"
+    ) &
+    pids+=("$!")
+    active_count=$((active_count + 1))
+    if [[ "$active_count" -ge "$CONCURRENCY" ]]; then
+      wait -n
+      active_count=$((active_count - 1))
+    fi
+  done <<<"$candidates"
+
+  wait
+
+  log "Kill pass complete for ${count} candidates. Waiting 15s for resque to re-fork..."
+  sleep 15
+
+  log "Post-drain queue depths"
+  read_queue_depths "$redis_pod" | tee "${out_dir}/queue_depths_after.txt"
+
+  local remaining
+  remaining="$(find_wedge_candidates "$redis_pod" | grep -c . || true)"
+  log "Remaining wedged candidates after this pass: ${remaining}"
+  log "Snapshot written to ${out_dir}"
+}
+
+case "$MODE" in
+  check) run_check_mode ;;
+  apply) run_apply_mode ;;
+  *) die "Unknown mode: $MODE" ;;
+esac

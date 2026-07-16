@@ -18,7 +18,39 @@ BASELINE_INTERVAL_SECONDS=30
 QUIET_WINDOW_SECONDS=900
 QUIET_WINDOW_INTERVAL_SECONDS=30
 PROBE_STEP_REPLICAS=50
-PROBE_MAX_REPLICAS_LIMIT=""
+PROBE_MAX_REPLICAS_LIMIT="1200"
+EVENT_WINDOW_SECONDS=900
+EVENT_HARD_BLOCKER_THRESHOLD=3
+EVENT_SOFT_BLOCKER_THRESHOLD=5
+PROBLEM_POD_BLOCKER_THRESHOLD=3
+CALICO_QOS_NON_GUARANTEED_THRESHOLD=3
+STALE_TERMINATING_MINUTES=10
+WORKER_READINESS_MIN_RATIO_PERCENT=50
+CLEANUP_FAILED_WORKER_PODS=false
+CLEANUP_MAX_DELETE=200
+CLEANUP_STALE_TERMINATING_WORKER_PODS=false
+CLEANUP_STALE_MAX_DELETE=100
+PROBE_DIAGNOSTICS=false
+SNAPSHOT_ON_BLOCK=false
+PERSISTENT_BLOCKER_SNAPSHOT_THRESHOLD=2
+ANALYSIS_ID=""
+FAILED_QUEUE_TRIAGE_SAMPLE_LIMIT=500
+
+LAST_BLOCKER_REASON_CODES=""
+LAST_NODE_BLOCKERS=0
+LAST_PROBLEM_PODS=0
+LAST_STALE_TERMINATING_PODS=0
+LAST_HARD_EVENT_COUNT=0
+LAST_SOFT_EVENT_COUNT=0
+LAST_PLATFORM_POD_SANDBOX_NETWORK_COUNT=0
+LAST_PLATFORM_IMAGE_PULL_AUTH_COUNT=0
+LAST_PLATFORM_EXTERNAL_METRIC_COUNT=0
+LAST_CALICO_QOS_NON_GUARANTEED=0
+LAST_CALICO_QOS_CR_HARDENED=1
+LAST_EVENT_WINDOW_START_EPOCH=0
+LAST_EVENT_WINDOW_END_EPOCH=0
+LAST_EVENT_WINDOW_START_ISO=""
+LAST_EVENT_WINDOW_END_ISO=""
 
 usage() {
   cat <<'EOF'
@@ -28,6 +60,8 @@ Usage:
 Modes (default: check):
   --mode check            Read-only reliability preflight checks.
   --mode snapshot         Export queue/job snapshots for incident forensics.
+  --mode review-non-completed
+                          Read-only review of non-completed analyses with blocker summary.
   --mode scale-baseline   Repeated snapshots + timeline for scale-up latency analysis.
   --mode ceiling-probe    Report-only quiet-window gate for next worker ceiling step.
   --mode reconcile-helm   Reconcile Helm failed state (requires --apply).
@@ -43,7 +77,7 @@ Options:
       --allow-chart-apply Allow reconcile mode to use local chart path for upgrade.
       --allow-non-conflict-reconcile
                           Allow reconcile even if helm status is not a conflict failure.
-      --stale-minutes <m> Stale cutoff for started jobs/datapoints in recover mode (default: 70).
+      --stale-minutes <m> Stale cutoff for diagnostics/recovery (default: 70).
       --lock-ttl-seconds <s>
                           Redis lock TTL for recover mode (default: 1800).
       --duration-seconds <s>
@@ -57,12 +91,38 @@ Options:
       --probe-step-replicas <n>
                           Suggested maxReplicas increase when gates pass (default: 50).
       --probe-max-replicas-limit <n>
-                          Optional hard upper bound for suggested maxReplicas.
+                          Optional hard upper bound for suggested maxReplicas (default: 1200).
+      --event-window-seconds <s>
+                          Warning-event lookback window for gate signals (default: 900).
+      --event-hard-threshold <n>
+                          Sustained-count threshold for hard warning-event blockers (default: 3).
+      --event-soft-threshold <n>
+                          Sustained-count threshold for soft warning-event blockers (default: 5).
+      --problem-pod-threshold <n>
+                          Problem pod count required before pod health blocks scale-up (default: 3).
+      --calico-qos-threshold <n>
+                          calico-node non-Guaranteed pod count required before QoS drift blocks scale-up (default: 3).
+      --stale-terminating-minutes <m>
+                          Count only terminating pods older than this age (default: 10).
+      --probe-diagnostics  Emit per-sample blocker diagnostics during ceiling-probe mode.
+      --snapshot-on-block
+                          Capture one snapshot when blocker samples become persistent in ceiling-probe mode.
+      --cleanup-failed-worker-pods
+                          Delete failed/evicted worker pod artifacts during scale-baseline and ceiling-probe modes (requires --apply).
+      --cleanup-max-delete <n>
+                          Max failed/evicted worker pods deleted per cleanup pass (default: 200).
+      --cleanup-stale-terminating-worker-pods
+                          Delete stale terminating worker pods during ceiling-probe mode (requires --apply).
+      --cleanup-stale-max-delete <n>
+                          Max stale terminating worker pods deleted per cleanup pass (default: 100).
+      --analysis-id <id>  Optional analysis ID for focused lifecycle diagnostics.
   -h, --help              Show this help.
 
 Examples:
   scripts/openstudio-reliability --mode check
   scripts/openstudio-reliability --mode snapshot --snapshot-dir /tmp/os-incident
+  scripts/openstudio-reliability --mode review-non-completed --stale-minutes 70
+  scripts/openstudio-reliability --mode check --analysis-id ff690a50-56e4-4d88-9bf0-0e680326dbc7
   scripts/openstudio-reliability --mode ceiling-probe --quiet-window-seconds 900 --probe-step-replicas 50
   scripts/openstudio-reliability --mode reconcile-helm --apply --allow-chart-apply
   scripts/openstudio-reliability --mode recover-stuck --apply
@@ -217,6 +277,265 @@ read_redis_queues() {
   '
 }
 
+collect_failed_queue_triage() {
+  local redis_pod=$1
+  local out_dir=$2
+  local raw_file triage_tsv signature_tsv analysis_tsv triage_md
+  local sample_limit end_index
+  sample_limit="$FAILED_QUEUE_TRIAGE_SAMPLE_LIMIT"
+  [[ "$sample_limit" =~ ^[0-9]+$ ]] || sample_limit=500
+  (( sample_limit >= 1 )) || sample_limit=1
+  end_index=$((sample_limit - 1))
+
+  raw_file="${out_dir}/failed_queue_entries.raw.jsonl"
+  triage_tsv="${out_dir}/failed_queue_entries.tsv"
+  signature_tsv="${out_dir}/failed_queue_signature_counts.tsv"
+  analysis_tsv="${out_dir}/failed_queue_analysis_counts.tsv"
+  triage_md="${out_dir}/failed_queue_triage.md"
+
+  kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc "
+    PW=\"\${REDIS_PASSWORD:-}\"
+    AUTH=\"\"
+    [ -n \"\$PW\" ] && AUTH=\"-a \$PW --no-auth-warning\"
+    redis-cli --raw \$AUTH LRANGE resque:failed 0 ${end_index}
+  " > "$raw_file" 2>/dev/null || : > "$raw_file"
+
+  jq -R -s '
+    split("\n")
+    | map(select(length > 0))
+    | to_entries
+    | map(
+        . as $entry
+        | ($entry.value | try fromjson catch {parse_error: true, raw: $entry.value}) as $job
+        | ($job.payload.class // "unknown") as $payload_class
+        | ($job.exception // $job.error_class // "unknown") as $exception_class
+        | (($job.error // $job.exception_message // "" | tostring) | split("\n")[0]) as $error_line
+        | (($job.payload.args // []) | tostring) as $args_text
+        | (
+            ($job.payload.args // []) as $args
+            | [
+                ($job.analysis_id // ""),
+                ($job.analysis // ""),
+                ($args[0] | if type == "object" then (.analysis_id // .id // "") elif type == "string" then . else "" end),
+                ($args[1] | if type == "object" then (.analysis_id // .id // "") elif type == "string" then . else "" end)
+              ]
+            | map(select(type == "string" and length > 0))
+            | if length > 0 then .[0] else (try ($args_text | capture("(?<id>[0-9a-fA-F-]{36})").id) catch "") end
+          ) as $analysis_id
+        | (($payload_class + "|" + $exception_class + "|" + ($error_line | .[0:140])) | gsub("[[:space:]]+"; " ")) as $signature
+        | (($payload_class + " " + $exception_class + " " + $error_line) | ascii_downcase) as $retry_text
+        | (if ($retry_text | test("timeout|timed out|connection reset|econn|temporar|503|502|429|rate limit|unavailable"))
+           then "safe_retry_candidate"
+           elif ($retry_text | test("argumenterror|nomethoderror|undefined method|validation|not found|mongo::auth::unauthorized|syntaxerror"))
+           then "manual_intervention"
+           else "needs_manual_review"
+           end) as $retryability
+        | {
+            failed_index: $entry.key,
+            failed_at: ($job.failed_at // ""),
+            retried_at: ($job.retried_at // ""),
+            payload_class: $payload_class,
+            exception_class: $exception_class,
+            error_line: $error_line,
+            signature: $signature,
+            analysis_id: $analysis_id,
+            retryability: $retryability
+          }
+      )
+  ' "$raw_file" > "${out_dir}/failed_queue_triage.json"
+
+  jq -r '
+    ["failed_index","failed_at","retried_at","payload_class","exception_class","retryability","analysis_id","signature","error_line"],
+    (.[] | [
+      (.failed_index | tostring),
+      .failed_at,
+      .retried_at,
+      .payload_class,
+      .exception_class,
+      .retryability,
+      .analysis_id,
+      .signature,
+      .error_line
+    ])
+    | @tsv
+  ' "${out_dir}/failed_queue_triage.json" > "$triage_tsv"
+
+  jq -r '
+    ["signature","count","retryability_hint"],
+    (
+      sort_by(.signature)
+      | group_by(.signature)
+      | map({
+          signature: .[0].signature,
+          count: length,
+          retryability_hint: (
+            . | group_by(.retryability) | max_by(length) | .[0].retryability
+          )
+        })
+      | sort_by(-.count, .signature)
+      | .[]
+      | [.signature, (.count | tostring), .retryability_hint]
+    )
+    | @tsv
+  ' "${out_dir}/failed_queue_triage.json" > "$signature_tsv"
+
+  jq -r '
+    ["analysis_id","count","top_retryability_hint"],
+    (
+      map(select((.analysis_id | length) > 0))
+      | sort_by(.analysis_id)
+      | group_by(.analysis_id)
+      | map({
+          analysis_id: .[0].analysis_id,
+          count: length,
+          top_retryability_hint: (
+            . | group_by(.retryability) | max_by(length) | .[0].retryability
+          )
+        })
+      | sort_by(-.count, .analysis_id)
+      | .[]
+      | [.analysis_id, (.count | tostring), .top_retryability_hint]
+    )
+    | @tsv
+  ' "${out_dir}/failed_queue_triage.json" > "$analysis_tsv"
+
+  {
+    echo "# Failed Queue Triage"
+    echo
+    echo "- Sample limit: ${sample_limit}"
+    echo "- Entries captured: $(jq 'length' "${out_dir}/failed_queue_triage.json")"
+    echo
+    echo "## Top signatures"
+    echo
+    if [[ "$(jq 'length' "${out_dir}/failed_queue_triage.json")" == "0" ]]; then
+      echo "- None"
+    else
+      jq -r '
+        sort_by(.signature)
+        | group_by(.signature)
+        | map({signature: .[0].signature, count: length})
+        | sort_by(-.count, .signature)
+        | .[0:10]
+        | .[]
+        | "- \(.signature) => \(.count)"
+      ' "${out_dir}/failed_queue_triage.json"
+    fi
+    echo
+    echo "## Operator action map"
+    echo
+    echo "- safe_retry_candidate: replay is usually safe after queue/core/worker blockers are clear."
+    echo "- manual_intervention: inspect payload + app logs before replay; likely code/data issue."
+    echo "- needs_manual_review: investigate first occurrence, then decide replay vs quarantine."
+  } > "$triage_md"
+}
+
+collect_non_completed_job_inventory() {
+  local web_pod=$1
+  local out_dir=$2
+  local raw_file inventory_json inventory_tsv
+
+  raw_file="${out_dir}/non_completed_jobs_raw.json"
+  inventory_json="${out_dir}/non_completed_job_inventory.json"
+  inventory_tsv="${out_dir}/non_completed_job_inventory.tsv"
+
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc "
+    cd /opt/openstudio/server
+    STALE_MINUTES='${STALE_THRESHOLD_MINUTES}' bundle exec rails runner '
+      require %q(json)
+      stale = ENV.fetch(%q(STALE_MINUTES), %q(70)).to_i
+      now = Time.now
+      cutoff = now - stale.minutes
+      analyses = Analysis.all.select { |analysis| analysis.status.to_s != %q(completed) }
+      analysis_status_map = Hash[(analyses.map { |analysis| [analysis.id.to_s, analysis.status.to_s] })]
+      jobs = Job.where(:status.ne => %q(completed)).only(:_id, :analysis_id, :analysis_type, :status, :status_message, :updated_at, :end_time)
+
+      rows = jobs.map do |job|
+        status = job.status.to_s
+        status_message = job.respond_to?(:status_message) ? job.status_message.to_s : %q()
+        analysis_id = job.analysis_id.to_s
+        analysis_status = analysis_status_map[analysis_id] || %q()
+        age_minutes = job.updated_at.nil? ? nil : ((now - job.updated_at) / 60).floor
+
+        recovery_path =
+          if status_message == %q(post-processing finished)
+            %q(promote_completed)
+          elsif status == %q(started)
+            if !age_minutes.nil? && age_minutes >= stale
+              %q(recover_started)
+            else
+              %q(monitor_started)
+            end
+          elsif status == %q(queued)
+            if !age_minutes.nil? && age_minutes >= stale
+              %q(requeue_or_quarantine)
+            else
+              %q(monitor_queue)
+            end
+          else
+            %q(manual_review)
+          end
+
+        terminal_record = (recovery_path == %q(promote_completed))
+        status_bucket =
+          if terminal_record
+            %q(terminal_but_not_completed)
+          elsif status == %q(started) || status == %q(queued)
+            %q(actionable)
+          else
+            %q(manual_review)
+          end
+
+        {
+          job_id: job.id.to_s,
+          analysis_id: analysis_id,
+          analysis_status: analysis_status,
+          job_status: status,
+          job_status_message: status_message,
+          age_minutes: age_minutes,
+          status_bucket: status_bucket,
+          recovery_path: recovery_path,
+          terminal_record: terminal_record,
+          needs_work: (status_bucket != %q(terminal_but_not_completed))
+        }
+      end
+
+      puts JSON.pretty_generate(rows)
+    '
+  " | sed '/MONGODB | Unsupported client option/d' > "$raw_file"
+
+  jq -r '
+    map(
+      .age_minutes = (.age_minutes // null)
+      | .analysis_id = (.analysis_id // "")
+      | .analysis_status = (.analysis_status // "")
+      | .job_status = (.job_status // "")
+      | .job_status_message = (.job_status_message // "")
+      | .status_bucket = (.status_bucket // "manual_review")
+      | .recovery_path = (.recovery_path // "manual_review")
+      | .terminal_record = (.terminal_record // false)
+      | .needs_work = (.needs_work // true)
+    )
+    | sort_by(.status_bucket, .job_status, .analysis_id, .job_id)
+  ' "$raw_file" > "$inventory_json"
+
+  jq -r '
+    ["job_id","analysis_id","analysis_status","job_status","job_status_message","age_minutes","status_bucket","recovery_path","terminal_record","needs_work"],
+    (.[] | [
+      .job_id,
+      .analysis_id,
+      .analysis_status,
+      .job_status,
+      .job_status_message,
+      (.age_minutes | tostring),
+      .status_bucket,
+      .recovery_path,
+      (.terminal_record | tostring),
+      (.needs_work | tostring)
+    ])
+    | @tsv
+  ' "$inventory_json" > "$inventory_tsv"
+}
+
 read_queue_pipeline_health() {
   local redis_pod depths analyses analysis_wrappers simulations
   redis_pod="$(get_redis_pod)"
@@ -247,8 +566,8 @@ read_queue_pipeline_health() {
     warn "Queue pipeline warning: analysis_wrappers=${analysis_wrappers} while simulations=${simulations}. Workers will not scale until web/web-background enqueue simulation jobs."
   fi
 
-  if [[ "$analyses" =~ ^[0-9]+$ && "$analysis_wrappers" =~ ^[0-9]+$ ]] && (( analyses > 0 && analysis_wrappers == 0 )); then
-    warn "Queue pipeline warning: analyses=${analyses} with analysis_wrappers=${analysis_wrappers}. web-background may not be consuming analyses."
+  if [[ "$analyses" =~ ^[0-9]+$ && "$analysis_wrappers" =~ ^[0-9]+$ && "$simulations" =~ ^[0-9]+$ ]] && (( analyses > 0 && analysis_wrappers == 0 && simulations == 0 )); then
+    warn "Queue pipeline warning: analyses=${analyses} with analysis_wrappers=${analysis_wrappers} and simulations=${simulations}. web-background may not be consuming analyses."
   fi
 }
 
@@ -317,11 +636,214 @@ count_node_health_blockers() {
   echo "$(( not_ready_nodes + memory_pressure_nodes + disk_pressure_nodes + pid_pressure_nodes ))"
 }
 
+get_calico_node_qos_summary() {
+  local pod_json inst_json total non_guaranteed cr_hardened
+  pod_json="$(kubectl -n calico-system get pods -l k8s-app=calico-node -o json 2>/dev/null || true)"
+  if [[ -z "$pod_json" ]]; then
+    echo "total=0"
+    echo "non_guaranteed=0"
+    echo "cr_hardened=1"
+    return 0
+  fi
+
+  total="$(jq -r '.items | length' <<<"$pod_json" 2>/dev/null || echo 0)"
+  non_guaranteed="$(jq -r '[.items[] | select(.status.qosClass != "Guaranteed")] | length' <<<"$pod_json" 2>/dev/null || echo 0)"
+  [[ "$total" =~ ^[0-9]+$ ]] || total=0
+  [[ "$non_guaranteed" =~ ^[0-9]+$ ]] || non_guaranteed=0
+
+  # cr_hardened tracks whether the tigera-operator Installation CR still carries the
+  # calico-node/install-cni/flexvol-driver resource requests that give calico-node
+  # Guaranteed QoS (see openstack/TROUBLESHOOTING.md calico-node OOM incident). A helm
+  # upgrade of the cni-calico release, or an Azimuth-side addon reconcile, can silently
+  # drop this override since it lives only as live Installation CR state.
+  cr_hardened=1
+  if (( total > 0 )); then
+    if inst_json="$(kubectl get installation default -o json 2>/dev/null)" && [[ -n "$inst_json" ]]; then
+      cr_hardened="$(jq -r '
+        def has_req($c): (($c.resources.requests.cpu // "") != "") and (($c.resources.requests.memory // "") != "");
+        ( [.spec.calicoNodeDaemonSet.spec.template.spec.containers[]? | select(.name=="calico-node") | has_req(.)] | any ) as $main
+        | ( [.spec.calicoNodeDaemonSet.spec.template.spec.initContainers[]? | select(.name=="install-cni") | has_req(.)] | any ) as $cni
+        | ( [.spec.calicoNodeDaemonSet.spec.template.spec.initContainers[]? | select(.name=="flexvol-driver") | has_req(.)] | any ) as $flexvol
+        | if ($main and $cni and $flexvol) then 1 else 0 end
+      ' <<<"$inst_json" 2>/dev/null || echo 0)"
+      [[ "$cr_hardened" =~ ^[0-1]$ ]] || cr_hardened=0
+    else
+      cr_hardened=0
+    fi
+  fi
+
+  echo "total=${total}"
+  echo "non_guaranteed=${non_guaranteed}"
+  echo "cr_hardened=${cr_hardened}"
+}
+
+read_calico_node_qos_state() {
+  local summary total non_guaranteed cr_hardened
+  summary="$(get_calico_node_qos_summary)"
+  total="$(extract_count_from_kv "total" "$summary")"
+  non_guaranteed="$(extract_count_from_kv "non_guaranteed" "$summary")"
+  cr_hardened="$(extract_count_from_kv "cr_hardened" "$summary")"
+
+  log "Calico-node QoS drift summary (Installation CR resource hardening)"
+  echo "CALICO_NODE_QOS total=${total} non_guaranteed=${non_guaranteed} cr_hardened=${cr_hardened} non_guaranteed_threshold=${CALICO_QOS_NON_GUARANTEED_THRESHOLD}"
+  if (( total == 0 )); then
+    log "No calico-node pods found in calico-system; skipping drift check"
+    return 0
+  fi
+  if (( cr_hardened == 0 )); then
+    warn "tigera Installation CR 'default' is missing calico-node/install-cni/flexvol-driver resource requests; QoS drift risk (revert to BestEffort possible)"
+  fi
+  if (( non_guaranteed >= CALICO_QOS_NON_GUARANTEED_THRESHOLD )); then
+    warn "calico-node pods below Guaranteed QoS: ${non_guaranteed} (threshold=${CALICO_QOS_NON_GUARANTEED_THRESHOLD}); keep the worker ceiling unchanged"
+  fi
+}
+
+get_problem_pod_counts() {
+  local stale_seconds
+  stale_seconds="$((STALE_TERMINATING_MINUTES * 60))"
+  kubectl -n "$NAMESPACE" get pods -o json 2>/dev/null | jq -r --argjson stale_seconds "$stale_seconds" '
+    reduce .items[] as $pod (
+      {
+        pending: 0,
+        init: 0,
+        crash: 0,
+        pull: 0,
+        create: 0,
+        stale_terminating: 0,
+        total: 0
+      };
+      (
+        [$pod.status.initContainerStatuses[]?.state.waiting.reason?, $pod.status.containerStatuses[]?.state.waiting.reason?]
+        | map(select(. != null))
+      ) as $reasons
+      | ($pod.status.phase // "") as $phase
+      | ($pod.metadata.deletionTimestamp // "") as $deletion_ts
+      | (if ($deletion_ts | length) > 0 then (now - ($deletion_ts | fromdateiso8601? // 0)) else 0 end) as $terminating_age
+      | (if $phase == "Pending" then .pending += 1 else . end)
+      | (if ($reasons | map(test("^Init:")) | any) then .init += 1 else . end)
+      | (if ($reasons | index("CrashLoopBackOff")) then .crash += 1 else . end)
+      | (if (($reasons | index("ImagePullBackOff")) or ($reasons | index("ErrImagePull"))) then .pull += 1 else . end)
+      | (if (($reasons | index("ContainerCreating")) or ($reasons | index("PodInitializing")) or ($reasons | index("CreateContainerError")) or ($reasons | index("CreateContainerConfigError"))) then .create += 1 else . end)
+      | (
+          if (($deletion_ts | length) > 0) and ($terminating_age >= $stale_seconds)
+          then .stale_terminating += 1
+          else .
+          end
+        )
+      | (
+          if (
+            ($phase == "Pending")
+            or ($reasons | map(test("^Init:")) | any)
+            or ($reasons | index("CrashLoopBackOff"))
+            or ($reasons | index("ImagePullBackOff"))
+            or ($reasons | index("ErrImagePull"))
+            or ($reasons | index("ContainerCreating"))
+            or ($reasons | index("PodInitializing"))
+            or ($reasons | index("CreateContainerError"))
+            or ($reasons | index("CreateContainerConfigError"))
+            or ((($deletion_ts | length) > 0) and ($terminating_age >= $stale_seconds))
+          )
+          then .total += 1
+          else .
+          end
+        )
+    )
+    | "pending=\(.pending)\ninit=\(.init)\ncrash=\(.crash)\npull=\(.pull)\ncreate=\(.create)\nstale_terminating=\(.stale_terminating)\ntotal=\(.total)"
+  ' || true
+}
+
 count_problem_pods() {
-  kubectl -n "$NAMESPACE" get pods --no-headers 2>/dev/null | awk '
-    $3 ~ /^(Pending|ContainerCreating|PodInitializing|CrashLoopBackOff|CreateContainerError|ImagePullBackOff|ErrImagePull|Terminating)$/ || $3 ~ /^Init:/ {c++}
-    END {print c+0}
-  ' || echo 0
+  local pod_counts pod_total
+  pod_counts="$(get_problem_pod_counts)"
+  pod_total="$(grep '^total=' <<<"$pod_counts" | sed 's/^total=//' || true)"
+  if [[ "$pod_total" =~ ^[0-9]+$ ]]; then
+    echo "$pod_total"
+  else
+    echo 0
+  fi
+}
+
+cleanup_failed_worker_pod_artifacts() {
+  local pod_json total
+  local -a delete_pods
+  [[ "$APPLY" == "true" ]] || die "--cleanup-failed-worker-pods requires --apply"
+  [[ "$CLEANUP_MAX_DELETE" =~ ^[0-9]+$ ]] || die "--cleanup-max-delete must be an integer"
+  (( CLEANUP_MAX_DELETE >= 1 )) || die "--cleanup-max-delete must be >= 1"
+
+  pod_json="$(kubectl -n "$NAMESPACE" get pods -l "app=worker,release=${RELEASE}" -o json 2>/dev/null || true)"
+  if [[ -z "$pod_json" ]]; then
+    warn "Could not read worker pods for cleanup"
+    return 0
+  fi
+
+  mapfile -t delete_pods < <(
+    jq -r '
+      .items[]
+      | select((.status.phase == "Failed") or (.status.reason == "Evicted"))
+      | .metadata.name
+    ' <<<"$pod_json" | head -n "$CLEANUP_MAX_DELETE"
+  )
+
+  total="$(
+    jq '
+      [.items[]
+       | select((.status.phase == "Failed") or (.status.reason == "Evicted"))
+      ] | length
+    ' <<<"$pod_json"
+  )"
+  [[ "$total" =~ ^[0-9]+$ ]] || total=0
+
+  if (( total == 0 )); then
+    log "Worker artifact cleanup: no failed/evicted worker pods found"
+    return 0
+  fi
+
+  log "Worker artifact cleanup: deleting ${#delete_pods[@]} failed/evicted worker pod(s) (total candidates=${total})"
+  kubectl -n "$NAMESPACE" delete pod "${delete_pods[@]}" --wait=false --ignore-not-found >/dev/null
+}
+
+cleanup_stale_terminating_worker_pods() {
+  local stale_seconds pod_json total
+  local -a delete_pods
+  [[ "$APPLY" == "true" ]] || die "--cleanup-stale-terminating-worker-pods requires --apply"
+  [[ "$CLEANUP_STALE_MAX_DELETE" =~ ^[0-9]+$ ]] || die "--cleanup-stale-max-delete must be an integer"
+  (( CLEANUP_STALE_MAX_DELETE >= 1 )) || die "--cleanup-stale-max-delete must be >= 1"
+  stale_seconds="$((STALE_TERMINATING_MINUTES * 60))"
+
+  pod_json="$(kubectl -n "$NAMESPACE" get pods -l "app=worker,release=${RELEASE}" -o json 2>/dev/null || true)"
+  if [[ -z "$pod_json" ]]; then
+    warn "Could not read worker pods for stale-terminating cleanup"
+    return 0
+  fi
+
+  mapfile -t delete_pods < <(
+    jq -r --argjson stale_seconds "$stale_seconds" '
+      .items[]
+      | select(.metadata.deletionTimestamp != null)
+      | ((now - (.metadata.deletionTimestamp | fromdateiso8601? // 0)) // 0) as $age
+      | select($age >= $stale_seconds)
+      | .metadata.name
+    ' <<<"$pod_json" | head -n "$CLEANUP_STALE_MAX_DELETE"
+  )
+
+  total="$(
+    jq -r --argjson stale_seconds "$stale_seconds" '
+      [.items[]
+      | select(.metadata.deletionTimestamp != null)
+      | ((now - (.metadata.deletionTimestamp | fromdateiso8601? // 0)) // 0) as $age
+      | select($age >= $stale_seconds)
+      ] | length
+    ' <<<"$pod_json"
+  )"
+  [[ "$total" =~ ^[0-9]+$ ]] || total=0
+
+  if (( total == 0 )); then
+    log "Stale terminating cleanup: no worker pods exceeded ${STALE_TERMINATING_MINUTES}m"
+    return 0
+  fi
+
+  log "Stale terminating cleanup: deleting ${#delete_pods[@]} worker pod(s) (total candidates=${total}, stale>${STALE_TERMINATING_MINUTES}m)"
+  kubectl -n "$NAMESPACE" delete pod "${delete_pods[@]}" --wait=false --ignore-not-found >/dev/null
 }
 
 read_pvc_storage_classes() {
@@ -353,7 +875,7 @@ read_app_job_counts() {
   log "Job status counts from pod ${web_pod}"
   kube_probe "rails job counts read" kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc '
     cd /opt/openstudio/server
-    bundle exec rails runner "puts %(queued=#{Job.where(status: \"queued\").count} running=#{Job.where(status: \"running\").count} completed=#{Job.where(status: \"completed\").count} failed=#{Job.where(status: \"failed\").count})"
+    bundle exec rails runner "puts %(queued=#{Job.where(status: \"queued\").count} started=#{Job.where(status: \"started\").count} running=#{Job.where(status: \"running\").count} completed=#{Job.where(status: \"completed\").count} failed=#{Job.where(status: \"failed\").count} na=#{Job.where(status: \"na\").count})"
   '
 }
 
@@ -371,9 +893,40 @@ read_divergence_signals() {
       started_analysis_ids = Analysis.all.select { |a| a.status == %q(started) }.map(&:id)
       stale_dp_active = DataPoint.where(:analysis_id.in => started_analysis_ids, status: %q(started), :updated_at.lt => cutoff).count
       stale_dp_orphan = DataPoint.where(status: %q(started), :updated_at.lt => cutoff, :analysis_id.nin => started_analysis_ids).count
+      stale_na_dp_active = DataPoint.where(:analysis_id.in => started_analysis_ids, status: %q(na), :updated_at.lt => cutoff).count
+      stale_na_dp_orphan = DataPoint.where(status: %q(na), :updated_at.lt => cutoff, :analysis_id.nin => started_analysis_ids).count
       stale_started_analyses = Job.where(status: %q(started), :updated_at.lt => cutoff).pluck(:analysis_id).uniq.count
       started_analyses = started_analysis_ids.count
-      puts %(stale_started_jobs=#{stale_jobs} stale_started_datapoints_active=#{stale_dp_active} stale_started_datapoints_orphan=#{stale_dp_orphan} stale_started_analyses=#{stale_started_analyses} started_analyses=#{started_analyses})
+      puts %(stale_started_jobs=#{stale_jobs} stale_started_datapoints_active=#{stale_dp_active} stale_started_datapoints_orphan=#{stale_dp_orphan} stale_na_datapoints_active=#{stale_na_dp_active} stale_na_datapoints_orphan=#{stale_na_dp_orphan} stale_started_analyses=#{stale_started_analyses} started_analyses=#{started_analyses})
+    '
+  "
+}
+
+read_analysis_focus() {
+  local web_pod
+  [[ -n "${ANALYSIS_ID}" ]] || return 0
+  web_pod="$(get_web_pod)"
+  log "Focused lifecycle diagnostics for analysis ${ANALYSIS_ID} (stale > ${STALE_THRESHOLD_MINUTES}m)"
+  kube_probe "rails focused analysis read" kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc "
+    cd /opt/openstudio/server
+    ANALYSIS_ID='${ANALYSIS_ID}' STALE_MINUTES='${STALE_THRESHOLD_MINUTES}' bundle exec rails runner '
+      aid = ENV.fetch(%q(ANALYSIS_ID))
+      stale = ENV.fetch(%q(STALE_MINUTES), %q(70)).to_i
+      cutoff = Time.now - stale.minutes
+      analysis = Analysis.where(id: aid).first
+      if analysis.nil?
+        puts %(analysis_focus analysis_id=#{aid} found=false)
+        exit 0
+      end
+      job_status = Job.where(analysis_id: aid).group_by(&:status).transform_values(&:count)
+      dp_status = DataPoint.where(analysis_id: aid).group_by(&:status).transform_values(&:count)
+      stale_started = DataPoint.where(analysis_id: aid, status: %q(started), :updated_at.lt => cutoff).count
+      stale_na = DataPoint.where(analysis_id: aid, status: %q(na), :updated_at.lt => cutoff).count
+      puts %(analysis_focus analysis_id=#{aid} found=true analysis_status=#{analysis.status} stale_started_datapoints=#{stale_started} stale_na_datapoints=#{stale_na} jobs_total=#{Job.where(analysis_id: aid).count} datapoints_total=#{DataPoint.where(analysis_id: aid).count})
+      job_pairs = job_status.sort_by { |k,_| k.to_s }.map { |k,v| %Q(#{k || %q(nil)}=#{v}) }
+      dp_pairs = dp_status.sort_by { |k,_| k.to_s }.map { |k,v| %Q(#{k || %q(nil)}=#{v}) }
+      puts %(analysis_focus_job_status #{job_pairs.join(%q( ))})
+      puts %(analysis_focus_datapoint_status #{dp_pairs.join(%q( ))})
     '
   "
 }
@@ -411,6 +964,46 @@ read_recent_warning_event_signals() {
   echo "$events" | tail -20
 }
 
+read_platform_blocker_summary() {
+  local events class_counts sandbox_count image_count pull_secret_count metric_count worker_readiness
+  local desired ready available ratio_percent worker_blocker reason_codes
+  events="$(get_recent_warning_events)"
+  class_counts="$(get_platform_warning_event_counts "$events")"
+  sandbox_count="$(extract_count_from_kv "pod_sandbox_network" "$class_counts")"
+  image_count="$(extract_count_from_kv "image_pull_auth" "$class_counts")"
+  pull_secret_count="$(extract_count_from_kv "failed_pull_secret" "$class_counts")"
+  metric_count="$(extract_count_from_kv "external_metric" "$class_counts")"
+
+  worker_readiness="$(get_worker_readiness_snapshot)"
+  desired="$(extract_count_from_kv "desired" "$worker_readiness")"
+  ready="$(extract_count_from_kv "ready" "$worker_readiness")"
+  available="$(extract_count_from_kv "available" "$worker_readiness")"
+  ratio_percent="$(extract_count_from_kv "ratio_percent" "$worker_readiness")"
+  worker_blocker="$(extract_count_from_kv "blocker" "$worker_readiness")"
+
+  reason_codes=""
+  if (( sandbox_count >= EVENT_HARD_BLOCKER_THRESHOLD )); then
+    reason_codes="$(merge_queue_csv "$reason_codes" "platform_pod_sandbox_network_blocked")"
+  fi
+  if (( image_count >= EVENT_SOFT_BLOCKER_THRESHOLD )); then
+    reason_codes="$(merge_queue_csv "$reason_codes" "platform_image_pull_auth_blocked")"
+  fi
+  if (( metric_count >= EVENT_SOFT_BLOCKER_THRESHOLD )); then
+    reason_codes="$(merge_queue_csv "$reason_codes" "platform_external_metrics_blocked")"
+  fi
+  if (( worker_blocker > 0 )); then
+    reason_codes="$(merge_queue_csv "$reason_codes" "worker_readiness_blocked")"
+  fi
+  reason_codes="$(normalize_hold_reason_codes "$reason_codes")"
+
+  log "Platform blocker classes (event window=${EVENT_WINDOW_SECONDS}s)"
+  echo "PLATFORM_BLOCKER_COUNTS pod_sandbox_network=${sandbox_count} image_pull_auth=${image_count} failed_pull_secret=${pull_secret_count} external_metric=${metric_count}"
+  echo "PLATFORM_BLOCKER_THRESHOLDS pod_sandbox_network=${EVENT_HARD_BLOCKER_THRESHOLD} image_pull_auth=${EVENT_SOFT_BLOCKER_THRESHOLD} external_metric=${EVENT_SOFT_BLOCKER_THRESHOLD}"
+  echo "WORKER_READINESS desired=${desired} ready=${ready} available=${available} ratio_percent=${ratio_percent} min_ratio_percent=${WORKER_READINESS_MIN_RATIO_PERCENT}"
+  echo "PLATFORM_BLOCKER_REASON_CODES=${reason_codes:-none}"
+  print_hold_reason_mapping "$reason_codes"
+}
+
 read_loadbalancer_event_signals() {
   local service_events sync_failures octavia_503
   log "Ingress load balancer event signals"
@@ -444,11 +1037,101 @@ read_loadbalancer_event_signals() {
 }
 
 get_recent_warning_events() {
-  kubectl get events -A \
-    --field-selector type=Warning \
-    --sort-by=.lastTimestamp \
-    -o custom-columns=LAST:.lastTimestamp,NS:.metadata.namespace,OBJ:.involvedObject.kind,NAME:.involvedObject.name,REASON:.reason,MSG:.message \
-    2>/dev/null | tail -200 || true
+  local now_epoch start_epoch
+  now_epoch="$(date +%s)"
+  start_epoch="$((now_epoch - EVENT_WINDOW_SECONDS))"
+  kubectl -n "$NAMESPACE" get events -o json 2>/dev/null \
+    | jq -r --argjson start_epoch "$start_epoch" '
+      .items[]
+      | {
+          ts: (.eventTime // .series.lastObservedTime // .lastTimestamp // .metadata.creationTimestamp // ""),
+          kind: (.involvedObject.kind // ""),
+          name: (.involvedObject.name // ""),
+          reason: (.reason // ""),
+          msg: (.message // ""),
+          type: (.type // "")
+        }
+      | .epoch = ((.ts | fromdateiso8601?) // 0)
+      | select(.type == "Warning" and .epoch >= $start_epoch)
+      | "\(.ts)\t\(.kind)\t\(.name)\t\(.reason)\t\(.msg)"
+    ' || true
+}
+
+extract_count_from_kv() {
+  local key=$1
+  local text=$2
+  local value
+  value="$(grep "^${key}=" <<<"$text" | head -n1 | sed "s/^${key}=//" || true)"
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    echo "$value"
+  else
+    echo 0
+  fi
+}
+
+get_platform_warning_event_counts() {
+  local events="$1"
+  local pod_sandbox_network image_pull_auth failed_pull_secret external_metric
+
+  if [[ -z "$events" ]]; then
+    echo "pod_sandbox_network=0"
+    echo "image_pull_auth=0"
+    echo "failed_pull_secret=0"
+    echo "external_metric=0"
+    return 0
+  fi
+
+  pod_sandbox_network="$(grep -ciE 'FailedCreatePodSandBox|NetworkNotReady|failed to create pod sandbox|failed to setup network|calico' <<<"$events" || true)"
+  image_pull_auth="$(grep -ciE 'ImagePullBackOff|ErrImagePull|FailedToRetrieveImagePullSecret|failed to pull image|Back-off pulling image|pull access denied|UNAUTHORIZED|unauthorized' <<<"$events" || true)"
+  failed_pull_secret="$(grep -ciE 'FailedToRetrieveImagePullSecret' <<<"$events" || true)"
+  external_metric="$(grep -ciE 'FailedGetExternalMetric|failed to get external metric|error getting external metric|unable to get external metric|KEDAScalerFailed|keda.*metric' <<<"$events" || true)"
+
+  [[ "$pod_sandbox_network" =~ ^[0-9]+$ ]] || pod_sandbox_network=0
+  [[ "$image_pull_auth" =~ ^[0-9]+$ ]] || image_pull_auth=0
+  [[ "$failed_pull_secret" =~ ^[0-9]+$ ]] || failed_pull_secret=0
+  [[ "$external_metric" =~ ^[0-9]+$ ]] || external_metric=0
+
+  echo "pod_sandbox_network=${pod_sandbox_network}"
+  echo "image_pull_auth=${image_pull_auth}"
+  echo "failed_pull_secret=${failed_pull_secret}"
+  echo "external_metric=${external_metric}"
+}
+
+get_worker_readiness_snapshot() {
+  local deploy_json desired ready available ratio_percent blocker
+  deploy_json="$(kubectl -n "$NAMESPACE" get deploy worker -o json 2>/dev/null || true)"
+  if [[ -z "$deploy_json" ]]; then
+    echo "desired=0"
+    echo "ready=0"
+    echo "available=0"
+    echo "ratio_percent=0"
+    echo "blocker=1"
+    return 0
+  fi
+
+  desired="$(jq -r '.spec.replicas // 0' <<<"$deploy_json" 2>/dev/null || echo 0)"
+  ready="$(jq -r '.status.readyReplicas // 0' <<<"$deploy_json" 2>/dev/null || echo 0)"
+  available="$(jq -r '.status.availableReplicas // 0' <<<"$deploy_json" 2>/dev/null || echo 0)"
+  [[ "$desired" =~ ^[0-9]+$ ]] || desired=0
+  [[ "$ready" =~ ^[0-9]+$ ]] || ready=0
+  [[ "$available" =~ ^[0-9]+$ ]] || available=0
+
+  if (( desired > 0 )); then
+    ratio_percent=$(( (available * 100) / desired ))
+  else
+    ratio_percent=100
+  fi
+
+  blocker=0
+  if (( desired > 0 )) && (( ready < 1 || available < 1 || ratio_percent < WORKER_READINESS_MIN_RATIO_PERCENT )); then
+    blocker=1
+  fi
+
+  echo "desired=${desired}"
+  echo "ready=${ready}"
+  echo "available=${available}"
+  echo "ratio_percent=${ratio_percent}"
+  echo "blocker=${blocker}"
 }
 
 count_queue_pipeline_blockers() {
@@ -481,8 +1164,8 @@ count_queue_pipeline_blockers() {
     blockers=$((blockers + 1))
   fi
 
-  if [[ "$analyses" =~ ^[0-9]+$ && "$analysis_wrappers" =~ ^[0-9]+$ ]] && (( analyses > 0 && analysis_wrappers == 0 )); then
-    warn "Queue pipeline blocker: analyses=${analyses} while analysis_wrappers=${analysis_wrappers}"
+  if [[ "$analyses" =~ ^[0-9]+$ && "$analysis_wrappers" =~ ^[0-9]+$ && "$simulations" =~ ^[0-9]+$ ]] && (( analyses > 0 && analysis_wrappers == 0 && simulations == 0 )); then
+    warn "Queue pipeline blocker: analyses=${analyses} while analysis_wrappers=${analysis_wrappers} and simulations=${simulations}"
     blockers=$((blockers + 1))
   fi
 
@@ -516,18 +1199,21 @@ get_worker_hpa_spec_max_replicas() {
 }
 
 check_scale_up_blockers() {
-  local events blocker_patterns warning_patterns pattern count blockers memory_pressure_nodes node_blockers pod_blockers
+  local events blocker_patterns warning_patterns pattern count blockers node_blockers
+  local pod_counts pod_blockers stale_terminating_pods
+  local hard_event_total soft_event_total oom_event_total liveness_event_total
+  local platform_counts platform_pod_sandbox_network platform_image_pull_auth platform_external_metric
+  local calico_qos_summary calico_qos_total calico_qos_non_guaranteed calico_qos_cr_hardened
+  local event_window_end event_window_start reason_codes
+
+  event_window_end="$(date +%s)"
+  event_window_start="$((event_window_end - EVENT_WINDOW_SECONDS))"
+  LAST_EVENT_WINDOW_START_EPOCH="$event_window_start"
+  LAST_EVENT_WINDOW_END_EPOCH="$event_window_end"
+  LAST_EVENT_WINDOW_START_ISO="$(jq -nr --argjson ts "$event_window_start" '$ts | todateiso8601')"
+  LAST_EVENT_WINDOW_END_ISO="$(jq -nr --argjson ts "$event_window_end" '$ts | todateiso8601')"
+
   events="$(get_recent_warning_events)"
-
-  if [[ -z "$events" ]]; then
-    node_blockers="$(count_node_health_blockers)"
-    pod_blockers="$(count_problem_pods)"
-    [[ "$node_blockers" =~ ^[0-9]+$ ]] || node_blockers=0
-    [[ "$pod_blockers" =~ ^[0-9]+$ ]] || pod_blockers=0
-    (( node_blockers == 0 && pod_blockers == 0 ))
-    return $?
-  fi
-
   blocker_patterns=(
     "FailedCreatePodSandBox"
     "failed to sync secret cache"
@@ -547,33 +1233,126 @@ check_scale_up_blockers() {
   )
 
   blockers=0
+  reason_codes=""
+  hard_event_total=0
+  soft_event_total=0
+  oom_event_total=0
+  liveness_event_total=0
+
   node_blockers="$(count_node_health_blockers)"
-  pod_blockers="$(count_problem_pods)"
   [[ "$node_blockers" =~ ^[0-9]+$ ]] || node_blockers=0
+
+  pod_counts="$(get_problem_pod_counts)"
+  pod_blockers="$(grep '^total=' <<<"$pod_counts" | sed 's/^total=//' || true)"
+  stale_terminating_pods="$(grep '^stale_terminating=' <<<"$pod_counts" | sed 's/^stale_terminating=//' || true)"
   [[ "$pod_blockers" =~ ^[0-9]+$ ]] || pod_blockers=0
+  [[ "$stale_terminating_pods" =~ ^[0-9]+$ ]] || stale_terminating_pods=0
+
   if (( node_blockers > 0 )); then
     warn "Node health blockers detected: ${node_blockers}; pausing scale-up"
     blockers=$((blockers + node_blockers))
+    reason_codes="$(merge_queue_csv "$reason_codes" "node_health_blocked")"
   fi
-  if (( pod_blockers > 0 )); then
-    warn "Problem pods detected in ${NAMESPACE}: ${pod_blockers}; pausing scale-up"
+
+  calico_qos_summary="$(get_calico_node_qos_summary)"
+  calico_qos_total="$(extract_count_from_kv "total" "$calico_qos_summary")"
+  calico_qos_non_guaranteed="$(extract_count_from_kv "non_guaranteed" "$calico_qos_summary")"
+  calico_qos_cr_hardened="$(extract_count_from_kv "cr_hardened" "$calico_qos_summary")"
+
+  if (( calico_qos_total > 0 )); then
+    if (( calico_qos_cr_hardened == 0 )); then
+      warn "tigera Installation CR 'default' is missing calico-node QoS resource hardening; drift risk, pausing scale-up"
+      blockers=$((blockers + 1))
+      reason_codes="$(merge_queue_csv "$reason_codes" "calico_qos_drift_detected")"
+    fi
+    if (( calico_qos_non_guaranteed >= CALICO_QOS_NON_GUARANTEED_THRESHOLD )); then
+      warn "calico-node pods below Guaranteed QoS: ${calico_qos_non_guaranteed} (threshold=${CALICO_QOS_NON_GUARANTEED_THRESHOLD}); pausing scale-up"
+      blockers=$((blockers + calico_qos_non_guaranteed))
+      reason_codes="$(merge_queue_csv "$reason_codes" "calico_qos_drift_detected")"
+    fi
+  fi
+
+  if (( pod_blockers >= PROBLEM_POD_BLOCKER_THRESHOLD )); then
+    warn "Problem pods in ${NAMESPACE}: ${pod_blockers} (threshold=${PROBLEM_POD_BLOCKER_THRESHOLD}); pausing scale-up"
     blockers=$((blockers + pod_blockers))
+    reason_codes="$(merge_queue_csv "$reason_codes" "problem_pods_high")"
   fi
 
-  for pattern in "${blocker_patterns[@]}"; do
-    count="$(grep -ciF "$pattern" <<<"$events" || true)"
-    if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then
-      warn "Scale-up blocker '${pattern}' seen in recent warning events: ${count}"
-      blockers=$((blockers + count))
-    fi
-  done
+  if (( stale_terminating_pods >= PROBLEM_POD_BLOCKER_THRESHOLD )); then
+    warn "Stale terminating pods in ${NAMESPACE}: ${stale_terminating_pods} (stale>${STALE_TERMINATING_MINUTES}m)"
+    reason_codes="$(merge_queue_csv "$reason_codes" "stale_terminating_high")"
+  fi
 
-  for pattern in "${warning_patterns[@]}"; do
-    count="$(grep -ciF "$pattern" <<<"$events" || true)"
-    if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then
-      warn "Recent warning events matching '${pattern}': ${count}"
-    fi
-  done
+  if [[ -n "$events" ]]; then
+    oom_event_total="$(grep -ciE 'SystemOOM|OOMKilled|OOMKilling' <<<"$events" || true)"
+    liveness_event_total="$(grep -ciE 'failed liveness probe|liveness probe failed' <<<"$events" || true)"
+    [[ "$oom_event_total" =~ ^[0-9]+$ ]] || oom_event_total=0
+    [[ "$liveness_event_total" =~ ^[0-9]+$ ]] || liveness_event_total=0
+
+    for pattern in "${blocker_patterns[@]}"; do
+      count="$(grep -ciF "$pattern" <<<"$events" || true)"
+      if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then
+        hard_event_total=$((hard_event_total + count))
+        warn "Recent warning events matching '${pattern}': ${count}"
+      fi
+    done
+
+    for pattern in "${warning_patterns[@]}"; do
+      count="$(grep -ciF "$pattern" <<<"$events" || true)"
+      if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then
+        soft_event_total=$((soft_event_total + count))
+        warn "Recent warning events matching '${pattern}': ${count}"
+      fi
+    done
+
+    platform_counts="$(get_platform_warning_event_counts "$events")"
+    platform_pod_sandbox_network="$(extract_count_from_kv "pod_sandbox_network" "$platform_counts")"
+    platform_image_pull_auth="$(extract_count_from_kv "image_pull_auth" "$platform_counts")"
+    platform_external_metric="$(extract_count_from_kv "external_metric" "$platform_counts")"
+  else
+    platform_pod_sandbox_network=0
+    platform_image_pull_auth=0
+    platform_external_metric=0
+  fi
+
+  if (( hard_event_total >= EVENT_HARD_BLOCKER_THRESHOLD )); then
+    blockers=$((blockers + hard_event_total))
+    reason_codes="$(merge_queue_csv "$reason_codes" "hard_warning_events_high")"
+  fi
+  if (( soft_event_total >= EVENT_SOFT_BLOCKER_THRESHOLD )); then
+    blockers=$((blockers + soft_event_total))
+    reason_codes="$(merge_queue_csv "$reason_codes" "soft_warning_events_high")"
+  fi
+  if (( platform_pod_sandbox_network >= EVENT_HARD_BLOCKER_THRESHOLD )); then
+    blockers=$((blockers + platform_pod_sandbox_network))
+    reason_codes="$(merge_queue_csv "$reason_codes" "platform_pod_sandbox_network_blocked")"
+  fi
+  if (( platform_image_pull_auth >= EVENT_SOFT_BLOCKER_THRESHOLD )); then
+    blockers=$((blockers + platform_image_pull_auth))
+    reason_codes="$(merge_queue_csv "$reason_codes" "platform_image_pull_auth_blocked")"
+  fi
+  if (( platform_external_metric >= EVENT_SOFT_BLOCKER_THRESHOLD )); then
+    blockers=$((blockers + platform_external_metric))
+    reason_codes="$(merge_queue_csv "$reason_codes" "platform_external_metrics_blocked")"
+  fi
+  if (( oom_event_total >= EVENT_HARD_BLOCKER_THRESHOLD )); then
+    reason_codes="$(merge_queue_csv "$reason_codes" "oom_rate_high")"
+  fi
+  if (( liveness_event_total >= EVENT_HARD_BLOCKER_THRESHOLD )); then
+    reason_codes="$(merge_queue_csv "$reason_codes" "liveness_failures_high")"
+  fi
+
+  LAST_NODE_BLOCKERS="$node_blockers"
+  LAST_PROBLEM_PODS="$pod_blockers"
+  LAST_STALE_TERMINATING_PODS="$stale_terminating_pods"
+  LAST_HARD_EVENT_COUNT="$hard_event_total"
+  LAST_SOFT_EVENT_COUNT="$soft_event_total"
+  LAST_PLATFORM_POD_SANDBOX_NETWORK_COUNT="$platform_pod_sandbox_network"
+  LAST_PLATFORM_IMAGE_PULL_AUTH_COUNT="$platform_image_pull_auth"
+  LAST_PLATFORM_EXTERNAL_METRIC_COUNT="$platform_external_metric"
+  LAST_CALICO_QOS_NON_GUARANTEED="$calico_qos_non_guaranteed"
+  LAST_CALICO_QOS_CR_HARDENED="$calico_qos_cr_hardened"
+  LAST_BLOCKER_REASON_CODES="$(normalize_hold_reason_codes "$reason_codes")"
 
   (( blockers == 0 ))
 }
@@ -597,6 +1376,70 @@ merge_queue_csv() {
     fi
   done
   echo "$merged"
+}
+
+normalize_hold_reason_codes() {
+  local codes="$1"
+  local normalized=""
+  local code
+  local -a ordered=(
+    "probe_limit_reached"
+    "core_service_readiness_blocked"
+    "queue_pipeline_blocked"
+    "worker_readiness_blocked"
+    "node_health_blocked"
+    "calico_qos_drift_detected"
+    "problem_pods_high"
+    "stale_terminating_high"
+    "platform_pod_sandbox_network_blocked"
+    "platform_image_pull_auth_blocked"
+    "platform_external_metrics_blocked"
+    "hard_warning_events_high"
+    "soft_warning_events_high"
+    "oom_rate_high"
+    "liveness_failures_high"
+  )
+  for code in "${ordered[@]}"; do
+    if [[ ",${codes}," == *",${code},"* ]]; then
+      normalized="$(merge_queue_csv "$normalized" "$code")"
+    fi
+  done
+  echo "$normalized"
+}
+
+hold_reason_description() {
+  case "$1" in
+    probe_limit_reached) echo "Probe limit reached; maxReplicas already at configured ceiling." ;;
+    core_service_readiness_blocked) echo "Core service readiness blocker (web/web-background/redis/rserve not Ready)." ;;
+    queue_pipeline_blocked) echo "Queue pipeline blocker in analyses -> analysis_wrappers -> simulations flow." ;;
+    worker_readiness_blocked) echo "Worker deployment readiness is below mutation threshold." ;;
+    node_health_blocked) echo "Node readiness/pressure blocker detected." ;;
+    calico_qos_drift_detected) echo "calico-node QoS hardening reverted or below Guaranteed threshold (Installation CR drift risk)." ;;
+    problem_pods_high) echo "Problem pod count reached blocker threshold." ;;
+    stale_terminating_high) echo "Stale terminating pod count is elevated." ;;
+    platform_pod_sandbox_network_blocked) echo "Sustained pod sandbox/network failure events detected." ;;
+    platform_image_pull_auth_blocked) echo "Sustained image pull/auth failure events detected." ;;
+    platform_external_metrics_blocked) echo "Sustained external metric retrieval failures detected." ;;
+    hard_warning_events_high) echo "Hard warning-event threshold exceeded." ;;
+    soft_warning_events_high) echo "Soft warning-event threshold exceeded." ;;
+    oom_rate_high) echo "OOM warning-event rate exceeded threshold." ;;
+    liveness_failures_high) echo "Liveness failure warning-event rate exceeded threshold." ;;
+    *) echo "Unknown hold reason code." ;;
+  esac
+}
+
+print_hold_reason_mapping() {
+  local codes="$1"
+  local code
+  if [[ -z "$codes" ]]; then
+    echo "HOLD_REASON_MAPPING=none"
+    return 0
+  fi
+  IFS=',' read -ra reason_items <<<"$codes"
+  for code in "${reason_items[@]}"; do
+    [[ -z "$code" ]] && continue
+    echo "HOLD_REASON_MAP ${code}=$(hold_reason_description "$code")"
+  done
 }
 
 ensure_worker_requeue_subscription() {
@@ -648,12 +1491,76 @@ release_recovery_lock() {
   log "Released recovery lock (${RECOVERY_LOCK_KEY})"
 }
 
+assess_mutation_preconditions() {
+  local events class_counts sandbox_count image_count metric_count
+  local worker_readiness desired ready available ratio_percent worker_blocker
+  local reason_codes mutation_allowed
+
+  events="$(get_recent_warning_events)"
+  class_counts="$(get_platform_warning_event_counts "$events")"
+  sandbox_count="$(extract_count_from_kv "pod_sandbox_network" "$class_counts")"
+  image_count="$(extract_count_from_kv "image_pull_auth" "$class_counts")"
+  metric_count="$(extract_count_from_kv "external_metric" "$class_counts")"
+
+  worker_readiness="$(get_worker_readiness_snapshot)"
+  desired="$(extract_count_from_kv "desired" "$worker_readiness")"
+  ready="$(extract_count_from_kv "ready" "$worker_readiness")"
+  available="$(extract_count_from_kv "available" "$worker_readiness")"
+  ratio_percent="$(extract_count_from_kv "ratio_percent" "$worker_readiness")"
+  worker_blocker="$(extract_count_from_kv "blocker" "$worker_readiness")"
+
+  reason_codes=""
+  if (( sandbox_count >= EVENT_HARD_BLOCKER_THRESHOLD )); then
+    reason_codes="$(merge_queue_csv "$reason_codes" "platform_pod_sandbox_network_blocked")"
+  fi
+  if (( image_count >= EVENT_SOFT_BLOCKER_THRESHOLD )); then
+    reason_codes="$(merge_queue_csv "$reason_codes" "platform_image_pull_auth_blocked")"
+  fi
+  if (( metric_count >= EVENT_SOFT_BLOCKER_THRESHOLD )); then
+    reason_codes="$(merge_queue_csv "$reason_codes" "platform_external_metrics_blocked")"
+  fi
+  if (( worker_blocker > 0 )); then
+    reason_codes="$(merge_queue_csv "$reason_codes" "worker_readiness_blocked")"
+  fi
+  reason_codes="$(normalize_hold_reason_codes "$reason_codes")"
+
+  mutation_allowed=true
+  if [[ -n "$reason_codes" ]]; then
+    mutation_allowed=false
+  fi
+
+  echo "mutation_allowed=${mutation_allowed}"
+  echo "reason_codes=${reason_codes}"
+  echo "pod_sandbox_network=${sandbox_count}"
+  echo "image_pull_auth=${image_count}"
+  echo "external_metric=${metric_count}"
+  echo "worker_desired=${desired}"
+  echo "worker_ready=${ready}"
+  echo "worker_available=${available}"
+  echo "worker_ratio_percent=${ratio_percent}"
+}
+
 recover_stuck_state() {
-  local web_pod
+  local web_pod preconditions reason_codes mutation_allowed
+  local sandbox_count image_count metric_count worker_desired worker_ready worker_available worker_ratio_percent
   [[ "$APPLY" == "true" ]] || die "Refusing to mutate without --apply"
   require_release_exists
   [[ "$STALE_THRESHOLD_MINUTES" =~ ^[0-9]+$ ]] || die "--stale-minutes must be an integer"
   (( STALE_THRESHOLD_MINUTES >= 10 )) || die "--stale-minutes must be >= 10"
+
+  preconditions="$(assess_mutation_preconditions)"
+  mutation_allowed="$(grep '^mutation_allowed=' <<<"$preconditions" | sed 's/^mutation_allowed=//' || true)"
+  reason_codes="$(grep '^reason_codes=' <<<"$preconditions" | sed 's/^reason_codes=//' || true)"
+  sandbox_count="$(extract_count_from_kv "pod_sandbox_network" "$preconditions")"
+  image_count="$(extract_count_from_kv "image_pull_auth" "$preconditions")"
+  metric_count="$(extract_count_from_kv "external_metric" "$preconditions")"
+  worker_desired="$(extract_count_from_kv "worker_desired" "$preconditions")"
+  worker_ready="$(extract_count_from_kv "worker_ready" "$preconditions")"
+  worker_available="$(extract_count_from_kv "worker_available" "$preconditions")"
+  worker_ratio_percent="$(extract_count_from_kv "worker_ratio_percent" "$preconditions")"
+  if [[ "$mutation_allowed" != "true" ]]; then
+    die "Mutation hold: recover-stuck skipped due to platform blockers/readiness (codes=${reason_codes:-none}; pod_sandbox_network=${sandbox_count}; image_pull_auth=${image_count}; external_metric=${metric_count}; worker=${worker_ready}/${worker_desired} ready, available=${worker_available}, ratio=${worker_ratio_percent}% min=${WORKER_READINESS_MIN_RATIO_PERCENT}%)"
+  fi
 
   acquire_recovery_lock
   trap 'release_recovery_lock' EXIT
@@ -665,22 +1572,40 @@ recover_stuck_state() {
   web_pod="$(get_web_pod)"
   kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc "
     cd /opt/openstudio/server
-    STALE_MINUTES='${STALE_THRESHOLD_MINUTES}' bundle exec rails runner '
+    ANALYSIS_ID='${ANALYSIS_ID}' STALE_MINUTES='${STALE_THRESHOLD_MINUTES}' bundle exec rails runner '
       stale = ENV.fetch(%q(STALE_MINUTES), %q(70)).to_i
       cutoff = Time.now - stale.minutes
+      aid = ENV[%q(ANALYSIS_ID)]
       stale_jobs = Job.where(status: %q(started), analysis_type: %q(batch_run), :updated_at.lt => cutoff)
-      stale_analysis_ids = stale_jobs.pluck(:analysis_id).uniq
-      requeued = 0
+      stale_jobs = stale_jobs.where(analysis_id: aid) if aid && !aid.empty?
+      started_analysis_ids = Analysis.all.select { |a| a.status == %q(started) }.map(&:id)
+      if aid && !aid.empty?
+        started_analysis_ids = started_analysis_ids.select { |analysis_id| analysis_id.to_s == aid.to_s }
+      end
+      stale_dps = DataPoint.where(:analysis_id.in => started_analysis_ids, :status.in => [%q(started), %q(na)], :updated_at.lt => cutoff)
+      stale_analysis_ids = (stale_jobs.pluck(:analysis_id) + stale_dps.pluck(:analysis_id)).uniq
+      requeued_started = 0
+      requeued_na = 0
       finalized = 0
+      zero_datapoint_jobs_failed = 0
+      zero_datapoint_analyses_flagged = 0
+      zero_datapoint_missing_seed = 0
+      zero_datapoint_seed_present = 0
       stale_analysis_ids.each do |aid|
-        DataPoint.where(analysis_id: aid, status: %q(started), :updated_at.lt => cutoff).each do |dp|
+        DataPoint.where(analysis_id: aid, :status.in => [%q(started), %q(na)], :updated_at.lt => cutoff).each do |dp|
           Resque.enqueue(ResqueJobs::RunSimulateDataPoint, dp.id)
-          requeued += 1
+          if dp.status == %q(na)
+            requeued_na += 1
+          else
+            requeued_started += 1
+          end
         end
       end
       stale_jobs.each do |job|
         remaining = DataPoint.where(analysis_id: job.analysis_id, :status.in => [%q(na), %q(queued), %q(started)]).count
+        total_datapoints = DataPoint.where(analysis_id: job.analysis_id).count
         next unless remaining == 0
+        next unless total_datapoints > 0
         next unless job.status == %q(started)
         job.status = %q(completed)
         job.end_time ||= Time.now
@@ -688,7 +1613,59 @@ recover_stuck_state() {
         Resque.enqueue(ResqueJobs::FinalizeAnalysis, job.analysis_id)
         finalized += 1
       end
-      puts %(recovery_summary stale_analyses=#{stale_analysis_ids.count} datapoints_requeued=#{requeued} jobs_finalized=#{finalized})
+
+      terminal_jobs = Job.where(:status.ne => %q(completed), status_message: %q(post-processing finished))
+      terminal_jobs = terminal_jobs.where(analysis_id: aid) if aid && !aid.empty?
+      terminal_promoted = 0
+      terminal_jobs.each do |job|
+        remaining = DataPoint.where(analysis_id: job.analysis_id, :status.in => [%q(na), %q(queued), %q(started)]).count
+        total_datapoints = DataPoint.where(analysis_id: job.analysis_id).count
+        next unless remaining == 0
+        next unless total_datapoints > 0
+        next unless job.status != %q(completed)
+        job.status = %q(completed)
+        job.end_time ||= Time.now
+        job.save!
+        terminal_promoted += 1
+      end
+
+      zero_datapoint_jobs = Job.where(:status.in => [%q(started), %q(queued), %q(completed)], :updated_at.lt => cutoff)
+      zero_datapoint_jobs = zero_datapoint_jobs.where(analysis_id: aid) if aid && !aid.empty?
+      zero_datapoint_analysis_ids = zero_datapoint_jobs.pluck(:analysis_id).uniq.select do |analysis_id|
+        DataPoint.where(analysis_id: analysis_id).count == 0
+      end
+
+      zero_datapoint_analysis_ids.each do |analysis_id|
+        analysis = Analysis.where(id: analysis_id).first
+        missing_seed_zip = analysis.nil? || analysis.seed_zip_file_name.to_s.strip.empty?
+        if missing_seed_zip
+          zero_datapoint_missing_seed += 1
+        else
+          zero_datapoint_seed_present += 1
+        end
+
+        analysis_message =
+          if missing_seed_zip
+            %q(missing seed_zip attachment; re-upload required before lhs/batch_run can create datapoints)
+          else
+            %q(no datapoints were created for this analysis; seed_zip is present, investigate analysis initialization payload/options)
+          end
+
+        Job.where(analysis_id: analysis_id, :status.ne => %q(failed)).each do |job|
+          job.status = %q(failed)
+          job.status_message = analysis_message
+          job.end_time ||= Time.now
+          job.save!
+          zero_datapoint_jobs_failed += 1
+        end
+
+        next if analysis.nil?
+        analysis.status_message = analysis_message
+        analysis.save!
+        zero_datapoint_analyses_flagged += 1
+      end
+
+      puts %(recovery_summary stale_analyses=#{stale_analysis_ids.count} datapoints_requeued_started=#{requeued_started} datapoints_requeued_na=#{requeued_na} datapoints_requeued_total=#{requeued_started + requeued_na} jobs_finalized=#{finalized} terminal_jobs_promoted=#{terminal_promoted} zero_datapoint_jobs_failed=#{zero_datapoint_jobs_failed} zero_datapoint_analyses_flagged=#{zero_datapoint_analyses_flagged} zero_datapoint_missing_seed=#{zero_datapoint_missing_seed} zero_datapoint_seed_present=#{zero_datapoint_seed_present})
     '
   "
 
@@ -696,6 +1673,7 @@ recover_stuck_state() {
   read_redis_queues
   read_divergence_signals
   read_app_job_counts
+  read_analysis_focus
 }
 
 run_check_mode() {
@@ -715,12 +1693,20 @@ run_check_mode() {
   read_web_auth_signals
   echo "---"
   read_divergence_signals
+  if [[ -n "${ANALYSIS_ID}" ]]; then
+    echo "---"
+    read_analysis_focus
+  fi
   echo "---"
   read_recent_warning_event_signals
+  echo "---"
+  read_platform_blocker_summary
   echo "---"
   read_loadbalancer_event_signals
   echo "---"
   read_node_memory_pressure_state
+  echo "---"
+  read_calico_node_qos_state
   echo "---"
   read_web_background_state
   echo "---"
@@ -737,13 +1723,17 @@ run_snapshot_mode() {
 
   redis_pod="$(get_redis_pod)"
   web_pod="$(get_web_pod)"
-  worker_hpa="$(get_worker_hpa_name)"
+  worker_hpa="$(get_worker_hpa_name 2>/dev/null)" || worker_hpa=""
 
   log "Writing snapshots into ${out_dir}"
   kubectl config current-context > "${out_dir}/kube_context.txt"
   helm status "$RELEASE" -n "$NAMESPACE" > "${out_dir}/helm_status.txt"
   helm history "$RELEASE" -n "$NAMESPACE" > "${out_dir}/helm_history.txt"
-  kubectl -n "$NAMESPACE" get hpa "$worker_hpa" -o wide > "${out_dir}/worker_hpa.txt"
+  if [[ -n "$worker_hpa" ]]; then
+    kubectl -n "$NAMESPACE" get hpa "$worker_hpa" -o wide > "${out_dir}/worker_hpa.txt"
+  else
+    echo "no worker HPA object found (KEDA ScaledObject likely paused; HPA is not materialized while paused)" > "${out_dir}/worker_hpa.txt"
+  fi
   kubectl -n "$NAMESPACE" get deploy worker -o wide > "${out_dir}/worker_deploy.txt"
 
   kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
@@ -757,6 +1747,7 @@ run_snapshot_mode() {
     printf "failed="
     redis-cli $AUTH LLEN resque:failed
   ' > "${out_dir}/queue_depths.txt"
+  collect_failed_queue_triage "$redis_pod" "$out_dir"
 
   kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc '
     cd /opt/openstudio/server
@@ -765,8 +1756,18 @@ run_snapshot_mode() {
 
   kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc '
     cd /opt/openstudio/server
-    bundle exec rails runner "puts %(queued=#{Job.where(status: \"queued\").count} running=#{Job.where(status: \"running\").count} completed=#{Job.where(status: \"completed\").count} failed=#{Job.where(status: \"failed\").count})"
+    bundle exec rails runner "puts %(queued=#{Job.where(status: \"queued\").count} started=#{Job.where(status: \"started\").count} running=#{Job.where(status: \"running\").count} completed=#{Job.where(status: \"completed\").count} failed=#{Job.where(status: \"failed\").count} na=#{Job.where(status: \"na\").count})"
   ' > "${out_dir}/job_counts.txt"
+
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc '
+    cd /opt/openstudio/server
+    bundle exec rails runner "Job.collection.aggregate([{\"\$group\"=>{\"_id\"=>\"\$status\",\"count\"=>{\"\$sum\"=>1}}},{\"\$sort\"=>{\"_id\"=>1}}]).each { |r| puts \"#{r[\"_id\"]}\t#{r[\"count\"]}\" }"
+  ' > "${out_dir}/job_status_counts.tsv"
+
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc '
+    cd /opt/openstudio/server
+    bundle exec rails runner "DataPoint.collection.aggregate([{\"\$group\"=>{\"_id\"=>\"\$status\",\"count\"=>{\"\$sum\"=>1}}},{\"\$sort\"=>{\"_id\"=>1}}]).each { |r| puts \"#{r[\"_id\"]}\t#{r[\"count\"]}\" }"
+  ' > "${out_dir}/datapoint_status_counts.tsv"
 
   kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc "
     cd /opt/openstudio/server
@@ -787,7 +1788,516 @@ run_snapshot_mode() {
     '
   " > "${out_dir}/stale_started_datapoints.tsv"
 
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc "
+    cd /opt/openstudio/server
+    STALE_MINUTES='${STALE_THRESHOLD_MINUTES}' bundle exec rails runner '
+      stale = ENV.fetch(%q(STALE_MINUTES), %q(70)).to_i
+      cutoff = Time.now - stale.minutes
+      started_analysis_ids = Analysis.all.select { |a| a.status == %q(started) }.map(&:id)
+      DataPoint.where(:analysis_id.in => started_analysis_ids, status: %q(na), :updated_at.lt => cutoff).limit(2000).pluck(:_id, :analysis_id, :updated_at).each { |r| puts r.join(\"\t\") }
+    '
+  " > "${out_dir}/stale_na_datapoints.tsv"
+
+  if [[ -n "${ANALYSIS_ID}" ]]; then
+    kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc "
+      cd /opt/openstudio/server
+      ANALYSIS_ID='${ANALYSIS_ID}' STALE_MINUTES='${STALE_THRESHOLD_MINUTES}' bundle exec rails runner '
+        aid = ENV.fetch(%q(ANALYSIS_ID))
+        stale = ENV.fetch(%q(STALE_MINUTES), %q(70)).to_i
+        cutoff = Time.now - stale.minutes
+        analysis = Analysis.where(id: aid).first
+        if analysis.nil?
+          puts %(analysis_focus analysis_id=#{aid} found=false)
+          exit 0
+        end
+        stale_started = DataPoint.where(analysis_id: aid, status: %q(started), :updated_at.lt => cutoff).count
+        stale_na = DataPoint.where(analysis_id: aid, status: %q(na), :updated_at.lt => cutoff).count
+        puts %(analysis_focus analysis_id=#{aid} found=true analysis_status=#{analysis.status} stale_started_datapoints=#{stale_started} stale_na_datapoints=#{stale_na} jobs_total=#{Job.where(analysis_id: aid).count} datapoints_total=#{DataPoint.where(analysis_id: aid).count})
+      '
+    " > "${out_dir}/analysis_focus.txt"
+  fi
+
   log "Snapshot complete: ${out_dir}"
+}
+
+run_review_non_completed_mode() {
+  local out_dir ts redis_pod web_pod detail_raw_json detail_json summary_md baseline_json candidates_tsv
+  local job_raw_json job_inventory_json job_inventory_tsv
+  local queue_depths problem_counts warning_events
+  local queue_blockers core_blockers node_blockers problem_pod_total
+  local hard_event_total soft_event_total stale_minutes
+  local failed_queue_depth
+  local platform_counts platform_pod_sandbox_network platform_image_pull_auth failed_pull_secret platform_external_metric
+  local worker_readiness worker_desired worker_ready worker_available worker_ratio_percent worker_readiness_blocker
+  local platform_reason_codes platform_blockers_active
+
+  stale_minutes="$STALE_THRESHOLD_MINUTES"
+  [[ "$stale_minutes" =~ ^[0-9]+$ ]] || die "--stale-minutes must be an integer"
+  (( stale_minutes >= 10 )) || die "--stale-minutes must be >= 10"
+
+  ts="$(date +%Y%m%d-%H%M%S)"
+  out_dir="${SNAPSHOT_DIR:-./incident-snapshots/${RELEASE}-review-non-completed-${ts}}"
+  mkdir -p "$out_dir"
+
+  detail_raw_json="${out_dir}/non_completed_analyses_raw.json"
+  detail_json="${out_dir}/non_completed_analysis_details.json"
+  summary_md="${out_dir}/non_completed_summary.md"
+  baseline_json="${out_dir}/baseline_signals.json"
+  candidates_tsv="${out_dir}/non_completed_candidates.tsv"
+  job_raw_json="${out_dir}/non_completed_jobs_raw.json"
+  job_inventory_json="${out_dir}/non_completed_job_inventory.json"
+  job_inventory_tsv="${out_dir}/non_completed_job_inventory.tsv"
+
+  redis_pod="$(get_redis_pod)"
+  web_pod="$(get_web_pod)"
+
+  log "Reviewing non-completed analyses (all statuses except completed)"
+  log "Writing review artifacts into ${out_dir}"
+
+  kubectl config current-context > "${out_dir}/kube_context.txt"
+  helm status "$RELEASE" -n "$NAMESPACE" > "${out_dir}/helm_status.txt"
+  helm history "$RELEASE" -n "$NAMESPACE" > "${out_dir}/helm_history.txt"
+  kubectl -n "$NAMESPACE" get deploy web web-background redis rserve worker -o wide > "${out_dir}/core_deployments.txt"
+  kubectl -n "$NAMESPACE" get pods -l "release=${RELEASE}" -o wide > "${out_dir}/release_pods_wide.txt"
+  kubectl get nodes \
+    -o 'custom-columns=NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,MEMORY:.status.conditions[?(@.type=="MemoryPressure")].status,DISK:.status.conditions[?(@.type=="DiskPressure")].status,PID:.status.conditions[?(@.type=="PIDPressure")].status' \
+    > "${out_dir}/node_health.txt"
+
+  queue_depths="$(
+    kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+      PW="${REDIS_PASSWORD:-}"
+      AUTH=""
+      if [ -n "$PW" ]; then AUTH="-a $PW --no-auth-warning"; fi
+      for q in analyses analysis_wrappers simulations background requeued; do
+        printf "%s=" "$q"
+        redis-cli $AUTH LLEN "resque:queue:$q"
+      done
+      printf "failed="
+      redis-cli $AUTH LLEN resque:failed
+    ' | tr -d '\r'
+  )"
+  printf "%s\n" "$queue_depths" > "${out_dir}/queue_depths.txt"
+  failed_queue_depth="$(grep '^failed=' <<<"$queue_depths" | sed 's/^failed=//' || true)"
+  [[ "$failed_queue_depth" =~ ^[0-9]+$ ]] || failed_queue_depth=0
+  collect_failed_queue_triage "$redis_pod" "$out_dir"
+
+  problem_counts="$(get_problem_pod_counts)"
+  printf "%s\n" "$problem_counts" > "${out_dir}/problem_pod_counts.txt"
+  problem_pod_total="$(grep '^total=' <<<"$problem_counts" | sed 's/^total=//' || true)"
+  [[ "$problem_pod_total" =~ ^[0-9]+$ ]] || problem_pod_total=0
+
+  warning_events="$(get_recent_warning_events)"
+  printf "%s\n" "$warning_events" > "${out_dir}/warning_events_recent.tsv"
+  hard_event_total="$(grep -ciE 'FailedCreatePodSandBox|failed to sync secret cache|SystemOOM|OOMKilled|OOMKilling|failed liveness probe|liveness probe failed' <<<"$warning_events" || true)"
+  soft_event_total="$(grep -ciE 'NodeNotReady|NetworkNotReady|ImagePullBackOff|ErrImagePull|FailedToRetrieveImagePullSecret|FailedGetExternalMetric|failed to get external metric|503 Service Unavailable|SyncLoadBalancerFailed' <<<"$warning_events" || true)"
+  [[ "$hard_event_total" =~ ^[0-9]+$ ]] || hard_event_total=0
+  [[ "$soft_event_total" =~ ^[0-9]+$ ]] || soft_event_total=0
+
+  platform_counts="$(get_platform_warning_event_counts "$warning_events")"
+  platform_pod_sandbox_network="$(extract_count_from_kv "pod_sandbox_network" "$platform_counts")"
+  platform_image_pull_auth="$(extract_count_from_kv "image_pull_auth" "$platform_counts")"
+  failed_pull_secret="$(extract_count_from_kv "failed_pull_secret" "$platform_counts")"
+  platform_external_metric="$(extract_count_from_kv "external_metric" "$platform_counts")"
+
+  worker_readiness="$(get_worker_readiness_snapshot)"
+  worker_desired="$(extract_count_from_kv "desired" "$worker_readiness")"
+  worker_ready="$(extract_count_from_kv "ready" "$worker_readiness")"
+  worker_available="$(extract_count_from_kv "available" "$worker_readiness")"
+  worker_ratio_percent="$(extract_count_from_kv "ratio_percent" "$worker_readiness")"
+  worker_readiness_blocker="$(extract_count_from_kv "blocker" "$worker_readiness")"
+
+  platform_reason_codes=""
+  if (( platform_pod_sandbox_network >= EVENT_HARD_BLOCKER_THRESHOLD )); then
+    platform_reason_codes="$(merge_queue_csv "$platform_reason_codes" "platform_pod_sandbox_network_blocked")"
+  fi
+  if (( platform_image_pull_auth >= EVENT_SOFT_BLOCKER_THRESHOLD )); then
+    platform_reason_codes="$(merge_queue_csv "$platform_reason_codes" "platform_image_pull_auth_blocked")"
+  fi
+  if (( platform_external_metric >= EVENT_SOFT_BLOCKER_THRESHOLD )); then
+    platform_reason_codes="$(merge_queue_csv "$platform_reason_codes" "platform_external_metrics_blocked")"
+  fi
+  if (( worker_readiness_blocker > 0 )); then
+    platform_reason_codes="$(merge_queue_csv "$platform_reason_codes" "worker_readiness_blocked")"
+  fi
+  platform_reason_codes="$(normalize_hold_reason_codes "$platform_reason_codes")"
+  platform_blockers_active=false
+  if [[ -n "$platform_reason_codes" ]]; then
+    platform_blockers_active=true
+  fi
+
+  queue_blockers="$(count_queue_pipeline_blockers)"
+  core_blockers="$(count_core_service_readiness_blockers)"
+  node_blockers="$(count_node_health_blockers)"
+  [[ "$queue_blockers" =~ ^[0-9]+$ ]] || queue_blockers=0
+  [[ "$core_blockers" =~ ^[0-9]+$ ]] || core_blockers=0
+  [[ "$node_blockers" =~ ^[0-9]+$ ]] || node_blockers=0
+
+  jq -n \
+    --arg generated_at "$(date -Iseconds)" \
+    --arg namespace "$NAMESPACE" \
+    --arg release "$RELEASE" \
+    --arg stale_minutes "$stale_minutes" \
+    --arg event_window_seconds "$EVENT_WINDOW_SECONDS" \
+    --arg event_hard_threshold "$EVENT_HARD_BLOCKER_THRESHOLD" \
+    --arg event_soft_threshold "$EVENT_SOFT_BLOCKER_THRESHOLD" \
+    --arg problem_pod_threshold "$PROBLEM_POD_BLOCKER_THRESHOLD" \
+    --argjson queue_blockers "$queue_blockers" \
+    --argjson core_blockers "$core_blockers" \
+    --argjson node_blockers "$node_blockers" \
+    --argjson problem_pod_total "$problem_pod_total" \
+    --argjson hard_event_total "$hard_event_total" \
+    --argjson soft_event_total "$soft_event_total" \
+    --argjson failed_queue_depth "$failed_queue_depth" \
+    --argjson platform_pod_sandbox_network "$platform_pod_sandbox_network" \
+    --argjson platform_image_pull_auth "$platform_image_pull_auth" \
+    --argjson failed_pull_secret "$failed_pull_secret" \
+    --argjson platform_external_metric "$platform_external_metric" \
+    --argjson worker_desired "$worker_desired" \
+    --argjson worker_ready "$worker_ready" \
+    --argjson worker_available "$worker_available" \
+    --argjson worker_ratio_percent "$worker_ratio_percent" \
+    --argjson worker_readiness_blocker "$worker_readiness_blocker" \
+    --arg platform_reason_codes "$platform_reason_codes" \
+    --argjson platform_blockers_active "$platform_blockers_active" \
+    '{
+      generated_at: $generated_at,
+      namespace: $namespace,
+      release: $release,
+      stale_minutes: ($stale_minutes | tonumber),
+      event_window_seconds: ($event_window_seconds | tonumber),
+      event_hard_threshold: ($event_hard_threshold | tonumber),
+      event_soft_threshold: ($event_soft_threshold | tonumber),
+      problem_pod_threshold: ($problem_pod_threshold | tonumber),
+      queue_pipeline_blockers: $queue_blockers,
+      core_service_blockers: $core_blockers,
+      node_health_blockers: $node_blockers,
+      problem_pod_total: $problem_pod_total,
+      hard_warning_event_total: $hard_event_total,
+      soft_warning_event_total: $soft_event_total,
+      failed_queue_depth: $failed_queue_depth,
+      platform_blocker_thresholds: {
+        pod_sandbox_network: ($event_hard_threshold | tonumber),
+        image_pull_auth: ($event_soft_threshold | tonumber),
+        external_metric: ($event_soft_threshold | tonumber),
+        worker_readiness_min_ratio_percent: 50
+      },
+      platform_blocker_classes: {
+        pod_sandbox_network_failures: $platform_pod_sandbox_network,
+        image_pull_auth_failures: $platform_image_pull_auth,
+        failed_to_retrieve_image_pull_secret: $failed_pull_secret,
+        external_metric_failures: $platform_external_metric
+      },
+      worker_readiness: {
+        desired_replicas: $worker_desired,
+        ready_replicas: $worker_ready,
+        available_replicas: $worker_available,
+        ready_ratio_percent: $worker_ratio_percent,
+        blocker: $worker_readiness_blocker
+      },
+      platform_blockers_active: $platform_blockers_active,
+      platform_blocker_reason_codes: (
+        if ($platform_reason_codes | length) == 0 then [] else ($platform_reason_codes | split(",")) end
+      )
+    }' > "$baseline_json"
+
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- bash -lc "
+    cd /opt/openstudio/server
+    STALE_MINUTES='${stale_minutes}' bundle exec rails runner '
+      require %q(json)
+      stale = ENV.fetch(%q(STALE_MINUTES), %q(70)).to_i
+      now = Time.now
+      cutoff = now - stale.minutes
+      analyses = Analysis.all.select { |analysis| analysis.status.to_s != %q(completed) }.sort_by { |a| [a.status.to_s, a.id.to_s] }
+      analysis_ids = analyses.map { |a| a.id.to_s }
+
+      job_statuses = Hash.new { |h, k| h[k] = Hash.new(0) }
+      datapoint_statuses = Hash.new { |h, k| h[k] = Hash.new(0) }
+      stale_started_counts = Hash.new(0)
+      stale_na_counts = Hash.new(0)
+      recent_job_updates = Hash.new(0)
+      recent_datapoint_updates = Hash.new(0)
+
+      unless analysis_ids.empty?
+        Job.where(:analysis_id.in => analysis_ids).only(:analysis_id, :status, :updated_at).each do |job|
+          aid = job.analysis_id.to_s
+          status = (job.status || %q(nil)).to_s
+          job_statuses[aid][status] += 1
+          recent_job_updates[aid] += 1 if job.updated_at && job.updated_at >= cutoff
+        end
+        DataPoint.where(:analysis_id.in => analysis_ids).only(:analysis_id, :status, :updated_at).each do |dp|
+          aid = dp.analysis_id.to_s
+          status = (dp.status || %q(nil)).to_s
+          datapoint_statuses[aid][status] += 1
+          recent_datapoint_updates[aid] += 1 if dp.updated_at && dp.updated_at >= cutoff
+          if dp.updated_at && dp.updated_at < cutoff
+            stale_started_counts[aid] += 1 if status == %q(started)
+            stale_na_counts[aid] += 1 if status == %q(na)
+          end
+        end
+      end
+
+      rows = analyses.map do |analysis|
+        aid = analysis.id.to_s
+        updated_at = analysis.updated_at
+        age_minutes = updated_at.nil? ? nil : ((now - updated_at) / 60).floor
+        {
+          analysis_id: aid,
+          analysis_status: analysis.status.to_s,
+          age_minutes: age_minutes,
+          updated_at: updated_at&.utc&.iso8601,
+          stale_started_datapoints: stale_started_counts[aid] || 0,
+          stale_na_datapoints: stale_na_counts[aid] || 0,
+          recent_job_updates: recent_job_updates[aid] || 0,
+          recent_datapoint_updates: recent_datapoint_updates[aid] || 0,
+          job_statuses: Hash[(job_statuses[aid] || {}).sort_by { |k, _| k.to_s }],
+          datapoint_statuses: Hash[(datapoint_statuses[aid] || {}).sort_by { |k, _| k.to_s }]
+        }
+      end
+
+      puts JSON.pretty_generate(rows)
+    '
+  " | sed '/MONGODB | Unsupported client option/d' > "$detail_raw_json"
+
+  # Deterministic blocker precedence:
+  # core_service_blocker > worker_capacity_blocker > queue_pipeline_blocker > data_divergence_blocker > no_explicit_blocker_detected
+  jq \
+    --argjson stale_minutes "$stale_minutes" \
+    --argjson queue_blockers "$queue_blockers" \
+    --argjson core_blockers "$core_blockers" \
+    --argjson node_blockers "$node_blockers" \
+    --argjson problem_pod_total "$problem_pod_total" \
+    --argjson problem_pod_threshold "$PROBLEM_POD_BLOCKER_THRESHOLD" \
+    --argjson hard_event_total "$hard_event_total" \
+    --argjson soft_event_total "$soft_event_total" \
+    --argjson platform_pod_sandbox_network "$platform_pod_sandbox_network" \
+    --argjson platform_image_pull_auth "$platform_image_pull_auth" \
+    --argjson platform_external_metric "$platform_external_metric" \
+    --argjson event_hard_threshold "$EVENT_HARD_BLOCKER_THRESHOLD" \
+    --argjson event_soft_threshold "$EVENT_SOFT_BLOCKER_THRESHOLD" \
+    --argjson worker_readiness_blocker "$worker_readiness_blocker" \
+    '
+    map(
+      .analysis_status = (.analysis_status // "unknown")
+      | .age_minutes = (.age_minutes // 0)
+      | .stale_started_datapoints = (.stale_started_datapoints // 0)
+      | .stale_na_datapoints = (.stale_na_datapoints // 0)
+      | .recent_job_updates = (.recent_job_updates // 0)
+      | .recent_datapoint_updates = (.recent_datapoint_updates // 0)
+      | .job_statuses = (.job_statuses // {})
+      | .datapoint_statuses = (.datapoint_statuses // {})
+      | ._global_signals = [
+          (if $core_blockers > 0 then "core_services_unready=\($core_blockers)" else empty end),
+          (if $node_blockers > 0 then "node_health_blockers=\($node_blockers)" else empty end),
+          (if $problem_pod_total >= $problem_pod_threshold then "problem_pods=\($problem_pod_total)" else empty end),
+          (if $hard_event_total >= $event_hard_threshold then "hard_warning_events=\($hard_event_total)" else empty end),
+          (if $soft_event_total >= $event_soft_threshold then "soft_warning_events=\($soft_event_total)" else empty end),
+          (if $platform_pod_sandbox_network >= $event_hard_threshold then "platform_pod_sandbox_network=\($platform_pod_sandbox_network)" else empty end),
+          (if $platform_image_pull_auth >= $event_soft_threshold then "platform_image_pull_auth=\($platform_image_pull_auth)" else empty end),
+          (if $platform_external_metric >= $event_soft_threshold then "platform_external_metric=\($platform_external_metric)" else empty end),
+          (if $queue_blockers > 0 then "queue_pipeline_blockers=\($queue_blockers)" else empty end)
+        ]
+      | ._analysis_signals = [
+          (if .stale_started_datapoints > 0 then "stale_started_datapoints=\(.stale_started_datapoints)" else empty end),
+          (if .stale_na_datapoints > 0 then "stale_na_datapoints=\(.stale_na_datapoints)" else empty end),
+          (if ((.recent_job_updates + .recent_datapoint_updates) == 0 and .age_minutes >= $stale_minutes) then "no_recent_lifecycle_updates" else empty end)
+        ]
+      | .divergence_cohort = (
+          if (.stale_started_datapoints > 0 or .stale_na_datapoints > 0) and .analysis_status == "started" then "active_stalled_datapoints"
+          elif (.stale_started_datapoints > 0 or .stale_na_datapoints > 0) then "orphaned_stale_datapoints"
+          elif (.age_minutes >= $stale_minutes and (.recent_job_updates + .recent_datapoint_updates) == 0 and $queue_blockers == 0 and $core_blockers == 0 and $node_blockers == 0 and $problem_pod_total < $problem_pod_threshold and $hard_event_total < $event_hard_threshold and $soft_event_total < $event_soft_threshold and $platform_pod_sandbox_network < $event_hard_threshold and $platform_image_pull_auth < $event_soft_threshold and $platform_external_metric < $event_soft_threshold and $worker_readiness_blocker == 0) then "no_forward_progress_with_healthy_pipeline"
+          else "none"
+          end
+        )
+      | .blocker_category = (
+          if $core_blockers > 0 then "core_service_blocker"
+          elif ($node_blockers > 0 or $problem_pod_total >= $problem_pod_threshold or $hard_event_total >= $event_hard_threshold or $soft_event_total >= $event_soft_threshold or $platform_pod_sandbox_network >= $event_hard_threshold or $platform_image_pull_auth >= $event_soft_threshold or $platform_external_metric >= $event_soft_threshold) then "worker_capacity_blocker"
+          elif $queue_blockers > 0 then "queue_pipeline_blocker"
+          elif (.stale_started_datapoints > 0 or .stale_na_datapoints > 0) then "data_divergence_blocker"
+          else "no_explicit_blocker_detected"
+          end
+        )
+      | .blocker_evidence = {
+          global: ._global_signals,
+          analysis: ._analysis_signals
+        }
+      | .high_priority = (
+          .blocker_category != "no_explicit_blocker_detected"
+          and (
+            .age_minutes >= $stale_minutes
+            or .stale_started_datapoints > 0
+            or .stale_na_datapoints > 0
+          )
+        )
+      | del(._global_signals, ._analysis_signals)
+    )
+    | sort_by(.analysis_status, .analysis_id)
+    ' "$detail_raw_json" > "$detail_json"
+
+  jq -r '
+    ["analysis_id","analysis_status","age_minutes","updated_at","stale_started_datapoints","stale_na_datapoints"],
+    (.[] | [
+      .analysis_id,
+      .analysis_status,
+      (.age_minutes | tostring),
+      (.updated_at // ""),
+      (.stale_started_datapoints | tostring),
+      (.stale_na_datapoints | tostring)
+    ])
+    | @tsv
+  ' "$detail_json" > "$candidates_tsv"
+
+  collect_non_completed_job_inventory "$web_pod" "$out_dir"
+
+  {
+    echo "# Non-Completed Analysis Review"
+    echo
+    echo "- Generated at: $(date -Iseconds)"
+    echo "- Namespace: ${NAMESPACE}"
+    echo "- Release: ${RELEASE}"
+    echo "- Stale threshold (minutes): ${stale_minutes}"
+    echo "- Included statuses: all statuses except completed"
+    echo
+    echo "## Total analyses reviewed"
+    echo
+    echo "- $(jq 'length' "$detail_json")"
+    echo
+    echo "## Count by analysis status"
+    echo
+    jq -r '
+      map(.analysis_status)
+      | group_by(.)
+      | map({status: .[0], count: length})
+      | sort_by(.status)
+      | .[]
+      | "- \(.status): \(.count)"
+    ' "$detail_json"
+    echo
+    echo "## Count by blocker category"
+    echo
+    for category in queue_pipeline_blocker worker_capacity_blocker data_divergence_blocker core_service_blocker no_explicit_blocker_detected; do
+      echo "- ${category}: $(jq --arg category "$category" '[.[] | select(.blocker_category == $category)] | length' "$detail_json")"
+    done
+    echo
+    echo "## High-priority blocked analyses"
+    echo
+    if [[ "$(jq '[.[] | select(.high_priority == true)] | length' "$detail_json")" == "0" ]]; then
+      echo "- None"
+    else
+      jq -r '
+        [.[] | select(.high_priority == true)]
+        | sort_by(-(.age_minutes // 0), .analysis_id)
+        | .[]
+        | "- \(.analysis_id) status=\(.analysis_status) age_minutes=\(.age_minutes) blocker=\(.blocker_category) stale_started=\(.stale_started_datapoints) stale_na=\(.stale_na_datapoints)"
+      ' "$detail_json"
+    fi
+    echo
+    echo "## Non-completed job inventory"
+    echo
+    echo "- Jobs reviewed: $(jq 'length' "$job_inventory_json")"
+    echo "- Terminal-but-not-completed jobs: $(jq '[.[] | select(.status_bucket == "terminal_but_not_completed")] | length' "$job_inventory_json")"
+    echo "- Actionable jobs: $(jq '[.[] | select(.status_bucket == "actionable")] | length' "$job_inventory_json")"
+    echo "- Manual review jobs: $(jq '[.[] | select(.status_bucket == "manual_review")] | length' "$job_inventory_json")"
+    echo
+    echo "### Recovery-path counts"
+    jq -r '
+      map(.recovery_path)
+      | sort
+      | group_by(.)
+      | map({path: .[0], count: length})
+      | sort_by(.path)
+      | .[]
+      | "- \(.path): \(.count)"
+    ' "$job_inventory_json"
+    echo
+    echo "### Terminal records eligible for completion"
+    if [[ "$(jq '[.[] | select(.status_bucket == "terminal_but_not_completed")] | length' "$job_inventory_json")" == "0" ]]; then
+      echo "- None"
+    else
+      jq -r '
+        [.[] | select(.status_bucket == "terminal_but_not_completed")]
+        | sort_by(.analysis_id, .job_id)
+        | .[]
+        | "- \(.job_id) analysis=\(.analysis_id) status=\(.job_status) message=\(.job_status_message) recovery=\(.recovery_path)"
+      ' "$job_inventory_json"
+    fi
+    echo
+    echo "### Actionable jobs"
+    if [[ "$(jq '[.[] | select(.status_bucket == "actionable")] | length' "$job_inventory_json")" == "0" ]]; then
+      echo "- None"
+    else
+      jq -r '
+        [.[] | select(.status_bucket == "actionable")]
+        | sort_by(.job_status, .age_minutes, .analysis_id, .job_id)
+        | .[]
+        | "- \(.job_id) analysis=\(.analysis_id) status=\(.job_status) age_minutes=\(.age_minutes // 0) recovery=\(.recovery_path)"
+      ' "$job_inventory_json"
+    fi
+    echo
+    echo "## Platform blocker classes (event-window based)"
+    echo
+    echo "- pod_sandbox_network_failures: ${platform_pod_sandbox_network} (threshold=${EVENT_HARD_BLOCKER_THRESHOLD})"
+    echo "- image_pull_auth_failures: ${platform_image_pull_auth} (threshold=${EVENT_SOFT_BLOCKER_THRESHOLD})"
+    echo "- failed_to_retrieve_image_pull_secret: ${failed_pull_secret}"
+    echo "- external_metric_failures: ${platform_external_metric} (threshold=${EVENT_SOFT_BLOCKER_THRESHOLD})"
+    echo "- worker_readiness: desired=${worker_desired} ready=${worker_ready} available=${worker_available} ratio=${worker_ratio_percent}% (min=${WORKER_READINESS_MIN_RATIO_PERCENT}%)"
+    if [[ "$platform_blockers_active" == "true" ]]; then
+      echo "- platform_blockers_active: true"
+      echo "- platform_blocker_reason_codes: ${platform_reason_codes}"
+    else
+      echo "- platform_blockers_active: false"
+    fi
+    echo "- failed_queue_depth: ${failed_queue_depth}"
+    echo
+    echo "## Data divergence cohorts"
+    echo
+    jq -r '
+      map(.divergence_cohort)
+      | sort
+      | group_by(.)
+      | map({cohort: .[0], count: length})
+      | sort_by(.cohort)
+      | .[]
+      | "- \(.cohort): \(.count)"
+    ' "$detail_json"
+    echo
+    echo "## Analyses with no explicit blocker signal"
+    echo
+    if [[ "$(jq --arg category "no_explicit_blocker_detected" '[.[] | select(.blocker_category == $category)] | length' "$detail_json")" == "0" ]]; then
+      echo "- None"
+    else
+      jq -r '
+        [.[] | select(.blocker_category == "no_explicit_blocker_detected")]
+        | sort_by(-(.age_minutes // 0), .analysis_id)
+        | .[]
+        | "- \(.analysis_id) status=\(.analysis_status) age_minutes=\(.age_minutes)"
+      ' "$detail_json"
+    fi
+    echo
+    echo "## Targeted remediation suggestions (read-only guidance)"
+    echo
+    echo '- queue_pipeline_blocker: verify web-background consumption and enqueue flow (`analyses -> analysis_wrappers -> simulations`) using queue depth deltas and web/web-background logs.'
+    echo "- worker_capacity_blocker: review node readiness/pressure, warning-event bursts, and worker pod failure patterns; confirm cluster capacity before raising worker ceilings."
+    echo "- data_divergence_blocker: inspect stale started/na datapoints and batch-run job transitions for affected analyses; confirm worker queue subscriptions and datapoint lifecycle advancement."
+    echo "- core_service_blocker: restore Ready pods for web, web-background, redis, and rserve, then re-run this mode before remediation."
+    echo "- no_explicit_blocker_detected: capture another snapshot after one interval window and compare queue/job/datapoint drift for hidden intermittent blockers."
+    echo
+    echo "## Artifacts"
+    echo
+    echo "- Detail JSON: $(basename "$detail_json")"
+    echo "- Job inventory JSON: $(basename "$job_inventory_json")"
+    echo "- Job inventory TSV: $(basename "$job_inventory_tsv")"
+    echo "- Candidate TSV: $(basename "$candidates_tsv")"
+    echo "- Baseline signals: $(basename "$baseline_json")"
+    echo "- Queue depths: queue_depths.txt"
+    echo "- Failed queue triage: failed_queue_triage.md"
+    echo "- Failed queue signatures: failed_queue_signature_counts.tsv"
+    echo "- Failed queue by analysis: failed_queue_analysis_counts.tsv"
+    echo "- Problem pod counts: problem_pod_counts.txt"
+    echo "- Warning events: warning_events_recent.tsv"
+  } > "$summary_md"
+
+  log "Review complete: ${summary_md}"
+  log "Detail JSON: ${detail_json}"
 }
 
 collect_scale_metrics_line() {
@@ -843,6 +2353,9 @@ run_scale_baseline_mode() {
   [[ "$BASELINE_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || die "--interval-seconds must be an integer"
   (( BASELINE_DURATION_SECONDS >= BASELINE_INTERVAL_SECONDS )) || die "--duration-seconds must be >= --interval-seconds"
   (( BASELINE_INTERVAL_SECONDS >= 5 )) || die "--interval-seconds must be >= 5"
+  if [[ "$CLEANUP_FAILED_WORKER_PODS" == "true" && "$APPLY" != "true" ]]; then
+    die "--cleanup-failed-worker-pods requires --apply"
+  fi
 
   root_dir="${SNAPSHOT_DIR:-./incident-snapshots/${RELEASE}-scale-baseline-$(date +%Y%m%d-%H%M%S)}"
   mkdir -p "$root_dir"
@@ -864,6 +2377,9 @@ run_scale_baseline_mode() {
     sample_ts="$(date +%Y%m%d-%H%M%S)"
     sample_dir="${root_dir}/sample-$(printf '%04d' "$sample_idx")-${sample_ts}"
     log "Scale baseline sample ${sample_idx} at +${elapsed}s -> ${sample_dir}"
+    if [[ "$CLEANUP_FAILED_WORKER_PODS" == "true" ]]; then
+      cleanup_failed_worker_pod_artifacts
+    fi
     SNAPSHOT_DIR="$sample_dir"
     run_snapshot_mode
     collect_scale_metrics_line "$timeline_file"
@@ -885,16 +2401,38 @@ run_ceiling_probe_mode() {
   local start_epoch now elapsed samples_total samples_pass samples_blocked
   local hard_blocker_samples queue_blockers_total core_blockers_total
   local queue_blockers core_blockers sample_blockers current_max suggested_next_max recommendation reason
+  local hold_reason_codes sample_reason_codes sample_timestamp root_dir
+  local blocked_snapshot_taken
 
   [[ "$QUIET_WINDOW_SECONDS" =~ ^[0-9]+$ ]] || die "--quiet-window-seconds must be an integer"
   [[ "$QUIET_WINDOW_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || die "--quiet-interval-seconds must be an integer"
   [[ "$PROBE_STEP_REPLICAS" =~ ^[0-9]+$ ]] || die "--probe-step-replicas must be an integer"
+  [[ "$EVENT_WINDOW_SECONDS" =~ ^[0-9]+$ ]] || die "--event-window-seconds must be an integer"
+  [[ "$EVENT_HARD_BLOCKER_THRESHOLD" =~ ^[0-9]+$ ]] || die "--event-hard-threshold must be an integer"
+  [[ "$EVENT_SOFT_BLOCKER_THRESHOLD" =~ ^[0-9]+$ ]] || die "--event-soft-threshold must be an integer"
+  [[ "$PROBLEM_POD_BLOCKER_THRESHOLD" =~ ^[0-9]+$ ]] || die "--problem-pod-threshold must be an integer"
+  [[ "$CALICO_QOS_NON_GUARANTEED_THRESHOLD" =~ ^[0-9]+$ ]] || die "--calico-qos-threshold must be an integer"
+  [[ "$STALE_TERMINATING_MINUTES" =~ ^[0-9]+$ ]] || die "--stale-terminating-minutes must be an integer"
+  [[ "$PERSISTENT_BLOCKER_SNAPSHOT_THRESHOLD" =~ ^[0-9]+$ ]] || die "persistent blocker snapshot threshold must be an integer"
   (( QUIET_WINDOW_SECONDS >= QUIET_WINDOW_INTERVAL_SECONDS )) || die "--quiet-window-seconds must be >= --quiet-interval-seconds"
   (( QUIET_WINDOW_INTERVAL_SECONDS >= 5 )) || die "--quiet-interval-seconds must be >= 5"
   (( PROBE_STEP_REPLICAS >= 1 )) || die "--probe-step-replicas must be >= 1"
+  (( EVENT_WINDOW_SECONDS >= 60 )) || die "--event-window-seconds must be >= 60"
+  (( EVENT_HARD_BLOCKER_THRESHOLD >= 1 )) || die "--event-hard-threshold must be >= 1"
+  (( EVENT_SOFT_BLOCKER_THRESHOLD >= 1 )) || die "--event-soft-threshold must be >= 1"
+  (( PROBLEM_POD_BLOCKER_THRESHOLD >= 1 )) || die "--problem-pod-threshold must be >= 1"
+  (( CALICO_QOS_NON_GUARANTEED_THRESHOLD >= 1 )) || die "--calico-qos-threshold must be >= 1"
+  (( STALE_TERMINATING_MINUTES >= 1 )) || die "--stale-terminating-minutes must be >= 1"
+  (( PERSISTENT_BLOCKER_SNAPSHOT_THRESHOLD >= 1 )) || die "persistent blocker snapshot threshold must be >= 1"
   if [[ -n "$PROBE_MAX_REPLICAS_LIMIT" ]]; then
     [[ "$PROBE_MAX_REPLICAS_LIMIT" =~ ^[0-9]+$ ]] || die "--probe-max-replicas-limit must be an integer"
     (( PROBE_MAX_REPLICAS_LIMIT >= 1 )) || die "--probe-max-replicas-limit must be >= 1"
+  fi
+  if [[ "$CLEANUP_FAILED_WORKER_PODS" == "true" && "$APPLY" != "true" ]]; then
+    die "--cleanup-failed-worker-pods requires --apply"
+  fi
+  if [[ "$CLEANUP_STALE_TERMINATING_WORKER_PODS" == "true" && "$APPLY" != "true" ]]; then
+    die "--cleanup-stale-terminating-worker-pods requires --apply"
   fi
 
   current_max="$(get_worker_hpa_spec_max_replicas)"
@@ -910,6 +2448,9 @@ run_ceiling_probe_mode() {
   hard_blocker_samples=0
   queue_blockers_total=0
   core_blockers_total=0
+  hold_reason_codes=""
+  blocked_snapshot_taken=false
+  root_dir="${SNAPSHOT_DIR:-./incident-snapshots/${RELEASE}-ceiling-probe-$(date +%Y%m%d-%H%M%S)}"
   start_epoch="$(date +%s)"
 
   while true; do
@@ -919,10 +2460,17 @@ run_ceiling_probe_mode() {
       break
     fi
 
+    if [[ "$CLEANUP_FAILED_WORKER_PODS" == "true" ]]; then
+      cleanup_failed_worker_pod_artifacts
+    fi
+
     sample_blockers=0
+    sample_reason_codes=""
+    sample_timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     if ! check_scale_up_blockers; then
       hard_blocker_samples=$((hard_blocker_samples + 1))
       sample_blockers=$((sample_blockers + 1))
+      sample_reason_codes="$(merge_queue_csv "$sample_reason_codes" "$LAST_BLOCKER_REASON_CODES")"
     fi
 
     queue_blockers="$(count_queue_pipeline_blockers)"
@@ -933,13 +2481,34 @@ run_ceiling_probe_mode() {
     queue_blockers_total=$((queue_blockers_total + queue_blockers))
     core_blockers_total=$((core_blockers_total + core_blockers))
     sample_blockers=$((sample_blockers + queue_blockers + core_blockers))
+    if (( queue_blockers > 0 )); then
+      sample_reason_codes="$(merge_queue_csv "$sample_reason_codes" "queue_pipeline_blocked")"
+    fi
+    if (( core_blockers > 0 )); then
+      sample_reason_codes="$(merge_queue_csv "$sample_reason_codes" "core_service_readiness_blocked")"
+    fi
 
     if (( sample_blockers == 0 )); then
       samples_pass=$((samples_pass + 1))
     else
       samples_blocked=$((samples_blocked + 1))
+      hold_reason_codes="$(merge_queue_csv "$hold_reason_codes" "$sample_reason_codes")"
+      if [[ "$CLEANUP_STALE_TERMINATING_WORKER_PODS" == "true" && "$sample_reason_codes" == *"stale_terminating_high"* ]]; then
+        cleanup_stale_terminating_worker_pods
+      fi
+      if [[ "$SNAPSHOT_ON_BLOCK" == "true" && "$blocked_snapshot_taken" == "false" && "$samples_blocked" -ge "$PERSISTENT_BLOCKER_SNAPSHOT_THRESHOLD" ]]; then
+        mkdir -p "$root_dir"
+        SNAPSHOT_DIR="${root_dir}/blocked-snapshot-${sample_timestamp//[:]/}"
+        run_snapshot_mode
+        blocked_snapshot_taken=true
+      fi
     fi
     samples_total=$((samples_total + 1))
+
+    if [[ "$PROBE_DIAGNOSTICS" == "true" ]]; then
+      sample_reason_codes="$(normalize_hold_reason_codes "$sample_reason_codes")"
+      echo "SAMPLE_DIAGNOSTIC sample=${samples_total} timestamp=${sample_timestamp} blocked=${sample_blockers} node_blockers=${LAST_NODE_BLOCKERS} problem_pods=${LAST_PROBLEM_PODS} stale_terminating=${LAST_STALE_TERMINATING_PODS} hard_events=${LAST_HARD_EVENT_COUNT} soft_events=${LAST_SOFT_EVENT_COUNT} platform_pod_sandbox_network=${LAST_PLATFORM_POD_SANDBOX_NETWORK_COUNT} platform_image_pull_auth=${LAST_PLATFORM_IMAGE_PULL_AUTH_COUNT} platform_external_metric=${LAST_PLATFORM_EXTERNAL_METRIC_COUNT} calico_qos_non_guaranteed=${LAST_CALICO_QOS_NON_GUARANTEED} calico_qos_cr_hardened=${LAST_CALICO_QOS_CR_HARDENED} queue_blockers=${queue_blockers} core_blockers=${core_blockers} event_window_start=${LAST_EVENT_WINDOW_START_ISO} event_window_end=${LAST_EVENT_WINDOW_END_ISO} reason_codes=${sample_reason_codes:-none}"
+    fi
 
     sleep "$QUIET_WINDOW_INTERVAL_SECONDS"
   done
@@ -949,10 +2518,12 @@ run_ceiling_probe_mode() {
   if [[ -n "$PROBE_MAX_REPLICAS_LIMIT" ]] && (( current_max >= PROBE_MAX_REPLICAS_LIMIT )); then
     recommendation="hold"
     reason="current maxReplicas already at probe limit"
+    hold_reason_codes="$(merge_queue_csv "$hold_reason_codes" "probe_limit_reached")"
   elif (( samples_blocked > 0 )) || (( hard_blocker_samples > 0 )) || (( queue_blockers_total > 0 )) || (( core_blockers_total > 0 )); then
     recommendation="hold"
-    reason="one or more quiet-window samples contained blockers"
+    reason="quiet-window blockers met thresholded hold policy"
   fi
+  hold_reason_codes="$(normalize_hold_reason_codes "$hold_reason_codes")"
 
   log "Ceiling probe summary (report-only): recommendation=${recommendation}"
   echo "PROBE_MODE=report-only"
@@ -961,6 +2532,8 @@ run_ceiling_probe_mode() {
   echo "CURRENT_MAX_REPLICAS=${current_max}"
   echo "STEP_REPLICAS=${PROBE_STEP_REPLICAS}"
   echo "SUGGESTED_NEXT_MAX_REPLICAS=${suggested_next_max}"
+  echo "PROBE_MAX_REPLICAS_LIMIT=${PROBE_MAX_REPLICAS_LIMIT}"
+  echo "FAILED_WORKER_POD_CLEANUP=${CLEANUP_FAILED_WORKER_PODS}"
   echo "QUIET_WINDOW_SECONDS=${QUIET_WINDOW_SECONDS}"
   echo "QUIET_INTERVAL_SECONDS=${QUIET_WINDOW_INTERVAL_SECONDS}"
   echo "SAMPLES_TOTAL=${samples_total}"
@@ -969,6 +2542,14 @@ run_ceiling_probe_mode() {
   echo "HARD_BLOCKER_SAMPLES=${hard_blocker_samples}"
   echo "QUEUE_BLOCKERS_TOTAL=${queue_blockers_total}"
   echo "CORE_SERVICE_BLOCKERS_TOTAL=${core_blockers_total}"
+  echo "EVENT_WINDOW_SECONDS=${EVENT_WINDOW_SECONDS}"
+  echo "EVENT_HARD_THRESHOLD=${EVENT_HARD_BLOCKER_THRESHOLD}"
+  echo "EVENT_SOFT_THRESHOLD=${EVENT_SOFT_BLOCKER_THRESHOLD}"
+  echo "PROBLEM_POD_THRESHOLD=${PROBLEM_POD_BLOCKER_THRESHOLD}"
+  echo "CALICO_QOS_THRESHOLD=${CALICO_QOS_NON_GUARANTEED_THRESHOLD}"
+  echo "STALE_TERMINATING_MINUTES=${STALE_TERMINATING_MINUTES}"
+  echo "HOLD_REASON_CODES=${hold_reason_codes:-none}"
+  print_hold_reason_mapping "$hold_reason_codes"
 }
 
 run_reconcile_mode() {
@@ -1033,6 +2614,32 @@ while [[ $# -gt 0 ]]; do
       PROBE_STEP_REPLICAS="$2"; shift 2 ;;
     --probe-max-replicas-limit)
       PROBE_MAX_REPLICAS_LIMIT="$2"; shift 2 ;;
+    --event-window-seconds)
+      EVENT_WINDOW_SECONDS="$2"; shift 2 ;;
+    --event-hard-threshold)
+      EVENT_HARD_BLOCKER_THRESHOLD="$2"; shift 2 ;;
+    --event-soft-threshold)
+      EVENT_SOFT_BLOCKER_THRESHOLD="$2"; shift 2 ;;
+    --problem-pod-threshold)
+      PROBLEM_POD_BLOCKER_THRESHOLD="$2"; shift 2 ;;
+    --calico-qos-threshold)
+      CALICO_QOS_NON_GUARANTEED_THRESHOLD="$2"; shift 2 ;;
+    --stale-terminating-minutes)
+      STALE_TERMINATING_MINUTES="$2"; shift 2 ;;
+    --probe-diagnostics)
+      PROBE_DIAGNOSTICS=true; shift ;;
+    --snapshot-on-block)
+      SNAPSHOT_ON_BLOCK=true; shift ;;
+    --cleanup-failed-worker-pods)
+      CLEANUP_FAILED_WORKER_PODS=true; shift ;;
+    --cleanup-max-delete)
+      CLEANUP_MAX_DELETE="$2"; shift 2 ;;
+    --cleanup-stale-terminating-worker-pods)
+      CLEANUP_STALE_TERMINATING_WORKER_PODS=true; shift ;;
+    --cleanup-stale-max-delete)
+      CLEANUP_STALE_MAX_DELETE="$2"; shift 2 ;;
+    --analysis-id)
+      ANALYSIS_ID="$2"; shift 2 ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -1042,10 +2649,12 @@ done
 
 require_bin kubectl
 require_bin helm
+require_bin jq
 
 case "$MODE" in
   check) run_check_mode ;;
   snapshot) run_snapshot_mode ;;
+  review-non-completed) run_review_non_completed_mode ;;
   scale-baseline) run_scale_baseline_mode ;;
   ceiling-probe) run_ceiling_probe_mode ;;
   reconcile-helm) run_reconcile_mode ;;

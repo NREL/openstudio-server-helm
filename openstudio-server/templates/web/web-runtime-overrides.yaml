@@ -5,6 +5,188 @@ kind: ConfigMap
 metadata:
   name: {{ include "openstudio.webName" . }}-runtime-overrides
 data:
+  98_seed_zip_guard.rb: |
+    # frozen_string_literal: true
+
+    module OpenStudioSeedZipGuard
+      class MissingSeedZipError < StandardError; end
+      class InvalidSeedZipError < StandardError; end
+
+      module OptionSanitizer
+        module_function
+
+        def sanitize(value)
+          case value
+          when Hash
+            value.each_with_object({}) do |(key, nested), acc|
+              next if key.nil?
+
+              normalized_key =
+                if key.is_a?(String) || key.is_a?(Symbol)
+                  key
+                else
+                  key.to_s
+                end
+              acc[normalized_key] = sanitize(nested)
+            end
+          when Array
+            value.map { |entry| sanitize(entry) }
+          else
+            value
+          end
+        end
+      end
+
+      module AnalysisPatch
+        def seed_zip_integrity_valid?
+          return false unless seed_zip_available?
+
+          begin
+            require "zip"
+            Zip::File.open(seed_zip.path.to_s) do |zip_file|
+              return zip_file.entries.any?
+            end
+          rescue Zip::Error, Errno::ENOENT
+            return false
+          end
+        end
+
+        def seed_zip_available?
+          return false unless seed_zip
+
+          seed_zip.path.present? && File.exist?(seed_zip.path)
+        end
+
+        def seed_zip_required_for?(analysis_type)
+          analysis_type.to_s != "stop"
+        end
+
+        def start(no_delay, analysis_type = "batch_run", options = {})
+          sanitized_options = OptionSanitizer.sanitize(options || {})
+          unless sanitized_options.key?(:analysis_type) || sanitized_options.key?("analysis_type")
+            sanitized_options[:analysis_type] = analysis_type
+            sanitized_options["analysis_type"] = analysis_type
+          end
+
+          if seed_zip_required_for?(analysis_type) && !seed_zip_available?
+            self.status_message = "Cannot start analysis: missing seed_zip attachment (upload analysis.zip before start)."
+            save!
+            raise MissingSeedZipError, status_message
+          end
+
+          if seed_zip_required_for?(analysis_type) && !seed_zip_integrity_valid?
+            self.status_message = "Cannot start analysis: seed_zip archive is invalid or corrupt. Re-upload analysis.zip."
+            save!
+            raise InvalidSeedZipError, status_message
+          end
+
+          super(no_delay, analysis_type, sanitized_options)
+        end
+      end
+
+      module AnalysesControllerPatch
+        def create
+          uploaded_seed = params.dig(:analysis, :seed_zip)
+          uploaded_seed_path =
+            if uploaded_seed.respond_to?(:tempfile) && uploaded_seed.tempfile.respond_to?(:path)
+              uploaded_seed.tempfile.path
+            elsif uploaded_seed.respond_to?(:path)
+              uploaded_seed.path
+            end
+
+          # Some clients create the analysis first and upload seed_zip separately.
+          # Only validate the archive during create when a file is actually present.
+          return super if uploaded_seed_path.blank?
+
+          begin
+            return super unless File.exist?(uploaded_seed_path)
+
+            require "zip"
+            zip_has_entries = false
+            Zip::File.open(uploaded_seed_path.to_s) do |zip_file|
+              zip_has_entries = zip_file.entries.any?
+            end
+            raise InvalidSeedZipError, "seed_zip archive is empty" unless zip_has_entries
+          rescue Zip::Error, Errno::ENOENT => e
+            result = {
+              code: 422,
+              error: "invalid seed_zip archive",
+              detail: e.message
+            }
+            respond_to do |format|
+              format.json { render json: result, status: :unprocessable_entity }
+              format.html { redirect_to projects_path, notice: "Analysis was NOT created: invalid/corrupt seed zip." }
+            end
+            return
+          end
+
+          super
+        end
+
+        def action
+          if params[:analysis_action].to_s == "start"
+            analysis = Analysis.find(params[:id])
+            analysis_type = params[:analysis_type].presence || "batch_run"
+
+            if analysis.seed_zip_required_for?(analysis_type) && !analysis.seed_zip_available?
+              analysis.status_message = "Cannot start analysis: missing seed_zip attachment (upload analysis.zip before start)."
+              analysis.save!
+
+              result = {
+                code: 422,
+                error: "missing seed_zip attachment",
+                analysis: analysis
+              }
+
+              respond_to do |format|
+                format.json { render json: result, status: :unprocessable_entity }
+                format.html { redirect_to analysis, notice: "Analysis was NOT started: missing seed zip." }
+              end
+              return
+            end
+
+            if analysis.seed_zip_required_for?(analysis_type) && !analysis.seed_zip_integrity_valid?
+              analysis.status_message = "Cannot start analysis: seed_zip archive is invalid or corrupt. Re-upload analysis.zip."
+              analysis.save!
+
+              result = {
+                code: 422,
+                error: "invalid seed_zip archive",
+                analysis: analysis
+              }
+
+              respond_to do |format|
+                format.json { render json: result, status: :unprocessable_entity }
+                format.html { redirect_to analysis, notice: "Analysis was NOT started: invalid/corrupt seed zip." }
+              end
+              return
+            end
+          end
+
+          super
+        rescue OpenStudioSeedZipGuard::MissingSeedZipError, OpenStudioSeedZipGuard::InvalidSeedZipError => e
+          result = {
+            code: 422,
+            error: e.message
+          }
+          respond_to do |format|
+            format.json { render json: result, status: :unprocessable_entity }
+            format.html { redirect_to analysis_path(params[:id]), notice: e.message }
+          end
+        end
+      end
+    end
+
+    Rails.application.config.to_prepare do
+      unless Analysis < OpenStudioSeedZipGuard::AnalysisPatch
+        Analysis.prepend(OpenStudioSeedZipGuard::AnalysisPatch)
+      end
+
+      unless AnalysesController < OpenStudioSeedZipGuard::AnalysesControllerPatch
+        AnalysesController.prepend(OpenStudioSeedZipGuard::AnalysesControllerPatch)
+      end
+    end
+
   99_resque_requeue_fix.rb: |
     # frozen_string_literal: true
 

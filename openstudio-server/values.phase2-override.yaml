@@ -1,0 +1,56 @@
+# Phase 2: KEDA Queue-Depth Autoscaling
+# Switches from CPU-only HPA to KEDA ScaledObject with Redis queue triggers + CPU safety net.
+# Applied on top of Phase 0+1 changes via --reuse-values.
+
+worker:
+  strategy:
+    # Keep conservative rollout behavior while node health/remediation is unstable.
+    maxSurge: 1
+    maxUnavailable: 0
+
+worker_autoscaling:
+  mode: "keda-hybrid"
+  keda:
+    # Poll Redis every 10s for queue depth changes
+    pollingIntervalSeconds: 10
+    # Wait 5 minutes before scaling down after queue is empty
+    cooldownPeriodSeconds: 300
+    # Redis address is auto-resolved; no change needed
+    # Queues to monitor (matches worker deployment's QUEUES env var)
+    queueNames:
+      - simulations
+      - requeued
+    # Scale up 1 worker per job in queue
+    queueLengthPerWorker: 1
+    # Start scaling as soon as any job is queued
+    activationQueueLength: 1
+    # Keep CPU trigger off to prevent scale thrash while queue/node behavior is being stabilized.
+    enableCpuTrigger: false
+    # Fallback if KEDA cannot reach Redis
+    fallback:
+      failureThreshold: 3
+      replicas: 16
+
+worker_hpa:
+  # Campaign ceiling while waiting for larger-disk worker flavor.
+  # Raise in probe-gated increments rather than one-shot changes.
+  maxReplicas: 1200
+  behavior:
+    scaleUp:
+      # Balanced ramp profile: faster than conservative, safer than burst profile.
+      stabilizationWindowSeconds: 20
+      selectPolicy: Max
+      policies:
+        - type: Pods
+          value: 16
+          periodSeconds: 30
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60

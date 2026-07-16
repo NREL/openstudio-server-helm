@@ -23,6 +23,7 @@ NAMESPACE="${NAMESPACE:-openstudio-server}"
 CHART_PATH="${CHART_PATH:-./openstudio-server}"
 REINSTALL=true
 ASSUME_YES=false
+DELETE_NAMESPACE=true
 TIMEOUT="${TIMEOUT:-20m}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,6 +39,7 @@ the Helm release and deleting data PVCs.
 Options:
   --yes               Required. Confirms destructive actions.
   --no-reinstall      Do not reinstall after cleanup.
+  --keep-namespace    Do not delete the namespace after cleanup.
   --release <name>    Helm release name (default: openstudio-server)
   --namespace <ns>    Kubernetes namespace (default: openstudio-server)
   --timeout <dur>     Helm/kubectl wait timeout (default: 20m)
@@ -59,6 +61,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-reinstall)
       REINSTALL=false
+      shift
+      ;;
+    --keep-namespace)
+      DELETE_NAMESPACE=false
       shift
       ;;
     --release)
@@ -114,34 +120,54 @@ echo
 
 # Ensure release workloads are removed first.
 if helm -n "${NAMESPACE}" status "${RELEASE_NAME}" >/dev/null 2>&1; then
-  helm uninstall "${RELEASE_NAME}" -n "${NAMESPACE}" --wait --timeout "${TIMEOUT}"
+  if ! helm uninstall "${RELEASE_NAME}" -n "${NAMESPACE}" --wait --timeout "${TIMEOUT}"; then
+    echo "Helm uninstall with hooks failed; retrying without hooks to unblock fresh reset..." >&2
+    helm uninstall "${RELEASE_NAME}" -n "${NAMESPACE}" --no-hooks --wait --timeout "${TIMEOUT}"
+  fi
 else
-  echo "Helm release ${RELEASE_NAME} not found in ${NAMESPACE}; continuing with PVC cleanup."
+  echo "Helm release ${RELEASE_NAME} not found in ${NAMESPACE}; continuing with cleanup."
 fi
+
+# Force-delete any stuck pods, jobs, and cronjobs left behind.
+kubectl -n "${NAMESPACE}" delete pods --all --force --grace-period=0 2>/dev/null || true
+kubectl -n "${NAMESPACE}" delete jobs --all --force --grace-period=0 2>/dev/null || true
+kubectl -n "${NAMESPACE}" delete cronjobs --all --force --grace-period=0 2>/dev/null || true
 
 # Delete persistent claims that carry all runtime data.
 PVC_NAMES=(db redis nfs-pvc nfs-pvc-data)
 for pvc in "${PVC_NAMES[@]}"; do
-  kubectl -n "${NAMESPACE}" delete pvc "${pvc}" --ignore-not-found=true
+  kubectl -n "${NAMESPACE}" delete pvc "${pvc}" --ignore-not-found=true 2>/dev/null || true
 done
 
 for pvc in "${PVC_NAMES[@]}"; do
   kubectl -n "${NAMESPACE}" wait --for=delete "pvc/${pvc}" --timeout="${TIMEOUT}" 2>/dev/null || true
 done
 
-# Best-effort cleanup of PVs still bound to these claims (for Retain reclaim policy).
+# If any PVCs are stuck in Terminating, strip their finalizers to unblock deletion.
+while IFS= read -r stuck_pvc; do
+  [[ -z "${stuck_pvc}" ]] && continue
+  echo "Stripping finalizers from stuck PVC: ${stuck_pvc}" >&2
+  kubectl -n "${NAMESPACE}" patch pvc "${stuck_pvc}" -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+done < <(kubectl -n "${NAMESPACE}" get pvc -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.deletionTimestamp}{"\n"}{end}' \
+  | awk '$2 != "" { print $1 }')
+
+# Delete ALL PVs bound to this namespace (catches anything the PVC list missed).
 while IFS= read -r pv_name; do
   [[ -z "${pv_name}" ]] && continue
   kubectl delete pv "${pv_name}" --ignore-not-found=true || true
 done < <(
-  kubectl get pv -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.claimRef.namespace}{"\t"}{.spec.claimRef.name}{"\n"}{end}' \
-    | awk -v ns="${NAMESPACE}" '
-      $2 == ns && ($3 == "db" || $3 == "redis" || $3 == "nfs-pvc" || $3 == "nfs-pvc-data") { print $1 }
-    '
+  kubectl get pv -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.claimRef.namespace}{"\n"}{end}' \
+    | awk -v ns="${NAMESPACE}" '$2 == ns { print $1 }'
 )
 
 if [[ "${REINSTALL}" == "true" ]]; then
+  # Namespace must exist for reinstall; skip deletion.
   RELEASE_NAME="${RELEASE_NAME}" NAMESPACE="${NAMESPACE}" CHART_PATH="${CHART_PATH}" "${INSTALL_SCRIPT}"
+elif [[ "${DELETE_NAMESPACE}" == "true" ]]; then
+  echo "Deleting namespace ${NAMESPACE}..."
+  kubectl delete namespace "${NAMESPACE}" --ignore-not-found=true 2>/dev/null || true
+  echo "Recreating empty namespace ${NAMESPACE} for next install..."
+  kubectl create namespace "${NAMESPACE}" 2>/dev/null || true
 fi
 
 echo "Fresh reset complete."

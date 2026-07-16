@@ -4,4 +4,12 @@ aurora-*-openrc.sh
 deploy-production.sh
 incident-snapshots/
 scripts/diagnose-volumes.sh
-scripts/safe-delete-volumes.shopenstack/values-prod.local.yaml
+scripts/safe-delete-volumes.sh
+openstack/values-prod.local.yaml
+.agents/
+.health-remediation-state/
+rendered.yaml
+analysis_wrappers
+simulations
+holmesGPT/
+k8sgpt/
