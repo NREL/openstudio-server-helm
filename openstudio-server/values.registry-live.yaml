@@ -24,9 +24,8 @@ global:
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
     tag: "3.10.0"
-  # Pod-level pull secret fallback.
-  imagePullSecrets:
-    - "registry-credentials"
+  # No pod-level pull secrets: auth is handled at the node level via registryHostsPatch.
+  imagePullSecrets: []
 
 registryHostsPatch:
   enabled: true
@@ -45,16 +44,16 @@ hostAliases:
         - "pulp-dev.hpc.nlr.gov"
         - "pulp-dev.hpc.nrel.gov"
 
-# Dedicated workload ServiceAccount with registry pull credentials.
+# Dedicated workload ServiceAccount. No pull secrets: auth is at the node level.
 serviceAccount:
   create: true
   name: "openstudio-workload"
-  validateImagePullSecrets: true
-  imagePullSecrets:
-    - "registry-credentials"
+  validateImagePullSecrets: false
+  imagePullSecrets: []
 
 # OpenStack defaults resolve empty values to IfNotPresent.
 web:
+  replicas: 1
   nodeSelector: {}
   runtimeOverrides:
     enabled: true
@@ -71,10 +70,12 @@ web:
   container:
     imagePullPolicy: ""
 web_hpa:
-  minReplicas: 2
-  maxReplicas: 6
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
   targetCPUUtilizationPercentage: 50
 web_background:
+  replicas: 1
   workerCount: 6
   nodeSelector: {}
   container:
@@ -174,5 +175,5 @@ worker_autoscaling:
 worker_hpa:
   # minReplicas/maxReplicas shared by both HPA and KEDA modes
   minReplicas: 2
-  maxReplicas: 600
+  maxReplicas: 10000
   targetCPUUtilizationPercentage: 50

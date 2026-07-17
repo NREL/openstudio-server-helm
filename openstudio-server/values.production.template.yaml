@@ -146,7 +146,7 @@ rserve_svc:
 # Web Background - Enhanced for production
 # 🟠 HIGH B5: Queue pipeline bottleneck — 96 workers (8×12) can sustain ~5k+ consumers.
 web_background:
-  replicas: 8           # Increased from 2: more simulation producers (B5)
+  replicas: 1
   workerCount: 12       # Increased from 6: each pod runs 12 Resque workers
   container:
     imagePullPolicy: "IfNotPresent"
@@ -157,9 +157,9 @@ web_background:
 
 # Web background HPA — autoscale 8→32 based on memory utilization
 web_background_hpa:
-  enabled: true
-  minReplicas: 8
-  maxReplicas: 32
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
   targetMemoryUtilizationPercentage: 70
   stabilizationWindowSeconds: 300
 
@@ -168,6 +168,7 @@ web_background_hpa:
 # The 85:1 connection-to-process ratio means HTTP queueing under load.
 # For >7k workers, enable distributed locking and scale web to 3+ replicas.
 web:
+  replicas: 1
   # Required when secrets.create=true.
   secret_key_value: ""
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
@@ -182,8 +183,9 @@ web:
 # Web HPA - Configured for production scaling
 # Enable distributed locking before scaling beyond 1 replica.
 web_hpa:
-  minReplicas: 2        # Increased from 1 for baseline redundancy
-  maxReplicas: 6        # Increased from 1 for callback load distribution
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
   targetCPUUtilizationPercentage: 70
   # Distributed locking prevents race conditions in multi-web deployments.
   # Requires the application to implement Redis redlock (B4).

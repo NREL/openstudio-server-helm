@@ -3,6 +3,7 @@ kind: Deployment
 metadata:
   name: {{ include "openstudio.webName" . }}
 spec:
+  replicas: {{ default 1 (get .Values.web "replicas") }}
   {{- $webStrategy := default (dict) (get .Values.web "strategy") }}
   {{- $webMaxSurge := 1 }}
   {{- if hasKey $webStrategy "maxSurge" }}

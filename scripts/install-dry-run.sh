@@ -153,11 +153,11 @@ if ! helm template openstudio-server "${CHART_DIR}" \
   exit 1
 fi
 
-if ! helm template openstudio-server "${CHART_DIR}" \
+if helm template openstudio-server "${CHART_DIR}" \
   -f "${ROOT_DIR}/openstudio-server/values.registry-live.yaml" \
   --set secrets.validateExistingSecret=false \
-  | grep -q 'name: "registry-credentials"'; then
-  echo "Expected registry profile to render imagePullSecrets wiring"
+  | grep -q 'imagePullSecrets:'; then
+  echo "Expected registry profile to avoid imagePullSecrets wiring (Pulp uses node-level auth)"
   exit 1
 fi
 
@@ -371,7 +371,6 @@ if ! PATH="${TMP_DIR}:${PATH}" \
   EXISTING_SECRET_NAME=openstudio-app-secrets \
   REGISTRY_PROFILE=true \
   REGISTRY_VALUES_FILE="${ROOT_DIR}/openstudio-server/values.registry-live.yaml" \
-  REGISTRY_PULL_SECRET_NAME=registry-credentials \
   WORKLOAD_SERVICEACCOUNT_NAME=openstudio-workload \
   RELEASE_NAME=openstudio-server \
   NAMESPACE=openstudio-server \
@@ -388,13 +387,8 @@ if ! grep -Fq -- "--values ${ROOT_DIR}/openstudio-server/values.registry-live.ya
   exit 1
 fi
 
-if ! grep -Fq "global.imagePullSecrets[0]=registry-credentials" "${MOCK_HELM_LOG}"; then
-  echo "Expected install.sh registry profile mode to set global imagePullSecrets"
-  exit 1
-fi
-
-if ! grep -Fq "serviceAccount.imagePullSecrets[0]=registry-credentials" "${MOCK_HELM_LOG}"; then
-  echo "Expected install.sh registry profile mode to set serviceAccount imagePullSecrets"
+if grep -Fq "imagePullSecrets[0]=" "${MOCK_HELM_LOG}"; then
+  echo "Expected install.sh registry profile mode to avoid imagePullSecrets unless explicitly requested"
   exit 1
 fi
 

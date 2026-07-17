@@ -128,6 +128,7 @@ web_background:
         memory: "512Mi"
 
 web:
+  replicas: 1
   # Required when secrets.create=true.
   secret_key_value: ""
   # passenger_max_request_queue_size: "1600"
@@ -146,6 +147,7 @@ web:
 # a distributed file locking scheme such a https://github.com/antirez/redlock-rbs
 # as even with using NFS via sync it cannot guarantee file locking using multiple clients
 web_hpa:
+  enabled: false
   minReplicas: 1
   maxReplicas: 1
   targetCPUUtilizationPercentage: 50

@@ -6,6 +6,8 @@ incident-snapshots/
 scripts/diagnose-volumes.sh
 scripts/safe-delete-volumes.sh
 openstack/values-prod.local.yaml
+openstudio-server/values*.backup
+openstudio-server/values*.bak
 .agents/
 .health-remediation-state/
 rendered.yaml

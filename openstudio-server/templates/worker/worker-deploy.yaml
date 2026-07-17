@@ -3,6 +3,7 @@ kind: Deployment
 metadata:
   name: {{ include "openstudio.workerName" . }}
 spec:
+  replicas: 2  # TEMPORARY: hardcoded; remove to restore KEDA autoscaling
   selector:
     matchLabels:
       app: {{ default "worker" .Values.worker.label }}

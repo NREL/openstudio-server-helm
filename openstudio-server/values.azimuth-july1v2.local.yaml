@@ -4,8 +4,6 @@ cluster:
   name: "openstudio-server-july1v2"
 
 global:
-  imagePullSecrets:
-    - "registry-credentials"
   images:
     registry: "pulp-dev.hpc.nlr.gov"
     repositoryPrefix: "pulp-container-aurora-179d"
@@ -20,9 +18,7 @@ global:
           value: not-allowed
           effect: NoSchedule
 
-serviceAccount:
-  imagePullSecrets:
-    - "registry-credentials"
+serviceAccount: {}
 
 autoscaler:
   # Keep chart-managed autoscaler disabled until ownership strategy is finalized.
@@ -78,19 +74,19 @@ worker_autoscaling:
 
 worker_hpa:
   minReplicas: 2
-  # Campaign ceiling while waiting for larger worker disk flavor.
-  # Increase in probe-gated steps only.
-  maxReplicas: 1200
-  # Keep conservative while node readiness and scheduling pressure recover.
+  maxReplicas: 10000
   stabilizationWindowSeconds: 300
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 120
-      selectPolicy: Min
+      stabilizationWindowSeconds: 10
+      selectPolicy: Max
       policies:
         - type: Pods
-          value: 20
-          periodSeconds: 60
+          value: 32
+          periodSeconds: 15
+        - type: Percent
+          value: 200
+          periodSeconds: 15
     scaleDown:
       stabilizationWindowSeconds: 300
       selectPolicy: Max
@@ -108,15 +104,13 @@ prepull:
   failOnAnyPullError: false
 
 web_background:
-  # Increase queue feeder capacity to keep worker queue depth high during bursts.
-  replicas: 4
+  replicas: 1
   workerCount: 12
 
 web_background_hpa:
-  # Scale web-background based on CPU utilization when analyses queue grows.
-  enabled: true
-  minReplicas: 4
-  maxReplicas: 32
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
   targetCPUUtilizationPercentage: 60
   # Reduce scale-down delay so we don't pay for idle web-background workers.
   stabilizationWindowSeconds: 120
@@ -131,7 +125,7 @@ nfs_pvc:
 
 db:
   persistence:
-    size: 180Gi
+    size: 192Gi
 
 redis:
   persistence:

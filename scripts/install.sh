@@ -16,6 +16,7 @@ set -euo pipefail
 #   REGISTRY_PROFILE (default: false; when true include REGISTRY_VALUES_FILE)
 #   REGISTRY_VALUES_FILE (default: ./openstudio-server/values.registry-live.yaml)
 #   REGISTRY_PULL_SECRET_NAME (optional; sets global/serviceAccount imagePullSecrets[0])
+#     Not required for the tracked Pulp registry profile (node-level auth).
 #   WORKLOAD_SERVICEACCOUNT_NAME (default: openstudio-workload; used with REGISTRY_PULL_SECRET_NAME)
 PROVIDER="${PROVIDER:-aws}"
 RELEASE_NAME="${RELEASE_NAME:-openstudio-server}"

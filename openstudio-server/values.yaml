@@ -312,9 +312,7 @@ rserve_svc:
 
 # Web Background - Enhanced for production at scale (B5: Pipeline throughput)
 web_background:
-  # Scale with worker ceiling: aim for 1 simulation producer per ~800 consumers.
-  # At 10k workers -> 12-16 simulation-producing workers needed.
-  replicas: 8           # 4x increase: more analysis -> simulation pipeline capacity
+  replicas: 1
   # Number of Resque child workers per web-background pod (COUNT env).
   # Higher workerCount per pod reduces total pod count for the background layer.
   workerCount: 12       # 2x increase: more workers per pod for job creation throughput
@@ -337,6 +335,7 @@ web_background:
 
 # Web - Enhanced for production with proper passenger configuration
 web:
+  replicas: 1
   # Required when secrets.create=true.
   secret_key_value: ""
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
@@ -394,9 +393,10 @@ web_svc:
 
 # Web HPA - baseline values for chart rendering.
 web_hpa:
+  enabled: false
   name: "web"
-  minReplicas: 2             # Increased for redundancy at scale
-  maxReplicas: 6             # Allow up to 6 web pods for API request fan-out
+  minReplicas: 1
+  maxReplicas: 1
   targetCPUUtilizationPercentage: 50
   # stabilizationWindowSeconds controls how long to wait before scaling down.
   stabilizationWindowSeconds: 600
@@ -433,9 +433,10 @@ web_background_autoscaling:
 
 # Web-background HPA (used when web_background_autoscaling.mode=hpa)
 web_background_hpa:
+  enabled: false
   name: "web-background"
   minReplicas: 1
-  maxReplicas: 32            # Allow up to 32 bg pods during large job submission bursts
+  maxReplicas: 1
   targetMemoryUtilizationPercentage: 60
   stabilizationWindowSeconds: 300
 

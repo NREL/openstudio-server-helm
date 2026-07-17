@@ -135,7 +135,7 @@ rserve_svc:
 
 # 🟠 HIGH B5: Queue pipeline — 96 workers (8×12) can sustain ~5k+ consumers.
 web_background:
-  replicas: 8           # Increased from 1: more simulation producers
+  replicas: 1
   workerCount: 12       # Increased from 6: each pod runs 12 Resque workers
   container:
     imagePullPolicy: "IfNotPresent"
@@ -146,15 +146,16 @@ web_background:
 
 # Web background HPA — autoscale 8→32 based on CPU utilization
 web_background_hpa:
-  enabled: true
-  minReplicas: 8
-  maxReplicas: 32
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
   targetMemoryUtilizationPercentage: 70
   stabilizationWindowSeconds: 300
 
 # 🔴 CRITICAL B4: Web Passenger connection pool — ceiling ~5k-7k workers.
 # For >7k workers, enable distributed locking and scale web to 3+ replicas.
 web:
+  replicas: 1
   # Required when secrets.create=true.
   secret_key_value: ""
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
@@ -168,8 +169,9 @@ web:
 
 # Web HPA with distributed locking support (prevents race conditions in multi-web deployments)
 web_hpa:
-  minReplicas: 2        # Increased from 1 for baseline redundancy
-  maxReplicas: 6        # Increased from 1 for callback load distribution
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
   targetCPUUtilizationPercentage: 50
   distributedLocking:
     enabled: false      # Set true only after application-level redlock is validated

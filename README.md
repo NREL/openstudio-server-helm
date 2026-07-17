@@ -20,19 +20,25 @@ Note that this repository has both information for small and large workloads in 
 
 Before installing the chart, either use the tracked baseline `openstudio-server/values.yaml` or create your own values file from one of the provided templates:
 
-- `values_small.templateyaml` - For small workloads and testing
-- `values_large.templateyaml` - For large-scale production workloads
-- `values_production.templateyaml` - For general production deployments (specifically openstack)
+- `values.small.template.yaml` - For small workloads and testing
+- `values.large.template.yaml` - For large-scale production workloads
+- `values.production.template.yaml` - For general production deployments (specifically openstack)
 
 **Copy the appropriate template and customize it for your environment:**
 
 ```bash
-cp openstudio-server/values_small.templateyaml openstudio-server/values.yaml
+cp openstudio-server/values.small.template.yaml openstudio-server/values.yaml
 # OR
-cp openstudio-server/values_large.templateyaml openstudio-server/values.yaml
+cp openstudio-server/values.large.template.yaml openstudio-server/values.yaml
 # OR
-cp openstudio-server/values_production.templateyaml openstudio-server/values.yaml
+cp openstudio-server/values.production.template.yaml openstudio-server/values.yaml
 ```
+
+Values files are now grouped by purpose:
+
+- **Base templates**: `values.small.template.yaml`, `values.large.template.yaml`, `values.production.template.yaml`
+- **Environment overlays**: `values.registry-live.yaml`, `values.azimuth-july1v2.local.yaml`
+- **Operational overlays**: `values.profile-*.yaml`, `values.phase*-override.yaml`, `values.degraded-infra.yaml`
 
 Then edit your chosen values file (for example `openstudio-server/values.yaml`) to:
 
@@ -71,7 +77,7 @@ Provider-aware infrastructure defaults are also automatic when values are omitte
 | `redis.persistence.storageClass`      | `nfs`             | `ssd`                    |
 | `load_balancer.externalTrafficPolicy` | `Cluster`         | `Local`                  |
 
-For OpenStack production deployments, `values_production.templateyaml` explicitly sets:
+For OpenStack production deployments, `values.production.template.yaml` explicitly sets:
 
 - `db.persistence.storageClass: csi-cinder`
 - `redis.persistence.storageClass: csi-cinder`
@@ -132,7 +138,7 @@ For internal/private image registries, use the tracked profile `openstudio-serve
 cp openstudio-server/values.registry-live.yaml openstudio-server/values.local.yaml
 ```
 
-At minimum, set image source and auth:
+At minimum, set image source:
 
 ```yaml
 global:
@@ -143,16 +149,16 @@ global:
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
     tag: "3.10.0"
-  imagePullSecrets:
-    - "registry-credentials"
+  imagePullSecrets: []
 
 serviceAccount:
   create: true
   name: "openstudio-workload"
-  validateImagePullSecrets: true
-  imagePullSecrets:
-    - "registry-credentials"
+  validateImagePullSecrets: false
+  imagePullSecrets: []
 ```
+
+For the tracked Pulp registry profile (`pulp-dev.hpc.nlr.gov`), registry credentials and image pull secrets are not required. Authentication is handled at the node runtime level.
 
 `global.images.registry` is the central registry host for chart-managed images (for example `172.29.166.222:5000` or `registry.example.com`). Bare names like `zot` are parsed as Docker Hub namespaces, which causes rate-limit pulls from `docker.io`.
 
@@ -318,11 +324,10 @@ If you use `scripts/install.sh`, you can enable the same profile directly:
 PROVIDER=openstack \
 REGISTRY_PROFILE=true \
 REGISTRY_VALUES_FILE=./openstudio-server/values.registry-live.yaml \
-REGISTRY_PULL_SECRET_NAME=registry-credentials \
 ./scripts/install.sh
 ```
 
-`REGISTRY_PULL_SECRET_NAME` wires both `global.imagePullSecrets` and `serviceAccount.imagePullSecrets` at install time.
+`REGISTRY_PULL_SECRET_NAME` is optional and is typically unnecessary for the tracked Pulp registry profile.
 
 **Note:** `openstudio-server/values.yaml` is a tracked baseline for reproducible defaults. Put environment-specific or sensitive overrides in a separate local file (for example `openstudio-server/values.local.yaml`) and pass it with `-f`.
 
@@ -632,10 +637,10 @@ nfs_pvc:
 
 #### For Large Workloads
 
-Use the [large template values file](/openstudio-server/values_large.templateyaml) as your starting point:
+Use the [large template values file](/openstudio-server/values.large.template.yaml) as your starting point:
 
 ```bash
-cp openstudio-server/values_large.templateyaml openstudio-server/values.yaml
+cp openstudio-server/values.large.template.yaml openstudio-server/values.yaml
 ```
 
 Then customize as needed before running `helm upgrade --install`.

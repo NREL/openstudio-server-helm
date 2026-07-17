@@ -15,7 +15,7 @@ This directory contains legacy automation for building a Kubernetes cluster dire
 ```bash
 # Option A: start from the tracked baseline values.yaml
 # Option B: copy production template to a local override file
-cp ../openstudio-server/values_production.templateyaml ../openstudio-server/values.local.yaml
+cp ../openstudio-server/values.production.template.yaml ../openstudio-server/values.local.yaml
 # Create the namespace if haven't already
 kubectl create namespace openstudio-server
 # Edit your values file (resources/provider=openstack/storage classes/secret name)
@@ -118,7 +118,7 @@ Use the path that matches how the cluster was created:
 
 For managed Azimuth clusters, the recommended pattern is to use an internal registry or Harbor
 proxy cache and point chart images at it. Start from `openstudio-server/values.registry-live.yaml`
-and pair it with `openstudio-server/values_production.templateyaml` or a local production override:
+and pair it with `openstudio-server/values.production.template.yaml` or a local production override:
 
 ```bash
 cp openstudio-server/values.registry-live.yaml openstudio-server/values.local.yaml
@@ -135,13 +135,14 @@ global:
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
     tag: "3.10.0"
-  imagePullSecrets:
-    - "registry-credentials"
+  imagePullSecrets: []
 ```
 
 `global.images.registry` must be a registry host/FQDN (optionally with port). Avoid bare names like `zot`, which are interpreted as Docker Hub namespaces by container runtimes.
 
-You can also use a dedicated workload ServiceAccount with image pull secrets:
+For the tracked Pulp profile (`pulp-dev.hpc.nlr.gov`), registry credentials and image pull secrets are not required. Keep pull-secret lists empty and rely on node-level registry auth.
+
+If you are using a different private registry that requires namespace-level credentials, you can use a dedicated workload ServiceAccount with image pull secrets:
 
 ```yaml
 serviceAccount:
@@ -187,9 +188,10 @@ You can apply the same profile through the install helper:
 PROVIDER=openstack \
 REGISTRY_PROFILE=true \
 REGISTRY_VALUES_FILE=./openstudio-server/values.registry-live.yaml \
-REGISTRY_PULL_SECRET_NAME=registry-credentials \
 ./scripts/install.sh
 ```
+
+`REGISTRY_PULL_SECRET_NAME` is optional and typically unnecessary for the tracked Pulp profile.
 
 For Azimuth production workloads, use `worker_hpa.maxReplicas: 1443` only if the cluster
 capacity and node density can support it.
@@ -298,7 +300,7 @@ export KUBECONFIG=$(pwd)/kubeconfig
 kubectl apply -f storage-classes.yaml
 
 # Optional: create a local override values file from tracked template
-cp ./openstudio-server/values_production.templateyaml ./openstudio-server/values.local.yaml
+cp ./openstudio-server/values.production.template.yaml ./openstudio-server/values.local.yaml
 
 # Recommended default for this environment:
 #   secrets.existingSecret: openstudio-app-secrets
@@ -457,7 +459,7 @@ Additional OpenStack defaults are automatically applied when omitted in values:
 For OpenStack block-backed PVCs, the chart now uses `global.storageClasses.block` (default `csi-cinder`) as the backing class for the NFS provisioner PVC.
 `openstack/storage-classes.yaml` also includes a `csi-cinder` compatibility alias for older clusters/configs.
 
-For production hardening, the tracked `openstudio-server/values_production.templateyaml` explicitly sets:
+For production hardening, the tracked `openstudio-server/values.production.template.yaml` explicitly sets:
 
 - `db.persistence.storageClass: csi-cinder`
 - `redis.persistence.storageClass: csi-cinder`

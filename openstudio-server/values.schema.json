@@ -171,6 +171,7 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "replicas": { "type": "integer", "minimum": 1 },
         "secret_key_value": { "type": "string" },
         "nodeSelector": { "$ref": "#/definitions/stringMap" },
         "passenger_memory_per_process": { "type": "number", "exclusiveMinimum": 0 },
@@ -235,6 +236,7 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "enabled": { "type": "boolean" },
         "minReplicas": { "type": "integer", "minimum": 1 },
         "maxReplicas": { "type": "integer", "minimum": 1 },
         "targetCPUUtilizationPercentage": {

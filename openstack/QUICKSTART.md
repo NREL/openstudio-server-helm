@@ -20,7 +20,7 @@ application deploys when your kubeconfig is already configured.
 Once your cluster is created and kubeconfig is configured:
 
 ```bash
-cp ../openstudio-server/values_production.templateyaml ../openstudio-server/values.yaml
+cp ../openstudio-server/values.production.template.yaml ../openstudio-server/values.yaml
 # edit ../openstudio-server/values.yaml (provider=openstack, resources, storage, and secret name)
 kubectl -n openstudio-server create secret generic openstudio-app-secrets \
   --from-literal=db-username="openstudio" \
@@ -62,9 +62,10 @@ global:
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
     tag: "3.10.0"
-  imagePullSecrets:
-    - "registry-credentials"
+  imagePullSecrets: []
 ```
+
+For the tracked Pulp registry profile (`pulp-dev.hpc.nlr.gov`), registry credentials and image pull secrets are not required.
 
 `global.images.registry` is the central registry host and must include a valid host (for example `172.29.166.222:5000`), not a bare token such as `zot`.
 
@@ -178,7 +179,7 @@ kubectl -n openstudio-server get events --sort-by=.lastTimestamp | tail -n 120
 
 If events show repeated `ErrImagePull`/`ImagePullBackOff` with `401 UNAUTHORIZED` on mirrored image paths:
 
-1. Verify registry settings and pull secrets in Helm values.
+1. Verify registry settings and node-level registry auth for the target registry (Pulp profile does not require image pull secrets).
 2. Confirm init container images are also pullable/cached (not only main containers).
 3. Use `IfNotPresent` as a temporary mitigation while fixing registry mirror auth.
 4. Restart only affected deployments and re-check pod status distribution.
