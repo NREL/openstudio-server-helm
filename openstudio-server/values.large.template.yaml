@@ -66,7 +66,7 @@ nfs-server-provisioner:
     size: 550Gi
   # Pull from the local zot mirror endpoint instead of Docker Hub.
   image:
-    repository: "erezsh2/nfs-provisioner"
+    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
     tag: "v2.3.0"
   storageClass:
     allowVolumeExpansion: false
@@ -240,14 +240,14 @@ worker_autoscaling:
     advanced:
       restoreToOriginalReplicaCount: false
 
-# Image prepull — enabled by default for large worker fleets (B9)
+# Image prepull — keep disabled by default, enable only for planned warmup windows.
 prepull:
-  enabled: true
+  enabled: false
   role: "worker"
   spreadSeconds: 600
   warmMode: "once"
   intervalSeconds: 3600
-  failOnAnyPullError: true
+  failOnAnyPullError: false
   includeRserve: true
   includeWebInit: false
   additionalImages: []

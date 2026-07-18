@@ -20,6 +20,9 @@ spec:
         release: {{ .Release.Name }}
     {{ $priorityClasses := default (dict) .Values.priorityClasses }}
     {{ $redis := default (dict) .Values.redis }}
+    {{ $rserve := default (dict) .Values.rserve }}
+    {{ $rserveContainer := default (dict) (get $rserve "container") }}
+    {{ $rservePreStop := default (dict) (get $rserveContainer "preStop") }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "worker") | nindent 6 }}
       {{- include "openstudio.tolerationsForRole" (dict "root" . "role" "worker") | nindent 6 }}
@@ -36,6 +39,18 @@ spec:
         - name: {{ default "rserve" .Values.rserve.container.name }}
           image: {{ default (include "openstudio.rserveImage" .) .Values.rserve.container.image }}
           imagePullPolicy: {{ default (include "openstudio.defaultWorkloadImagePullPolicy" .) .Values.rserve.container.imagePullPolicy }}
+{{- if (default true (get $rservePreStop "enabled")) }}
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    set +e
+                    sleep {{ default 10 (get $rservePreStop "sleepSeconds") }}
+                    exit 0
+{{- end }}
           resources:
             requests:
               cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
@@ -79,6 +94,7 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 30
             failureThreshold: 3
+      terminationGracePeriodSeconds: {{ default 90 (get $rserveContainer "terminationGracePeriodSeconds") }}
       volumes:
         - name: osdata
           persistentVolumeClaim:

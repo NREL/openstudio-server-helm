@@ -1,0 +1,18 @@
+# Optional overlay: enable worker KEDA external scaler with readiness-gated step-up.
+# Use together with:
+#   -f openstack/values-openstack-azimuth.yaml
+#   -f openstack/values-openstack-azimuth-external-scaler.yaml
+
+worker_autoscaling:
+  mode: "keda-hybrid"
+  keda:
+    enableCpuTrigger: false
+    externalScaler:
+      enabled: true
+      deployment:
+        # Build/push tools/keda-external-scaler first and set this to your image.
+        image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-keda-external-scaler:latest"
+      gating:
+        minReadyPercent: 95
+        maxScaleStepPods: 32
+        maxScaleStepPercent: 200

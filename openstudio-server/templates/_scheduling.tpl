@@ -146,14 +146,6 @@ tolerations:
 {{- end -}}
 {{- end -}}
 
-{{- define "openstudio.defaultLoadBalancerExternalTrafficPolicy" -}}
-{{- if eq (include "openstudio.providerName" .) "openstack" -}}
-{{- "Cluster" -}}
-{{- else -}}
-{{- "Local" -}}
-{{- end -}}
-{{- end -}}
-
 {{- define "openstudio.defaultAppPersistenceStorageClass" -}}
 {{- if eq (include "openstudio.providerName" .) "openstack" -}}
 {{- "nfs" -}}

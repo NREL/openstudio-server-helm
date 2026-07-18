@@ -170,7 +170,7 @@ worker:
 
 `""` uses chart defaults (OpenStack => `IfNotPresent`, other providers => `Always`).
 
-For planned scale events/upgrades, optionally pre-warm node caches:
+For planned scale events/upgrades, optionally pre-warm node caches (disabled by default in steady-state):
 
 ```yaml
 prepull:
@@ -449,7 +449,6 @@ Additional OpenStack defaults are automatically applied when omitted in values:
 
 - `db.persistence.storageClass`: `nfs`
 - `redis.persistence.storageClass`: `nfs`
-- `load_balancer.externalTrafficPolicy`: `Cluster`
 
 > [!IMPORTANT]
 > The OpenStack `nfs` defaults for `db` and `redis` are compatibility defaults, not production-safe defaults.
@@ -475,7 +474,7 @@ Rollout warning triage (OpenStack):
 
 - `UpdateLoadBalancerFailed` / `SyncLoadBalancerFailed` events can occur transiently during node/pool membership updates.
 - Treat these as **warning noise** if all are true:
-  - `kubectl get svc -n openstudio-server ingress-load-balancer` shows an external IP,
+  - `kubectl get ingress -n openstudio-server web-external-ingress` shows a host/address,
   - `/` and `/status.json` return HTTP 200,
   - web/worker deployments are fully available.
 - Escalate when warnings persist and service health fails (missing external IP, non-200 health checks, or unavailable web deployment).
@@ -710,19 +709,9 @@ kubectl get pv
 kubectl get pvc -n openstudio-server
 ```
 
-#### LoadBalancer Issues
+#### Ingress / External Access Issues
 
-If Octavia cannot create a floating IP because of project policy, configure the chart with a pre-allocated address instead of relying on dynamic LB IP creation:
-
-```yaml
-load_balancer:
-  openstack:
-    address: "<preallocated-floating-ip>"
-    securityGroups:
-      - "<openstack-security-group-id-or-name>"
-```
-
-Raw annotations are still supported as an escape hatch, but the structured values above are the preferred path for OpenStack LB recovery.
+If external access is unhealthy, troubleshoot `web-external-ingress` and your ingress controller service/events.
 
 ```bash
 # Check cloud provider configuration
@@ -753,6 +742,10 @@ Temporary mitigation for incident response:
 Permanent fix is registry/mirror auth correction at the platform/runtime layer.
 
 For large analysis batches, enable the chart prepull DaemonSet temporarily and keep worker autoscaling on `keda-hybrid` with a higher `worker_hpa.minReplicas` floor so queue drain starts immediately once the warm nodes are ready.
+
+If you need readiness-gated step-up behavior (for example require ~95% ready before the next bump), use the optional overlay `openstack/values-openstack-azimuth-external-scaler.yaml` together with the starter service in `tools/keda-external-scaler/`.
+
+If the Pulp registry is degraded/unavailable, defer external-scaler rollout and keep the current KEDA mode in place. When Pulp is healthy again, follow `tools/keda-external-scaler/README.md` to re-login, re-tag to a writable repo path, push, and run `helm upgrade` with the external-scaler overlay.
 
 #### Node Access (Bastion/Floating IP) Troubles
 

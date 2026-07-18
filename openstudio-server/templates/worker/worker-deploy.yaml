@@ -340,9 +340,5 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs.
       volumes:
         - name: osdata-worker
-          emptyDir:
-            {{- if .Values.worker.container.emptyDirSizeLimit }}
-            sizeLimit: {{ .Values.worker.container.emptyDirSizeLimit | quote }}
-            {{- else }}
-            {}
-            {{- end }}
+          persistentVolumeClaim:
+            claimName: {{ include "openstudio.nfsPvcName" . }}

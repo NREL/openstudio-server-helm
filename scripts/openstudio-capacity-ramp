@@ -1,0 +1,440 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NAMESPACE="openstudio-server"
+RELEASE="openstudio-server"
+CHART_DIR="./openstudio-server"
+MODE="check"
+APPLY=false
+CYCLES=12
+SLEEP_SECONDS=300
+MAX_CONSECUTIVE_HOLDS=3
+
+WORKER_STEP_REPLICAS=250
+WORKER_MAX_LIMIT=19250
+
+WEB_BG_COUNT_STEP=4
+WEB_BG_COUNT_MAX=96
+WEB_BG_CPU_STEP_CORES=1
+WEB_BG_CPU_REQUEST_MAX_CORES=32
+WEB_BG_CPU_LIMIT_MULTIPLIER=2
+WEB_BG_MEMORY_STEP_GI=1
+WEB_BG_MEMORY_REQUEST_MAX_GI=32
+WEB_BG_MEMORY_LIMIT_MULTIPLIER=2
+MIN_QUEUE_PER_AVAILABLE_WORKER=2
+ANALYSES_BACKLOG_THRESHOLD=100
+
+PROBE_QUIET_WINDOW_SECONDS=300
+PROBE_QUIET_INTERVAL_SECONDS=30
+PROBE_EVENT_WINDOW_SECONDS=900
+PROBE_EVENT_HARD_THRESHOLD=3
+PROBE_EVENT_SOFT_THRESHOLD=5
+PROBE_PROBLEM_POD_THRESHOLD=3
+PROBE_STALE_TERMINATING_MINUTES=10
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RELIABILITY_SCRIPT="${SCRIPT_DIR}/openstudio-reliability"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/openstudio-capacity-ramp [options]
+
+Description:
+  Applies an incremental scale loop for worker maxReplicas and web-background
+  throughput, guarded by openstudio-reliability ceiling-probe checks.
+
+Modes:
+  --mode check            Read-only; prints proposed next step for each cycle.
+  --mode apply            Executes helm upgrades for approved step-ups (requires --apply).
+
+Options:
+  -n, --namespace <ns>    Kubernetes namespace (default: openstudio-server)
+  -r, --release <name>    Helm release name (default: openstudio-server)
+  -c, --chart <path>      Helm chart path (default: ./openstudio-server)
+      --cycles <n>        Number of loop cycles (default: 12)
+      --sleep-seconds <s> Delay between cycles (default: 300)
+      --max-holds <n>     Stop after this many consecutive hold recommendations (default: 3)
+      --worker-step <n>   Worker maxReplicas increment per approved step (default: 250)
+      --worker-max-limit <n>
+                          Absolute worker maxReplicas ceiling (default: 19250)
+      --web-bg-count-step <n>
+                          web-background COUNT increment when feeder pressure is detected (default: 4)
+      --web-bg-count-max <n>
+                          web-background COUNT ceiling (default: 96)
+      --web-bg-cpu-step-cores <n>
+                          web-background CPU request increment in cores (default: 1)
+      --web-bg-cpu-request-max-cores <n>
+                          web-background CPU request ceiling in cores (default: 32)
+      --web-bg-memory-step-gi <n>
+                          web-background memory request increment in Gi (default: 1)
+      --web-bg-memory-request-max-gi <n>
+                          web-background memory request ceiling in Gi (default: 32)
+      --min-queue-per-worker <n>
+                          Min (simulations+requeued)/available-worker ratio before feeder bump (default: 2)
+      --analyses-backlog-threshold <n>
+                          analyses queue threshold that triggers feeder bump (default: 100)
+      --probe-quiet-window-seconds <s>
+                          Ceiling-probe quiet window duration (default: 300)
+      --probe-quiet-interval-seconds <s>
+                          Ceiling-probe sample interval (default: 30)
+      --apply             Required for --mode apply.
+  -h, --help              Show this help.
+
+Examples:
+  scripts/openstudio-capacity-ramp --mode check --cycles 4
+  scripts/openstudio-capacity-ramp --mode apply --apply --cycles 10 --sleep-seconds 600
+EOF
+}
+
+log() { echo "[INFO] $*"; }
+warn() { echo "[WARN] $*" >&2; }
+die() { echo "[ERROR] $*" >&2; exit 1; }
+
+require_bin() {
+  command -v "$1" >/dev/null 2>&1 || die "Missing required binary: $1"
+}
+
+require_int_ge() {
+  local name=$1
+  local value=$2
+  local min=$3
+  [[ "$value" =~ ^[0-9]+$ ]] || die "${name} must be an integer"
+  (( value >= min )) || die "${name} must be >= ${min}"
+}
+
+cpu_to_millicores() {
+  local raw="$1"
+  if [[ "$raw" =~ ^[0-9]+m$ ]]; then
+    echo "${raw%m}"
+  elif [[ "$raw" =~ ^[0-9]+$ ]]; then
+    echo "$((raw * 1000))"
+  else
+    die "Unsupported CPU quantity: ${raw}"
+  fi
+}
+
+mem_to_mib() {
+  local raw="$1"
+  if [[ "$raw" =~ ^[0-9]+Gi$ ]]; then
+    echo "$(( ${raw%Gi} * 1024 ))"
+  elif [[ "$raw" =~ ^[0-9]+Mi$ ]]; then
+    echo "${raw%Mi}"
+  else
+    die "Unsupported memory quantity: ${raw}"
+  fi
+}
+
+get_worker_hpa_name() {
+  local name
+  name="$(kubectl -n "$NAMESPACE" get hpa -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
+    | grep -E '^worker($|-)' | head -n1 || true)"
+  [[ -n "$name" ]] || die "No worker HPA found in namespace ${NAMESPACE}"
+  echo "$name"
+}
+
+get_worker_max_replicas() {
+  local hpa_name
+  hpa_name="$(get_worker_hpa_name)"
+  kubectl -n "$NAMESPACE" get hpa "$hpa_name" -o jsonpath='{.spec.maxReplicas}'
+}
+
+get_worker_available_replicas() {
+  local value
+  value="$(kubectl -n "$NAMESPACE" get deploy worker -o jsonpath='{.status.availableReplicas}' 2>/dev/null || true)"
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    echo "$value"
+  else
+    echo "0"
+  fi
+}
+
+get_redis_pod() {
+  kubectl -n "$NAMESPACE" get pods -l "app=redis,release=${RELEASE}" -o json \
+    | jq -r '.items[] | select(.status.phase == "Running") | .metadata.name' | head -n1
+}
+
+read_queue_depths() {
+  local redis_pod="$1"
+  kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+    PW="${REDIS_PASSWORD:-}"
+    AUTH=""
+    [ -n "$PW" ] && AUTH="-a $PW --no-auth-warning"
+    printf "simulations="
+    redis-cli $AUTH LLEN resque:queue:simulations
+    printf "requeued="
+    redis-cli $AUTH LLEN resque:queue:requeued
+    printf "analyses="
+    redis-cli $AUTH LLEN resque:queue:analyses
+  ' | tr -d '\r'
+}
+
+get_web_background_state() {
+  kubectl -n "$NAMESPACE" get deploy web-background -o json \
+    | jq -r '
+      .spec.template.spec.containers[]
+      | select(.name == "web-background")
+      | [
+          ((.env // []) | map(select(.name == "COUNT")) | .[0].value // "0"),
+          (.resources.requests.cpu // "0"),
+          (.resources.requests.memory // "0Gi")
+        ] | @tsv
+    '
+}
+
+run_probe() {
+  local output_file recommendation suggested hold_codes
+  output_file="$(mktemp)"
+  trap 'rm -f "$output_file"' RETURN
+
+  "$RELIABILITY_SCRIPT" --mode ceiling-probe \
+    -n "$NAMESPACE" \
+    -r "$RELEASE" \
+    --quiet-window-seconds "$PROBE_QUIET_WINDOW_SECONDS" \
+    --quiet-interval-seconds "$PROBE_QUIET_INTERVAL_SECONDS" \
+    --event-window-seconds "$PROBE_EVENT_WINDOW_SECONDS" \
+    --event-hard-threshold "$PROBE_EVENT_HARD_THRESHOLD" \
+    --event-soft-threshold "$PROBE_EVENT_SOFT_THRESHOLD" \
+    --problem-pod-threshold "$PROBE_PROBLEM_POD_THRESHOLD" \
+    --stale-terminating-minutes "$PROBE_STALE_TERMINATING_MINUTES" \
+    --probe-step-replicas "$WORKER_STEP_REPLICAS" \
+    --probe-max-replicas-limit "$WORKER_MAX_LIMIT" | tee "$output_file" >&2
+
+  recommendation="$(grep '^RECOMMENDATION=' "$output_file" | tail -n1 | cut -d= -f2- || true)"
+  suggested="$(grep '^SUGGESTED_NEXT_MAX_REPLICAS=' "$output_file" | tail -n1 | cut -d= -f2- || true)"
+  hold_codes="$(grep '^HOLD_REASON_CODES=' "$output_file" | tail -n1 | cut -d= -f2- || true)"
+
+  [[ -n "$recommendation" ]] || die "Probe output missing RECOMMENDATION"
+  [[ -n "$suggested" ]] || suggested="$(get_worker_max_replicas)"
+  echo "${recommendation}|${suggested}|${hold_codes:-none}"
+}
+
+build_helm_set_args() {
+  local next_worker_max="$1"
+  local next_count="$2"
+  local next_cpu_request_m="$3"
+  local next_cpu_limit_m="$4"
+  local next_memory_request_mib="$5"
+  local next_memory_limit_mib="$6"
+  local current_count="$7"
+  local current_cpu_request_m="$8"
+  local current_memory_request_mib="$9"
+
+  local -a args=()
+  local should_bump_web=false
+
+  args+=(--set "worker_hpa.maxReplicas=${next_worker_max}")
+  if (( next_count != current_count )); then
+    should_bump_web=true
+    args+=(--set "web_background.workerCount=${next_count}")
+  fi
+  if (( next_cpu_request_m != current_cpu_request_m )); then
+    should_bump_web=true
+    args+=(--set-string "web_background.container.resources.requests.cpu=${next_cpu_request_m}m")
+    args+=(--set-string "web_background.container.resources.limits.cpu=${next_cpu_limit_m}m")
+  fi
+  if (( next_memory_request_mib != current_memory_request_mib )); then
+    should_bump_web=true
+    args+=(--set-string "web_background.container.resources.requests.memory=${next_memory_request_mib}Mi")
+    args+=(--set-string "web_background.container.resources.limits.memory=${next_memory_limit_mib}Mi")
+  fi
+
+  if [[ "$should_bump_web" == "true" ]]; then
+    args+=(--set "web_background.replicas=1")
+    args+=(--set "web_background_hpa.enabled=false")
+    args+=(--set "web_background_hpa.minReplicas=1")
+    args+=(--set "web_background_hpa.maxReplicas=1")
+  fi
+
+  printf '%s\n' "${args[@]}"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --mode) MODE="$2"; shift 2 ;;
+    -n|--namespace) NAMESPACE="$2"; shift 2 ;;
+    -r|--release) RELEASE="$2"; shift 2 ;;
+    -c|--chart) CHART_DIR="$2"; shift 2 ;;
+    --cycles) CYCLES="$2"; shift 2 ;;
+    --sleep-seconds) SLEEP_SECONDS="$2"; shift 2 ;;
+    --max-holds) MAX_CONSECUTIVE_HOLDS="$2"; shift 2 ;;
+    --worker-step) WORKER_STEP_REPLICAS="$2"; shift 2 ;;
+    --worker-max-limit) WORKER_MAX_LIMIT="$2"; shift 2 ;;
+    --web-bg-count-step) WEB_BG_COUNT_STEP="$2"; shift 2 ;;
+    --web-bg-count-max) WEB_BG_COUNT_MAX="$2"; shift 2 ;;
+    --web-bg-cpu-step-cores) WEB_BG_CPU_STEP_CORES="$2"; shift 2 ;;
+    --web-bg-cpu-request-max-cores) WEB_BG_CPU_REQUEST_MAX_CORES="$2"; shift 2 ;;
+    --web-bg-memory-step-gi) WEB_BG_MEMORY_STEP_GI="$2"; shift 2 ;;
+    --web-bg-memory-request-max-gi) WEB_BG_MEMORY_REQUEST_MAX_GI="$2"; shift 2 ;;
+    --min-queue-per-worker) MIN_QUEUE_PER_AVAILABLE_WORKER="$2"; shift 2 ;;
+    --analyses-backlog-threshold) ANALYSES_BACKLOG_THRESHOLD="$2"; shift 2 ;;
+    --probe-quiet-window-seconds) PROBE_QUIET_WINDOW_SECONDS="$2"; shift 2 ;;
+    --probe-quiet-interval-seconds) PROBE_QUIET_INTERVAL_SECONDS="$2"; shift 2 ;;
+    --apply) APPLY=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "Unknown argument: $1" ;;
+  esac
+done
+
+require_bin kubectl
+require_bin helm
+require_bin jq
+require_bin date
+[[ -x "$RELIABILITY_SCRIPT" ]] || die "Missing or non-executable script: ${RELIABILITY_SCRIPT}"
+
+case "$MODE" in
+  check|apply) ;;
+  *) die "--mode must be check or apply" ;;
+esac
+if [[ "$MODE" == "apply" && "$APPLY" != "true" ]]; then
+  die "Refusing to mutate without --apply"
+fi
+
+require_int_ge "cycles" "$CYCLES" 1
+require_int_ge "sleep-seconds" "$SLEEP_SECONDS" 1
+require_int_ge "max-holds" "$MAX_CONSECUTIVE_HOLDS" 1
+require_int_ge "worker-step" "$WORKER_STEP_REPLICAS" 1
+require_int_ge "worker-max-limit" "$WORKER_MAX_LIMIT" 1
+require_int_ge "web-bg-count-step" "$WEB_BG_COUNT_STEP" 1
+require_int_ge "web-bg-count-max" "$WEB_BG_COUNT_MAX" 1
+require_int_ge "web-bg-cpu-step-cores" "$WEB_BG_CPU_STEP_CORES" 1
+require_int_ge "web-bg-cpu-request-max-cores" "$WEB_BG_CPU_REQUEST_MAX_CORES" 1
+require_int_ge "web-bg-memory-step-gi" "$WEB_BG_MEMORY_STEP_GI" 1
+require_int_ge "web-bg-memory-request-max-gi" "$WEB_BG_MEMORY_REQUEST_MAX_GI" 1
+require_int_ge "min-queue-per-worker" "$MIN_QUEUE_PER_AVAILABLE_WORKER" 1
+require_int_ge "analyses-backlog-threshold" "$ANALYSES_BACKLOG_THRESHOLD" 1
+require_int_ge "probe-quiet-window-seconds" "$PROBE_QUIET_WINDOW_SECONDS" 60
+require_int_ge "probe-quiet-interval-seconds" "$PROBE_QUIET_INTERVAL_SECONDS" 5
+
+consecutive_holds=0
+for ((cycle=1; cycle<=CYCLES; cycle++)); do
+  log "Cycle ${cycle}/${CYCLES}: running ceiling probe"
+  IFS='|' read -r recommendation suggested_next hold_codes <<<"$(run_probe)"
+
+  if [[ "$recommendation" != "advance" ]]; then
+    consecutive_holds=$((consecutive_holds + 1))
+    warn "Probe recommends hold (reason_codes=${hold_codes}); consecutive_holds=${consecutive_holds}/${MAX_CONSECUTIVE_HOLDS}"
+    if (( consecutive_holds >= MAX_CONSECUTIVE_HOLDS )); then
+      warn "Stopping loop due to consecutive holds"
+      break
+    fi
+    if (( cycle < CYCLES )); then
+      sleep "$SLEEP_SECONDS"
+    fi
+    continue
+  fi
+  consecutive_holds=0
+
+  current_worker_max="$(get_worker_max_replicas)"
+  [[ "$current_worker_max" =~ ^[0-9]+$ ]] || die "Could not parse current worker maxReplicas"
+  target_worker_max="$((current_worker_max + WORKER_STEP_REPLICAS))"
+  if (( target_worker_max > WORKER_MAX_LIMIT )); then
+    target_worker_max="$WORKER_MAX_LIMIT"
+  fi
+  if [[ "$suggested_next" =~ ^[0-9]+$ ]] && (( suggested_next < target_worker_max )); then
+    target_worker_max="$suggested_next"
+  fi
+
+  web_state="$(get_web_background_state)"
+  [[ -n "$web_state" ]] || die "Could not read web-background container state"
+  current_web_count="$(cut -f1 <<<"$web_state")"
+  current_web_cpu_raw="$(cut -f2 <<<"$web_state")"
+  current_web_memory_raw="$(cut -f3 <<<"$web_state")"
+  [[ "$current_web_count" =~ ^[0-9]+$ ]] || current_web_count=0
+
+  current_web_cpu_request_m="$(cpu_to_millicores "$current_web_cpu_raw")"
+  current_web_memory_request_mib="$(mem_to_mib "$current_web_memory_raw")"
+
+  redis_pod="$(get_redis_pod)"
+  [[ -n "$redis_pod" ]] || die "No running redis pod found"
+  queue_depths="$(read_queue_depths "$redis_pod")"
+  queue_simulations="$(grep '^simulations=' <<<"$queue_depths" | cut -d= -f2 || echo 0)"
+  queue_requeued="$(grep '^requeued=' <<<"$queue_depths" | cut -d= -f2 || echo 0)"
+  queue_analyses="$(grep '^analyses=' <<<"$queue_depths" | cut -d= -f2 || echo 0)"
+  [[ "$queue_simulations" =~ ^[0-9]+$ ]] || queue_simulations=0
+  [[ "$queue_requeued" =~ ^[0-9]+$ ]] || queue_requeued=0
+  [[ "$queue_analyses" =~ ^[0-9]+$ ]] || queue_analyses=0
+
+  worker_available="$(get_worker_available_replicas)"
+  queue_total="$((queue_simulations + queue_requeued))"
+  queue_ratio=999999
+  if (( worker_available > 0 )); then
+    queue_ratio="$((queue_total / worker_available))"
+  fi
+
+  bump_web_background=false
+  if (( queue_ratio < MIN_QUEUE_PER_AVAILABLE_WORKER )) || (( queue_analyses >= ANALYSES_BACKLOG_THRESHOLD )); then
+    bump_web_background=true
+  fi
+
+  next_web_count="$current_web_count"
+  next_web_cpu_request_m="$current_web_cpu_request_m"
+  next_web_memory_request_mib="$current_web_memory_request_mib"
+  if [[ "$bump_web_background" == "true" ]]; then
+    next_web_count="$((current_web_count + WEB_BG_COUNT_STEP))"
+    if (( next_web_count > WEB_BG_COUNT_MAX )); then
+      next_web_count="$WEB_BG_COUNT_MAX"
+    fi
+
+    web_cpu_step_m="$((WEB_BG_CPU_STEP_CORES * 1000))"
+    web_cpu_max_m="$((WEB_BG_CPU_REQUEST_MAX_CORES * 1000))"
+    next_web_cpu_request_m="$((current_web_cpu_request_m + web_cpu_step_m))"
+    if (( next_web_cpu_request_m > web_cpu_max_m )); then
+      next_web_cpu_request_m="$web_cpu_max_m"
+    fi
+
+    web_memory_step_mib="$((WEB_BG_MEMORY_STEP_GI * 1024))"
+    web_memory_max_mib="$((WEB_BG_MEMORY_REQUEST_MAX_GI * 1024))"
+    next_web_memory_request_mib="$((current_web_memory_request_mib + web_memory_step_mib))"
+    if (( next_web_memory_request_mib > web_memory_max_mib )); then
+      next_web_memory_request_mib="$web_memory_max_mib"
+    fi
+  fi
+
+  next_web_cpu_limit_m="$((next_web_cpu_request_m * WEB_BG_CPU_LIMIT_MULTIPLIER))"
+  next_web_memory_limit_mib="$((next_web_memory_request_mib * WEB_BG_MEMORY_LIMIT_MULTIPLIER))"
+
+  if (( target_worker_max <= current_worker_max )) && \
+     (( next_web_count == current_web_count )) && \
+     (( next_web_cpu_request_m == current_web_cpu_request_m )) && \
+     (( next_web_memory_request_mib == current_web_memory_request_mib )); then
+    log "Cycle ${cycle}: nothing to change at current limits"
+    break
+  fi
+
+  log "Cycle ${cycle} decision: worker_max ${current_worker_max} -> ${target_worker_max}; queue_total=${queue_total}, worker_available=${worker_available}, queue_per_worker=${queue_ratio}, analyses=${queue_analyses}, bump_web_background=${bump_web_background}"
+  if [[ "$bump_web_background" == "true" ]]; then
+    log "web-background step: COUNT ${current_web_count} -> ${next_web_count}; CPU ${current_web_cpu_request_m}m -> ${next_web_cpu_request_m}m; memory ${current_web_memory_request_mib}Mi -> ${next_web_memory_request_mib}Mi"
+  fi
+
+  if [[ "$MODE" == "check" ]]; then
+    log "Check mode: no mutation applied"
+  else
+    mapfile -t helm_set_args < <(
+      build_helm_set_args \
+        "$target_worker_max" \
+        "$next_web_count" \
+        "$next_web_cpu_request_m" \
+        "$next_web_cpu_limit_m" \
+        "$next_web_memory_request_mib" \
+        "$next_web_memory_limit_mib" \
+        "$current_web_count" \
+        "$current_web_cpu_request_m" \
+        "$current_web_memory_request_mib"
+    )
+
+    helm upgrade "$RELEASE" "$CHART_DIR" \
+      -n "$NAMESPACE" \
+      --reuse-values \
+      --server-side=false \
+      "${helm_set_args[@]}"
+
+    kubectl -n "$NAMESPACE" rollout status deploy/web-background --timeout=20m
+  fi
+
+  if (( cycle < CYCLES )); then
+    sleep "$SLEEP_SECONDS"
+  fi
+done
+
+log "Capacity ramp loop complete"

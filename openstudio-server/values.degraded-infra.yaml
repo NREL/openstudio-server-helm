@@ -58,7 +58,7 @@ worker:
       forceKillEnabled: true
 
 prepull:
-  enabled: true
+  enabled: false
   warmMode: "continuous"
   intervalSeconds: 1200
   spreadSeconds: 900

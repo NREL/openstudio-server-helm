@@ -1,0 +1,344 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NAMESPACE="openstudio-server"
+RELEASE="openstudio-server"
+MODE="check"
+APPLY=false
+
+TARGET_SIMULATION_JOBS=20000
+BATCH_SIZE=1000
+MAX_BATCH_SIZE=5000
+HEADROOM=1500
+SCAN_MULTIPLIER=20
+STUCK_CYCLES=5
+SLEEP_SECONDS=90
+MAX_CYCLES=0
+LOCK_TTL_SECONDS=3600
+
+LOCK_KEY=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/openstudio-failed-retry-loop [options]
+
+Description:
+  Retries failed Resque jobs in batches. When simulation backlog is below target,
+  it prioritizes failed jobs from simulations/requeued to refill the queue.
+  Loop exits when failures are exhausted, max cycles is hit, or progress stalls.
+
+Modes (default: check):
+  --mode check            Read-only preview of the next action each cycle.
+  --mode apply            Execute retries (requires --apply).
+
+Options:
+  -n, --namespace <ns>    Kubernetes namespace (default: openstudio-server)
+  -r, --release <name>    Helm release name (default: openstudio-server)
+      --target-sim-jobs <n>
+                          Target minimum for simulations+requeued backlog (default: 20000)
+      --batch-size <n>    Base failed-job retries per cycle (default: 1000)
+      --max-batch-size <n>
+                          Upper bound retries per cycle (default: 5000)
+      --headroom <n>      Extra retries above queue deficit when refilling (default: 1500)
+      --scan-multiplier <n>
+                          Max failed entries scanned = retries * multiplier for filtered retries (default: 20)
+      --stuck-cycles <n>  Stop after N no-progress cycles (default: 5)
+      --sleep-seconds <s> Delay between cycles (default: 90)
+      --max-cycles <n>    Max loop cycles; 0 means unlimited (default: 0)
+      --lock-ttl-seconds <s>
+                          Redis lock TTL for apply mode (default: 3600)
+      --apply             Required with --mode apply.
+  -h, --help              Show this help.
+
+Examples:
+  scripts/openstudio-failed-retry-loop --mode check --max-cycles 3
+  scripts/openstudio-failed-retry-loop --mode apply --apply --sleep-seconds 120
+EOF
+}
+
+log() { echo "[INFO] $*"; }
+warn() { echo "[WARN] $*" >&2; }
+die() { echo "[ERROR] $*" >&2; exit 1; }
+
+require_bin() {
+  command -v "$1" >/dev/null 2>&1 || die "Missing required binary: $1"
+}
+
+require_int_ge() {
+  local name=$1
+  local value=$2
+  local min=$3
+  [[ "$value" =~ ^[0-9]+$ ]] || die "${name} must be an integer"
+  (( value >= min )) || die "${name} must be >= ${min}"
+}
+
+get_single_running_pod_by_label() {
+  local selector=$1
+  mapfile -t pods < <(
+    kubectl -n "$NAMESPACE" get pods -l "$selector" -o json 2>/dev/null \
+      | jq -r '.items[] | select(.status.phase == "Running") | .metadata.name' || true
+  )
+  [[ ${#pods[@]} -gt 0 ]] || die "No running pods found for selector: ${selector}"
+  echo "${pods[0]}"
+}
+
+get_redis_pod() {
+  get_single_running_pod_by_label "app=redis,release=${RELEASE}"
+}
+
+get_web_pod() {
+  get_single_running_pod_by_label "app=web,release=${RELEASE}"
+}
+
+read_queue_depths() {
+  local redis_pod=$1
+  kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc '
+    PW="${REDIS_PASSWORD:-}"
+    AUTH=""
+    [ -n "$PW" ] && AUTH="-a $PW --no-auth-warning"
+    printf "simulations="
+    redis-cli $AUTH LLEN resque:queue:simulations
+    printf "requeued="
+    redis-cli $AUTH LLEN resque:queue:requeued
+    printf "failed="
+    redis-cli $AUTH LLEN resque:failed
+  ' | tr -d '\r'
+}
+
+extract_metric() {
+  local key=$1
+  local content=$2
+  local value
+  value="$(grep "^${key}=" <<<"$content" | tail -n1 | cut -d= -f2 || true)"
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    echo "$value"
+  else
+    echo "0"
+  fi
+}
+
+acquire_lock() {
+  local redis_pod lock_value lock_result
+  redis_pod="$(get_redis_pod)"
+  LOCK_KEY="openstudio:recovery:failed-retry-loop:${NAMESPACE}:${RELEASE}"
+  lock_value="$(date +%s)-$$"
+  lock_result="$(
+    kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc "
+      PW=\"\${REDIS_PASSWORD:-}\"
+      AUTH=\"\"
+      [ -n \"\$PW\" ] && AUTH=\"-a \$PW --no-auth-warning\"
+      redis-cli \$AUTH SET '${LOCK_KEY}' '${lock_value}' NX EX '${LOCK_TTL_SECONDS}'
+    " | tr -d '\r'
+  )"
+  [[ "$lock_result" == "OK" ]] || die "Could not acquire retry lock (${LOCK_KEY}); another loop may be running"
+  log "Acquired retry lock (${LOCK_KEY})"
+}
+
+release_lock() {
+  local redis_pod
+  [[ -n "$LOCK_KEY" ]] || return 0
+  redis_pod="$(get_redis_pod)"
+  kubectl -n "$NAMESPACE" exec "$redis_pod" -- sh -lc "
+    PW=\"\${REDIS_PASSWORD:-}\"
+    AUTH=\"\"
+    [ -n \"\$PW\" ] && AUTH=\"-a \$PW --no-auth-warning\"
+    redis-cli \$AUTH DEL '${LOCK_KEY}' >/dev/null
+  " >/dev/null 2>&1 || true
+  log "Released retry lock (${LOCK_KEY})"
+}
+
+retry_failed_batch() {
+  local web_pod=$1
+  local retry_limit=$2
+  local filter_queues=$3
+  local max_scan=$4
+
+  kubectl -n "$NAMESPACE" exec "$web_pod" -- sh -lc "
+    cd /opt/openstudio/server
+    bundle exec ruby - '${retry_limit}' '${filter_queues}' '${max_scan}' <<'RUBY'
+require './config/environment'
+require 'set'
+
+limit = (ARGV[0] || '0').to_i
+filter_csv = (ARGV[1] || '').to_s.strip
+max_scan = (ARGV[2] || '0').to_i
+
+before = Resque::Failure.count
+retried = 0
+errors = 0
+scanned = 0
+matched = 0
+filters = filter_csv.split(',').map(&:strip).reject(&:empty?).to_set
+
+if before > 0 && limit > 0
+  if filters.empty?
+    start_index = [before - limit, 0].max
+    (before - 1).downto(start_index) do |idx|
+      begin
+        Resque::Failure.requeue(idx)
+        retried += 1
+      rescue StandardError
+        errors += 1
+      end
+    end
+  else
+    scan_cap = max_scan > 0 ? max_scan : before
+    (before - 1).downto(0) do |idx|
+      break if retried >= limit || scanned >= scan_cap
+      scanned += 1
+      begin
+        item = Resque::Failure.all(idx, 1)
+        queue = item.is_a?(Hash) ? (item['queue'] || item.dig('payload', 'queue')) : nil
+        next unless filters.include?(queue)
+        matched += 1
+        Resque::Failure.requeue(idx)
+        retried += 1
+      rescue StandardError
+        errors += 1
+      end
+    end
+  end
+end
+
+after = Resque::Failure.count
+puts \"retried=#{retried} errors=#{errors} scanned=#{scanned} matched=#{matched} before=#{before} remaining=#{after}\"
+RUBY
+  " | tr -d '\r'
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --mode) MODE="$2"; shift 2 ;;
+    -n|--namespace) NAMESPACE="$2"; shift 2 ;;
+    -r|--release) RELEASE="$2"; shift 2 ;;
+    --target-sim-jobs) TARGET_SIMULATION_JOBS="$2"; shift 2 ;;
+    --batch-size) BATCH_SIZE="$2"; shift 2 ;;
+    --max-batch-size) MAX_BATCH_SIZE="$2"; shift 2 ;;
+    --headroom) HEADROOM="$2"; shift 2 ;;
+    --scan-multiplier) SCAN_MULTIPLIER="$2"; shift 2 ;;
+    --stuck-cycles) STUCK_CYCLES="$2"; shift 2 ;;
+    --sleep-seconds) SLEEP_SECONDS="$2"; shift 2 ;;
+    --max-cycles) MAX_CYCLES="$2"; shift 2 ;;
+    --lock-ttl-seconds) LOCK_TTL_SECONDS="$2"; shift 2 ;;
+    --apply) APPLY=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "Unknown option: $1" ;;
+  esac
+done
+
+require_bin kubectl
+require_bin jq
+require_bin date
+
+case "$MODE" in
+  check|apply) ;;
+  *) die "--mode must be check or apply" ;;
+esac
+
+if [[ "$MODE" == "apply" && "$APPLY" != "true" ]]; then
+  die "Refusing to mutate without --apply"
+fi
+
+require_int_ge "target-sim-jobs" "$TARGET_SIMULATION_JOBS" 0
+require_int_ge "batch-size" "$BATCH_SIZE" 1
+require_int_ge "max-batch-size" "$MAX_BATCH_SIZE" 1
+require_int_ge "headroom" "$HEADROOM" 0
+require_int_ge "scan-multiplier" "$SCAN_MULTIPLIER" 1
+require_int_ge "stuck-cycles" "$STUCK_CYCLES" 1
+require_int_ge "sleep-seconds" "$SLEEP_SECONDS" 1
+require_int_ge "max-cycles" "$MAX_CYCLES" 0
+require_int_ge "lock-ttl-seconds" "$LOCK_TTL_SECONDS" 60
+
+(( MAX_BATCH_SIZE >= BATCH_SIZE )) || die "max-batch-size must be >= batch-size"
+
+if [[ "$MODE" == "apply" ]]; then
+  acquire_lock
+  trap 'release_lock' EXIT
+fi
+
+cycle=0
+no_progress_cycles=0
+
+while true; do
+  cycle=$((cycle + 1))
+  if (( MAX_CYCLES > 0 && cycle > MAX_CYCLES )); then
+    log "Reached max cycles (${MAX_CYCLES}); stopping"
+    break
+  fi
+
+  redis_pod="$(get_redis_pod)"
+  queue_before="$(read_queue_depths "$redis_pod")"
+  sim_before="$(extract_metric simulations "$queue_before")"
+  requeued_before="$(extract_metric requeued "$queue_before")"
+  failed_before="$(extract_metric failed "$queue_before")"
+  total_sim_before="$((sim_before + requeued_before))"
+
+  if (( failed_before == 0 )); then
+    log "No failed jobs remaining; done"
+    break
+  fi
+
+  filter_queues=""
+  desired_retries="$BATCH_SIZE"
+  if (( total_sim_before < TARGET_SIMULATION_JOBS )); then
+    deficit="$((TARGET_SIMULATION_JOBS - total_sim_before))"
+    desired_retries="$((deficit + HEADROOM))"
+    if (( desired_retries < BATCH_SIZE )); then
+      desired_retries="$BATCH_SIZE"
+    fi
+    if (( desired_retries > MAX_BATCH_SIZE )); then
+      desired_retries="$MAX_BATCH_SIZE"
+    fi
+    filter_queues="simulations,requeued"
+  fi
+
+  if (( desired_retries > failed_before )); then
+    desired_retries="$failed_before"
+  fi
+
+  if [[ "$MODE" == "check" ]]; then
+    log "Cycle ${cycle}: simulations=${sim_before}, requeued=${requeued_before}, total_simulation_jobs=${total_sim_before}, failed=${failed_before}, would_retry=${desired_retries}, filter_queues=${filter_queues:-all}"
+  else
+    web_pod="$(get_web_pod)"
+    max_scan="$((desired_retries * SCAN_MULTIPLIER))"
+    retry_output="$(retry_failed_batch "$web_pod" "$desired_retries" "$filter_queues" "$max_scan")"
+    retry_line="$(grep 'retried=' <<<"$retry_output" | tail -n1 || true)"
+    [[ -n "$retry_line" ]] || die "Retry output missing summary line"
+
+    retried="$(awk '{for(i=1;i<=NF;i++){if($i ~ /^retried=/){split($i,a,"="); print a[2]}}}' <<<"$retry_line")"
+    errors="$(awk '{for(i=1;i<=NF;i++){if($i ~ /^errors=/){split($i,a,"="); print a[2]}}}' <<<"$retry_line")"
+    remaining_reported="$(awk '{for(i=1;i<=NF;i++){if($i ~ /^remaining=/){split($i,a,"="); print a[2]}}}' <<<"$retry_line")"
+    [[ "$retried" =~ ^[0-9]+$ ]] || retried=0
+    [[ "$errors" =~ ^[0-9]+$ ]] || errors=0
+    [[ "$remaining_reported" =~ ^[0-9]+$ ]] || remaining_reported="$failed_before"
+
+    sleep "$SLEEP_SECONDS"
+
+    queue_after="$(read_queue_depths "$redis_pod")"
+    sim_after="$(extract_metric simulations "$queue_after")"
+    requeued_after="$(extract_metric requeued "$queue_after")"
+    failed_after="$(extract_metric failed "$queue_after")"
+    total_sim_after="$((sim_after + requeued_after))"
+
+    log "Cycle ${cycle}: retried=${retried}, errors=${errors}, failed_before=${failed_before}, failed_after=${failed_after}, reported_remaining=${remaining_reported}, total_sim_jobs_before=${total_sim_before}, total_sim_jobs_after=${total_sim_after}, filter_queues=${filter_queues:-all}"
+
+    if (( failed_after == 0 )); then
+      log "All failed jobs have been retried"
+      break
+    fi
+
+    if (( retried == 0 )) || (( failed_after >= failed_before )); then
+      no_progress_cycles=$((no_progress_cycles + 1))
+      warn "No failed-queue progress in cycle ${cycle}; no_progress_cycles=${no_progress_cycles}/${STUCK_CYCLES}"
+      if (( no_progress_cycles >= STUCK_CYCLES )); then
+        warn "Stopping: jobs appear to be cycling back to failed (stuck condition)"
+        break
+      fi
+    else
+      no_progress_cycles=0
+    fi
+  fi
+done
+
+log "Failed retry loop complete"

@@ -1,0 +1,157 @@
+{{- if eq (include "openstudio.workerAutoscalingMode" .) "keda-hybrid" }}
+{{- $workerAutoscaling := default (dict) .Values.worker_autoscaling -}}
+{{- $keda := default (dict) (get $workerAutoscaling "keda") -}}
+{{- $externalScaler := default (dict) (get $keda "externalScaler") -}}
+{{- if (default false (get $externalScaler "enabled")) }}
+{{- $service := default (dict) (get $externalScaler "service") -}}
+{{- $deployment := default (dict) (get $externalScaler "deployment") -}}
+{{- $serviceAccount := default (dict) (get $externalScaler "serviceAccount") -}}
+{{- $rbac := default (dict) (get $externalScaler "rbac") -}}
+{{- $metrics := default (dict) (get $externalScaler "metrics") -}}
+{{- $gating := default (dict) (get $externalScaler "gating") -}}
+{{- $queueNames := default (default (list "simulations" "requeued") (get $keda "queueNames")) (get $externalScaler "queueNames") -}}
+{{- $redisAddress := default (default (printf "%s.%s.svc.cluster.local:6379" (include "openstudio.redisServiceName" .) .Release.Namespace) (get $keda "redisAddress")) (get $externalScaler "redisAddress") -}}
+{{- $name := default (printf "%s-external-scaler" (include "openstudio.workerName" .)) (get $service "name") -}}
+{{- $port := default 9090 (get $service "port") -}}
+{{- $replicas := default 1 (get $deployment "replicas") -}}
+{{- $imageRaw := default "" (get $deployment "image") -}}
+{{- if eq $imageRaw "" -}}
+{{- fail "worker_autoscaling.keda.externalScaler.deployment.image must be set when worker_autoscaling.keda.externalScaler.enabled=true" -}}
+{{- end -}}
+{{- $image := include "openstudio.imageWithRegistry" (dict "root" . "image" $imageRaw) -}}
+{{- $imagePullPolicy := default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $deployment "imagePullPolicy") -}}
+{{- $saName := default $name (get $serviceAccount "name") -}}
+{{- $createSa := default true (get $serviceAccount "create") -}}
+{{- $createRbac := default true (get $rbac "create") -}}
+{{- $nodeSelector := default (dict) (get $deployment "nodeSelector") -}}
+{{- if $createSa }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $saName }}
+{{- end }}
+{{- if $createRbac }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: [{{ include "openstudio.workerName" . | quote }}]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+    release: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ $name }}
+    release: {{ .Release.Name }}
+  ports:
+    - name: grpc
+      port: {{ $port }}
+      targetPort: grpc
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+    release: {{ .Release.Name }}
+spec:
+  replicas: {{ $replicas }}
+  selector:
+    matchLabels:
+      app: {{ $name }}
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+        release: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ $saName }}
+{{- include "openstudio.podNodeSelector" (dict "nodeSelector" $nodeSelector) | nindent 6 }}
+{{- include "openstudio.podImagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: external-scaler
+          image: {{ $image }}
+          imagePullPolicy: {{ $imagePullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ $port }}
+              protocol: TCP
+          env:
+            - name: EXTERNAL_SCALER_PORT
+              value: {{ $port | quote }}
+            - name: TARGET_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: TARGET_DEPLOYMENT
+              value: {{ include "openstudio.workerName" . | quote }}
+            - name: REDIS_ADDRESS
+              value: {{ $redisAddress | quote }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openstudio.secretName" . }}
+                  key: {{ include "openstudio.secretKeyRedisPassword" . }}
+            - name: QUEUE_NAMES
+              value: {{ join "," $queueNames | quote }}
+            - name: QUEUE_LENGTH_PER_WORKER
+              value: {{ default "1" (get $keda "queueLengthPerWorker") | quote }}
+            - name: ACTIVATION_QUEUE_LENGTH
+              value: {{ default "1" (get $keda "activationQueueLength") | quote }}
+            - name: METRIC_NAME
+              value: {{ default "worker_queue_pressure" (get $metrics "name") | quote }}
+            - name: TARGET_VALUE
+              value: {{ default "1" (get $metrics "targetValue") | quote }}
+            - name: ACTIVATION_TARGET_VALUE
+              value: {{ default "1" (get $metrics "activationTargetValue") | quote }}
+            - name: READY_GATE_MIN_PERCENT
+              value: {{ default 95 (get $gating "minReadyPercent") | quote }}
+            - name: MAX_SCALE_STEP_PODS
+              value: {{ default 32 (get $gating "maxScaleStepPods") | quote }}
+            - name: MAX_SCALE_STEP_PERCENT
+              value: {{ default 200 (get $gating "maxScaleStepPercent") | quote }}
+{{- with (get $deployment "extraEnv") }}
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- with (get $deployment "resources") }}
+          resources:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 15
+            periodSeconds: 20
+{{- end }}
+{{- end }}

@@ -378,6 +378,74 @@
               "properties": {
                 "restoreToOriginalReplicaCount": { "type": "boolean" }
               }
+            },
+            "externalScaler": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "queueNames": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "redisAddress": { "type": "string" },
+                "service": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+                  }
+                },
+                "deployment": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "replicas": { "type": "integer", "minimum": 1 },
+                    "image": { "type": "string" },
+                    "imagePullPolicy": { "type": "string" },
+                    "resources": { "type": "object", "additionalProperties": true },
+                    "extraEnv": {
+                      "type": "array",
+                      "items": { "type": "object", "additionalProperties": true }
+                    },
+                    "nodeSelector": { "$ref": "#/definitions/stringMap" }
+                  }
+                },
+                "serviceAccount": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "create": { "type": "boolean" },
+                    "name": { "type": "string" }
+                  }
+                },
+                "rbac": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "create": { "type": "boolean" }
+                  }
+                },
+                "metrics": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "targetValue": { "type": ["integer", "string"], "minLength": 1 },
+                    "activationTargetValue": { "type": ["integer", "string"], "minLength": 1 }
+                  }
+                },
+                "gating": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "minReadyPercent": { "type": "integer", "minimum": 1, "maximum": 100 },
+                    "maxScaleStepPods": { "type": "integer", "minimum": 1 },
+                    "maxScaleStepPercent": { "type": "integer", "minimum": 1 }
+                  }
+                }
+              }
             }
           }
         }

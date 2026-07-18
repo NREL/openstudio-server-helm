@@ -137,6 +137,30 @@ require_bin() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required binary: $1"
 }
 
+require_cluster_api_healthy() {
+  local attempts=6
+  local sleep_seconds=5
+  local attempt
+  for ((attempt=1; attempt<=attempts; attempt++)); do
+    if kubectl --request-timeout=10s version >/dev/null 2>&1; then
+      if kubectl --request-timeout=10s get --raw=/readyz >/dev/null 2>&1 \
+        || kubectl --request-timeout=10s get --raw=/healthz >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+    if (( attempt < attempts )); then
+      warn "Kubernetes API preflight failed (attempt ${attempt}/${attempts}); retrying in ${sleep_seconds}s..."
+      sleep "$sleep_seconds"
+    fi
+  done
+
+  if [[ "$STRICT" == "true" ]]; then
+    die "Kubernetes API preflight failed after ${attempts} attempts"
+  fi
+  warn "Kubernetes API preflight failed after ${attempts} attempts; continuing because --no-strict is set"
+  return 0
+}
+
 kube_probe() {
   local desc=$1
   shift
@@ -1004,36 +1028,43 @@ read_platform_blocker_summary() {
   print_hold_reason_mapping "$reason_codes"
 }
 
-read_loadbalancer_event_signals() {
-  local service_events sync_failures octavia_503
-  log "Ingress load balancer event signals"
-  service_events="$(
+read_ingress_event_signals() {
+  local ingress_name ingress_events sync_failures octavia_503
+  log "Web ingress event signals"
+  ingress_name="$(
+    kubectl -n "$NAMESPACE" get ingress \
+      -o jsonpath='{range .items[?(@.metadata.labels.release=="'"$RELEASE"'")]}{.metadata.name}{"\n"}{end}' \
+      2>/dev/null | head -n 1
+  )"
+  ingress_name="${ingress_name:-web-external-ingress}"
+
+  ingress_events="$(
     kubectl -n "$NAMESPACE" get events \
-      --field-selector involvedObject.kind=Service,involvedObject.name=ingress-load-balancer \
+      --field-selector involvedObject.kind=Ingress,involvedObject.name="${ingress_name}" \
       --sort-by=.lastTimestamp \
       -o custom-columns=LAST:.lastTimestamp,REASON:.reason,MSG:.message \
       2>/dev/null | tail -100 || true
   )"
 
-  if [[ -z "$service_events" ]]; then
-    warn "No ingress-load-balancer service events returned"
+  if [[ -z "$ingress_events" ]]; then
+    warn "No ${ingress_name} ingress events returned"
     return 0
   fi
 
-  sync_failures="$(grep -ciE 'SyncLoadBalancerFailed|UpdateLoadBalancerFailed' <<<"$service_events" || true)"
-  octavia_503="$(grep -ciF '503 Service Unavailable' <<<"$service_events" || true)"
+  sync_failures="$(grep -ciE 'SyncLoadBalancerFailed|UpdateLoadBalancerFailed' <<<"$ingress_events" || true)"
+  octavia_503="$(grep -ciF '503 Service Unavailable' <<<"$ingress_events" || true)"
 
   if [[ "$sync_failures" =~ ^[0-9]+$ ]] && (( sync_failures > 0 )); then
-    warn "Ingress load balancer sync failures observed: ${sync_failures}"
+    warn "Ingress-related load balancer sync failures observed: ${sync_failures}"
   fi
   if [[ "$octavia_503" =~ ^[0-9]+$ ]] && (( octavia_503 > 0 )); then
-    warn "Ingress load balancer Octavia 503 events observed: ${octavia_503}"
+    warn "Ingress-related Octavia 503 events observed: ${octavia_503}"
   fi
   if [[ "$sync_failures" =~ ^[0-9]+$ ]] && (( sync_failures >= 3 )); then
-    warn "Ingress load balancer failures look sustained; escalate to the platform team if they continue"
+    warn "Ingress-related load balancer failures look sustained; escalate to the platform team if they continue"
   fi
 
-  echo "$service_events" | tail -20
+  echo "$ingress_events" | tail -20
 }
 
 get_recent_warning_events() {
@@ -1702,7 +1733,7 @@ run_check_mode() {
   echo "---"
   read_platform_blocker_summary
   echo "---"
-  read_loadbalancer_event_signals
+  read_ingress_event_signals
   echo "---"
   read_node_memory_pressure_state
   echo "---"
@@ -2650,6 +2681,7 @@ done
 require_bin kubectl
 require_bin helm
 require_bin jq
+require_cluster_api_healthy
 
 case "$MODE" in
   check) run_check_mode ;;

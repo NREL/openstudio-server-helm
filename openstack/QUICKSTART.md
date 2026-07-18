@@ -47,7 +47,7 @@ Use the local zot registry endpoint for NFS provisioner pulls:
 ```yaml
 nfs-server-provisioner:
   image:
-    repository: "erezsh2/nfs-provisioner"
+    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
     tag: "v2.3.0"
 ```
 

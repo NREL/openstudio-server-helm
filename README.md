@@ -37,7 +37,7 @@ cp openstudio-server/values.production.template.yaml openstudio-server/values.ya
 Values files are now grouped by purpose:
 
 - **Base templates**: `values.small.template.yaml`, `values.large.template.yaml`, `values.production.template.yaml`
-- **Environment overlays**: `values.registry-live.yaml`, `values.azimuth-july1v2.local.yaml`
+- **Environment overlays**: `values.registry-live.yaml`, `openstack/values-openstack-azimuth.yaml`
 - **Operational overlays**: `values.profile-*.yaml`, `values.phase*-override.yaml`, `values.degraded-infra.yaml`
 
 Then edit your chosen values file (for example `openstudio-server/values.yaml`) to:
@@ -75,7 +75,6 @@ Provider-aware infrastructure defaults are also automatic when values are omitte
 | ------------------------------------- | ----------------- | ------------------------ |
 | `db.persistence.storageClass`         | `nfs`             | `ssd`                    |
 | `redis.persistence.storageClass`      | `nfs`             | `ssd`                    |
-| `load_balancer.externalTrafficPolicy` | `Cluster`         | `Local`                  |
 
 For OpenStack production deployments, `values.production.template.yaml` explicitly sets:
 
@@ -105,7 +104,7 @@ Use the local zot registry endpoint for NFS provisioner pulls:
 ```yaml
 nfs-server-provisioner:
   image:
-    repository: "erezsh2/nfs-provisioner"
+    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
     tag: "v2.3.0"
 ```
 
@@ -205,7 +204,7 @@ registryHostsPatch:
     capi.stackhpc.com/node-group: "worker"
 ```
 
-For very large analysis batches, you can temporarily enable prepull (`prepull.enabled: true`). The chart now uses a tiny bootstrap image plus host `ctr` pulls with a randomized spread window, which avoids stamping the registry with hundreds of large image pulls at once. You can still opt into extra images with `prepull.includeRserve: true`, `prepull.includeWebInit: true`, and tune `prepull.spreadSeconds` if you need a slower ramp.
+For very large analysis batches, you can temporarily enable prepull (`prepull.enabled: true`). The chart now uses a tiny bootstrap image plus host `ctr` pulls with a randomized spread window, which avoids stamping the registry with hundreds of large image pulls at once. By default, prepull now follows the same worker/rserve/web image references (including Pulp registry settings) as the workload pods. You can still opt into extra images with `prepull.includeRserve: true`, `prepull.includeWebInit: true`, and tune `prepull.spreadSeconds` if you need a slower ramp.
 
 Optional image warmup before large scale-up:
 
@@ -316,7 +315,7 @@ The probe now uses thresholded sustained counts in the configured event window, 
 
 Also pause further scaling if any node reports `MemoryPressure` or if you see repeated liveness-probe/OOM events; keep the worker ceiling aligned to the stable ready node count until those clear.
 
-For Octavia, check `ingress-load-balancer` service events during ramp tests. Transient `SyncLoadBalancerFailed`/`503 Service Unavailable` warnings are provider-side noise if they clear, but repeated failures should be escalated instead of treated as a chart regression.
+For Octavia, check `web-external-ingress` events during ramp tests. Transient `SyncLoadBalancerFailed`/`503 Service Unavailable` warnings are provider-side noise if they clear, but repeated failures should be escalated instead of treated as a chart regression.
 
 If you use `scripts/install.sh`, you can enable the same profile directly:
 
@@ -465,10 +464,16 @@ PROVIDER=openstack ./scripts/reset-fresh-start.sh --yes
 ```
 
 This script:
-- Uninstalls the release
+- Uninstalls the release (default `--no-hooks` for reliability; pass `--with-hooks` to run uninstall hooks)
 - Deletes data PVCs (`db`, `redis`, `nfs-pvc`, `nfs-pvc-data`)
 - Attempts best-effort cleanup of matching PVs when reclaim policy is `Retain`
 - Reinstalls with `scripts/install.sh` (pass `--no-reinstall` to skip)
+
+`reset-fresh-start.sh` now preserves provider/node-group scheduling compatibility:
+- Reuses `global.provider.name` from the existing release when `PROVIDER` is not set
+- Validates that expected node-group labels exist before reinstall
+- Fails if core PVCs (`db`, `redis`, `nfs-pvc-data`, `nfs-pvc`) do not bind after reinstall
+- Auto-generates `openstudio-app-secrets` during reinstall when `SECRET_MODE=existing` and the secret is missing
 
 ## Upgrade Notes
 
@@ -581,6 +586,9 @@ nfs_pvc:
 | worker_autoscaling.keda.activationQueueLength      | Minimum queue depth before KEDA begins scaling from idle/min state                                                                                                               | 1                      |
 | worker_autoscaling.keda.queueNames                 | Redis queue names used for KEDA triggers (rendered as `resque:queue:<name>`)                                                                                                     | [simulations,requeued] |
 | worker_autoscaling.keda.enableCpuTrigger           | Include CPU trigger alongside queue triggers in `keda-hybrid` mode                                                                                                               | false                  |
+| worker_autoscaling.keda.externalScaler.enabled     | Switch KEDA queue trigger source from built-in Redis triggers to a custom external scaler service                                                                                | false                  |
+| worker_autoscaling.keda.externalScaler.service.name | Service name used by KEDA `external` trigger `scalerAddress`                                                                                                                    | worker-external-scaler |
+| worker_autoscaling.keda.externalScaler.gating.minReadyPercent | Ready/desired gate (percent) passed to external scaler for step-up control                                                                                             | 95                     |
 | autoscaler.expander                                | Cluster Autoscaler expander strategy (`least-waste`, `most-pods`, `random`, `priority`)                                                                                          | least-waste            |
 | autoscaler.priorityExpander.enabled                | Render priority-expander ConfigMap for deterministic node-group selection (requires `autoscaler.expander=priority`)                                                              | false                  |
 | prepull.additionalImages                           | Additional image references pre-pulled by prepull DaemonSet on each node                                                                                                         | []                     |
@@ -596,10 +604,6 @@ nfs_pvc:
 | redis.config.maxclients                            | Redis max client connections passed to `redis-server --maxclients` (important for large worker/background fleets)                                                                | 20000                  |
 | redis.config.tcpBacklog                            | Redis TCP backlog passed to `redis-server --tcp-backlog`                                                                                                                         | 511                    |
 | redis.config.timeoutSeconds                        | Redis idle client timeout passed to `redis-server --timeout` (`0` disables timeout)                                                                                              | 0                      |
-| load_balancer.openstack.address                    | Optional pre-allocated/public OpenStack address for the ingress LoadBalancer; avoids dynamic floating-IP creation                                                                  | ""                     |
-| load_balancer.openstack.securityGroups             | Optional OpenStack LB security-group IDs/names; rendered as the `loadbalancer.openstack.org/security-groups` annotation                                                        | []                     |
-| load_balancer.annotations                          | Optional extra annotations map applied to the LoadBalancer Service                                                                                                               | {}                     |
-| load_balancer.sourceRanges                         | Optional `loadBalancerSourceRanges` list; some OpenStack Octavia providers ignore this setting                                                                                   | []                     |
 | web_background.replicas                            | Number of projects/analyses to run in parallel. **\*Note** Algorithmic runs are currently not supported to run in parallel. Keep default value of 1 for these types of analyses. | 1                      |
 | web_background.workerCount                         | Number of Resque workers (`COUNT`) launched per web-background pod                                                                                                               | 6                      |
 | web_background.container.startup.maxRetries        | Maximum retries when `start-web-background` exits during startup (for transient DB/Redis races)                                                                                  | 12                     |
@@ -699,48 +703,11 @@ Note that 1000m means one virtual CPU core.
 
 You can also add `watch` to the beginning of the command to see the output change over time.
 
-Once the cluster is up and running, you can use `kubectl` to determine the external IP or DN to access OpenStudio server and use this in PAT to connect to. For example, on AWS, a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com is the external name. See the examples below for each cloud provider.
-
-AWS is the long domain (a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com)
+Once the cluster is up and running, use `kubectl` to determine the external host/address exposed by `web-external-ingress` and configure that URL in PAT.
 
 ```bash
-kubectl get svc ingress-load-balancer
+kubectl get ingress -n openstudio-server web-external-ingress
 ```
-
-example output:
-
-```bash
-NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                                               PORT(S)                      AGE
-ingress-load-balancer   LoadBalancer   10.100.246.21   a52e7c2e22f3940a8aa9d80b5220d468-1479205808.us-east-1.elb.amazonaws.com   80:32739/TCP,443:31344/TCP   5m56s
-```
-
-Google is 35.247.75.9
-
-```bash
-kubectl get svc ingress-load-balancer
-```
-
-example output:
-
-```bash
-NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
-ingress-load-balancer   LoadBalancer   10.55.246.197   35.247.75.9   80:32613/TCP,443:31562/TCP   35m
-```
-
-Azure is 20.190.10.17
-
-```bash
-kubectl get svc ingress-load-balancer
-```
-
-example output:
-
-```bash
-NAME                                       TYPE           CLUSTER-IP    EXTERNAL-IP    PORT(S)  AGE
-ingress-load-balancer                      LoadBalancer   10.0.248.18   20.190.10.17   80:31879/TCP 443:30780/TCP 3m53s
-```
-
-You will then use this EXTERNAL-IP to use with PAT to connect to an existing cloud server. In the AWS example, you would enter http://a0a4014d98f0211ea91cb06528280f48-1900622776.us-west-2.elb.amazonaws.com in PAT under Existing Server URL in PAT. For Google, http://35.247.75.9. For Azure, http://20.190.10.17
 
 ## Persistent Volumes
 
@@ -819,6 +786,38 @@ Use `scripts/openstudio-reliability` to standardize triage and recovery steps:
   --stale-terminating-minutes 10 \
   --probe-step-replicas 50 \
   --probe-max-replicas-limit 1200
+
+# Looping step-up ramp (check mode by default):
+# - Uses ceiling-probe each cycle as a gate.
+# - Increments worker maxReplicas gradually.
+# - Increases web-background COUNT/resources only when queue feed pressure is detected.
+./scripts/openstudio-capacity-ramp \
+  --mode check \
+  --cycles 4
+
+# Apply mode (mutating): same loop with guarded helm upgrades.
+./scripts/openstudio-capacity-ramp \
+  --mode apply \
+  --apply \
+  --cycles 10 \
+  --sleep-seconds 600 \
+  --worker-max-limit 19250
+
+# Retry failed jobs in batches while maintaining a simulation backlog target.
+# - Prioritizes failed simulations/requeued retries when backlog is below target.
+# - Stops when failed queue reaches 0 or when retries stop making progress.
+./scripts/openstudio-failed-retry-loop \
+  --mode check \
+  --target-sim-jobs 20000 \
+  --max-cycles 3
+
+./scripts/openstudio-failed-retry-loop \
+  --mode apply \
+  --apply \
+  --target-sim-jobs 20000 \
+  --batch-size 1000 \
+  --max-batch-size 5000 \
+  --sleep-seconds 120
 
 # Capture queue/job snapshots before any mutation
 ./scripts/openstudio-reliability --mode snapshot \
@@ -911,6 +910,7 @@ Design notes:
 - Probe ceiling defaults to `1200` unless `--probe-max-replicas-limit` is overridden.
 - Failed/evicted worker pod cleanup during ramp checks is opt-in (`--cleanup-failed-worker-pods`) and apply-gated.
 - Stale terminating worker cleanup during blocked probes is opt-in (`--cleanup-stale-terminating-worker-pods`) and apply-gated.
+- `openstudio-failed-retry-loop` is check-mode by default and apply-gated; it retries failed jobs in bounded batches, prioritizes `simulations,requeued` when backlog is below target, and stops automatically on repeated no-progress cycles.
 - Snapshot mode captures queue depths, app status counts, and stale started/na datapoints for incident auditability.
 - Snapshot/review artifacts now include failed-queue triage outputs (`failed_queue_triage.md`, `failed_queue_signature_counts.tsv`, `failed_queue_analysis_counts.tsv`) for replay-vs-manual decisions.
 - Review-non-completed mode captures a timestamped incident directory with `non_completed_summary.md` (status/blocker counts + remediation guidance), `non_completed_analysis_details.json` (per-analysis diagnostics/blocker classification), `non_completed_job_inventory.json` (per-job status/recovery classification), and baseline raw evidence files.
@@ -1071,7 +1071,7 @@ kills only that child (never the pod, never the resque master), letting Resque's
 supervisor re-fork and `transient-failure-replayer` requeue the datapoint — the in-pod
 equivalent of the manual `openstudio-worker-drain --apply` pass above, running
 automatically every `livenessProbe.periodSeconds`. Enabled in production at `2400`
-(40min) via `values.azimuth-july1v2.local.yaml`. This script and its wider fleet-scan
+(40min) via `openstack/values-openstack-azimuth.yaml`. This script and its wider fleet-scan
 remain useful for a one-shot bulk drain (e.g. after a mass-wedge incident) or for
 clusters where the probe is left disabled.
 
@@ -1150,6 +1150,13 @@ For `keda-hybrid` mode:
 - KEDA must be installed in the cluster.
 - The chart creates a `TriggerAuthentication` that reads Redis password from the existing app secret.
 - Queue signal tuning is controlled with `worker_autoscaling.keda.*`.
+
+Optional readiness-gated scale-up (external scaler route):
+
+- Set `worker_autoscaling.keda.externalScaler.enabled=true`.
+- Provide `worker_autoscaling.keda.externalScaler.deployment.image` (your gRPC external scaler implementation).
+- The chart will switch `ScaledObject` queue triggers to `type: external` and pass readiness-gate inputs (for example `gating.minReadyPercent=95`, `gating.maxScaleStepPods`, `gating.maxScaleStepPercent`) as environment/metadata to that service.
+- A starter implementation is included at `tools/keda-external-scaler/` and an OpenStack overlay at `openstack/values-openstack-azimuth-external-scaler.yaml`.
 
 ### Install KEDA (self-managed prerequisite)
 

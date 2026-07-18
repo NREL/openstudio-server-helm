@@ -162,13 +162,13 @@ nfs-server-provisioner:
     # Keep nfs_pvc.storage below this value to avoid NFS provisioning failures.
     # OpenStack preflight (required): ensure this + db.persistence.size +
     # redis.persistence.size + existing Cinder usage remains below your quota.
-    # 4000Gi (this) + 192Gi (db) + 96Gi (redis) = 4288Gi total.
-    size: 4000Gi
+    # 3900Gi (this) + 192Gi (db) + 96Gi (redis) = 4188Gi total.
+    size: 3900Gi
     # Explicitly pin OpenStack backend class to avoid drift on upgrades.
     storageClass: "csi-cinder"
   # Pull from Docker Hub by default; override in env-specific values files when needed.
   image:
-    repository: "erezsh2/nfs-provisioner"
+    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
     tag: "v2.3.0"
   storageClass:
     allowVolumeExpansion: true  # Enable expansion for future growth
@@ -220,7 +220,7 @@ nfs_pvc:
   storageClass: "nfs"
   # Frontend shared RWX claim consumed by web/rserve/background pods.
   # Keep this below nfs-server-provisioner.persistence.size (recommended 85-95%).
-  storage: "3600Gi"
+  storage: "3500Gi"
 
 # Redis - Enhanced for production at scale (10k+ workers)
 redis:
@@ -306,6 +306,11 @@ rserve:
       limits:
         cpu: 4          # 2x request: burst headroom for concurrent R analysis jobs
         memory: "8Gi"   # 2x request: burst headroom without masking a real leak
+    # Keep short but non-zero to allow in-flight requests to drain before kubelet kill.
+    terminationGracePeriodSeconds: 90
+    preStop:
+      enabled: true
+      sleepSeconds: 10
 
 rserve_svc:
   {}
@@ -538,7 +543,7 @@ worker:
         memory: "512Mi"  # Right-sized 2026-07-07: observed actual RSS 230-412Mi across 8493 running pods (avg ~253Mi); 1Gi request was 3-4x actual usage, capping nodes at 78 pods/node on memory before CPU (400m request -> ~155 pods/node ceiling) became binding. 512Mi matches the CPU-bound ceiling almost exactly (80313Mi allocatable / 512Mi ~= 156 pods/node), roughly doubling schedulable worker density with no CPU waste. 2Gi limit unchanged -- burst/OOM safety valve untouched.
       limits:
         cpu: 500m         # Cap burst to prevent CPU starvation of other pods on node
-        memory: "700Mi"  # Hard limit to prevent OOM on node; OOMKill single pod instead of node
+        memory: "1200Mi"  # Hard limit to prevent OOM on node; OOMKill single pod instead of node
     # Optional cap for worker scratch space under /mnt/openstudio (EmptyDir).
     # Keep unset for no per-pod cap; set (for example "8Gi") to prevent single-pod disk runaway.
     emptyDirSizeLimit: ""
@@ -575,7 +580,7 @@ worker:
 # Worker HPA - Optimized for production workloads with aggressive scale-up
 worker_hpa:
   minReplicas: 2
-  maxReplicas: 800
+  maxReplicas: 12500
   targetCPUUtilizationPercentage: 50
   stabilizationWindowSeconds: 600
   behavior:
@@ -627,6 +632,51 @@ worker_autoscaling:
       replicas: 16
     advanced:
       restoreToOriginalReplicaCount: false
+    # Optional KEDA external scaler integration for readiness-gated scale-up control.
+    # When enabled, queue triggers move from built-in Redis triggers to a custom
+    # external scaler service you provide.
+    externalScaler:
+      enabled: false
+      # Optional queue list override for the external scaler. Defaults to keda.queueNames.
+      queueNames: []
+      # Optional Redis address override for the external scaler. Defaults to keda.redisAddress.
+      redisAddress: ""
+      service:
+        name: "worker-external-scaler"
+        port: 9090
+      deployment:
+        replicas: 1
+        # Required when externalScaler.enabled=true.
+        image: ""
+        imagePullPolicy: "IfNotPresent"
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        # Optional extra env vars for your external scaler image.
+        extraEnv: []
+        # Optional node selector override for the external scaler pod.
+        nodeSelector: {}
+      serviceAccount:
+        create: true
+        name: ""
+      rbac:
+        create: true
+      metrics:
+        # Trigger metric name reported to KEDA/HPA by the external scaler.
+        name: "worker_queue_pressure"
+        # Defaults only; your scaler can override internally.
+        targetValue: "1"
+        activationTargetValue: "1"
+      gating:
+        # Ready-replica percentage gate for allowing additional scale-up.
+        minReadyPercent: 95
+        # Optional per-step scale-up ceilings exposed to the scaler.
+        maxScaleStepPods: 32
+        maxScaleStepPercent: 200
 
     # For degraded infrastructure periods (registry/auth/network/control-plane
     # instability), apply a safer tuning overlay, for example:
@@ -637,15 +687,15 @@ hooks:
     enabled: true
     # Optional explicit image for pre-delete cleanup job. Set to an internal mirror
     # to avoid external registry pulls during uninstall/cleanup.
-    image: "bitnami/kubectl:1.31"
+    image: "docker.io/bitnami/kubectl:1.31"
     # Optional explicit pull policy override. If empty, uses provider-aware default
     # (openstack=IfNotPresent, others=Always).
     imagePullPolicy: "IfNotPresent"
 
 prepull:
   # Image warmup DaemonSet for scale-up/upgrade events.
-  # Keep enabled during planned warm-up windows to reduce registry stampede on scale-up.
-  enabled: true
+  # Keep disabled by default; enable temporarily during planned warm-up windows.
+  enabled: false
   # Restrict prepull to worker nodes where it's needed most.
   role: "worker"
   # Optional explicit pull policy override. If empty, uses provider-aware default
@@ -666,7 +716,7 @@ prepull:
   intervalSeconds: 1800
   # If true, pod exits non-zero when any pull in a cycle fails.
   # This makes failures obvious via CrashLoopBackOff/NotReady state.
-  failOnAnyPullError: true  # Changed: surface failures immediately
+  failOnAnyPullError: false
   includeRserve: false
   includeWebInit: false
   # Optional additional images to warm on each node (for example sidecars or infra tools)

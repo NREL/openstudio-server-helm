@@ -333,25 +333,25 @@ ssh ubuntu@<node-ip> "sudo systemctl restart containerd"
 **Diagnosis:**
 
 ```bash
-kubectl describe svc -n openstudio-server ingress-load-balancer
+kubectl describe ingress -n openstudio-server web-external-ingress
 kubectl get events -n openstudio-server \
-  --field-selector involvedObject.kind=Service,involvedObject.name=ingress-load-balancer \
+  --field-selector involvedObject.kind=Ingress,involvedObject.name=web-external-ingress \
   --sort-by=.lastTimestamp
 kubectl logs -n openstack-system -l app=openstack-cloud-controller-manager --since=60m | \
-  grep -E 'ingress-load-balancer|SyncLoadBalancerFailed|EnsuredLoadBalancer|faultstring'
+  grep -E 'web-external-ingress|SyncLoadBalancerFailed|EnsuredLoadBalancer|faultstring'
 ```
 
 **Interpretation:**
 
-1. If service has external IP + LB ID annotation and CCM logs show `EnsuredLoadBalancer`, earlier warnings were transient and can be ignored.
+1. If ingress has host/address and CCM logs show `EnsuredLoadBalancer`, earlier warnings were transient and can be ignored.
 2. If failures persist and fault strings show wrong/unreachable OpenStack endpoints (for example `vs-api.hpc.nlr.gov`), this is a platform endpoint/DNS issue in OpenStack/CCM config.
 
 **Fix:**
 
 1. Platform team updates OpenStack LB/Neutron endpoint config and DNS reachability.
-2. Reconcile the service by re-applying or patching it (or restarting CCM if instructed by platform team).
+2. Reconcile ingress/controller resources (or restart CCM if instructed by platform team).
 
-When validating worker scale changes, also watch `ingress-load-balancer` service events. A few transient `SyncLoadBalancerFailed` or Octavia `503 Service Unavailable` events can happen during node membership churn; repeated events over multiple checks mean the platform team should investigate before further scaling. Use the report-only quiet-window gate before each cap bump:
+When validating worker scale changes, also watch `web-external-ingress` events. A few transient `SyncLoadBalancerFailed` or Octavia `503 Service Unavailable` events can happen during node membership churn; repeated events over multiple checks mean the platform team should investigate before further scaling. Use the report-only quiet-window gate before each cap bump:
 
 ```bash
 ./scripts/openstudio-reliability --mode ceiling-probe \
@@ -624,7 +624,7 @@ Use the degraded overlay when platform instability is amplifying workload churn.
 helm upgrade openstudio-server ./openstudio-server \
   -n openstudio-server \
   -f openstudio-server/values.yaml \
-  -f openstudio-server/values.azimuth-july1v2.local.yaml \
+  -f openstack/values-openstack-azimuth.yaml \
   -f openstudio-server/values.degraded-infra.yaml
 ```
 
@@ -644,7 +644,7 @@ longer cooldown, and tolerant prepull behavior during degraded infrastructure.
 helm upgrade openstudio-server ./openstudio-server \
   -n openstudio-server \
   -f openstudio-server/values.yaml \
-  -f openstudio-server/values.azimuth-july1v2.local.yaml
+  -f openstack/values-openstack-azimuth.yaml
 ```
 
 If behavior regresses, immediately roll back to the last known-good release revision:

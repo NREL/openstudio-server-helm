@@ -16,7 +16,14 @@
 {{- end -}}
 {{- $queueNames := default (list "simulations" "requeued") (get $keda "queueNames") -}}
 {{- $kedaAddress := default (printf "%s.%s.svc.cluster.local:6379" (include "openstudio.redisServiceName" .) .Release.Namespace) (get $keda "redisAddress") -}}
+{{- $externalScaler := default (dict) (get $keda "externalScaler") -}}
+{{- $useExternalScaler := default false (get $externalScaler "enabled") -}}
+{{- $externalService := default (dict) (get $externalScaler "service") -}}
+{{- $externalMetrics := default (dict) (get $externalScaler "metrics") -}}
+{{- $externalScalerServiceName := default (printf "%s-external-scaler" (include "openstudio.workerName" .)) (get $externalService "name") -}}
+{{- $externalScalerPort := default 9090 (get $externalService "port") -}}
 ---
+{{- if not $useExternalScaler }}
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication
 metadata:
@@ -27,6 +34,7 @@ spec:
       name: {{ include "openstudio.secretName" . }}
       key: {{ include "openstudio.secretKeyRedisPassword" . }}
 ---
+{{- end }}
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -62,6 +70,14 @@ spec:
     replicas: {{ get $fallback "replicas" }}
   {{- end }}
   triggers:
+    {{- if $useExternalScaler }}
+    - type: external
+      metadata:
+        scalerAddress: {{ printf "%s.%s.svc.cluster.local:%v" $externalScalerServiceName .Release.Namespace $externalScalerPort | quote }}
+        metricName: {{ default "worker_queue_pressure" (get $externalMetrics "name") | quote }}
+        targetValue: {{ default "1" (get $externalMetrics "targetValue") | quote }}
+        activationTargetValue: {{ default "1" (get $externalMetrics "activationTargetValue") | quote }}
+    {{- else }}
     {{- range $queueName := $queueNames }}
     - type: redis
       metadata:
@@ -71,6 +87,7 @@ spec:
         activationListLength: {{ default "1" (get $keda "activationQueueLength") | quote }}
       authenticationRef:
         name: {{ include "openstudio.workerName" $root }}-keda-redis-auth
+    {{- end }}
     {{- end }}
     {{- if $enableCpuTrigger }}
     - type: cpu

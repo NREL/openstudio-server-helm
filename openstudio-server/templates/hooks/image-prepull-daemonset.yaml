@@ -5,21 +5,22 @@
 {{- $utilityImage := default "registry.k8s.io/e2e-test-images/busybox:1.29-2" (get $prepull "utilityImage") -}}
 {{- $utilityImagePullPolicy := default "IfNotPresent" (get $prepull "utilityImagePullPolicy") -}}
 {{- $spreadSeconds := default 300 (get $prepull "spreadSeconds") -}}
+{{- $readinessInitialDelaySeconds := max 5 (add (int $spreadSeconds) 30) -}}
 {{- $warmMode := lower (default "once" (get $prepull "warmMode")) -}}
 {{- if not (has $warmMode (list "once" "continuous")) -}}
 {{- fail (printf "prepull.warmMode=%q is unsupported. Supported values: once, continuous." $warmMode) -}}
 {{- end -}}
 {{- $intervalSeconds := default 1800 (get $prepull "intervalSeconds") -}}
 {{- $failOnAnyPullError := default false (get $prepull "failOnAnyPullError") -}}
-{{- $images := list (include "openstudio.serverImage" .) -}}
+{{- $images := list (default (include "openstudio.serverImage" .) .Values.worker.container.image) -}}
 {{- if $includeRserve -}}
-{{- $images = append $images (include "openstudio.rserveImage" .) -}}
+{{- $images = append $images (default (include "openstudio.rserveImage" .) .Values.rserve.container.image) -}}
 {{- end -}}
 {{- if $includeWebInit -}}
 {{- $images = append $images (default (include "openstudio.serverImage" .) .Values.web.initContainer.image) -}}
 {{- end -}}
 {{- range $i, $img := (default (list) (get $prepull "additionalImages")) -}}
-{{- $images = append $images $img -}}
+{{- $images = append $images (include "openstudio.imageWithRegistry" (dict "root" . "image" $img)) -}}
 {{- end -}}
 apiVersion: apps/v1
 kind: DaemonSet
@@ -86,11 +87,27 @@ spec:
 
               pull_image() {
                 image="$1"
+                normalized_image="$image"
+                # Host ctr may not have Docker Hub default registry aliases configured.
+                # Normalize unqualified names so pulls resolve consistently.
+                case "$image" in
+                  */*)
+                    image_first_segment="${image%%/*}"
+                    if ! echo "${image_first_segment}" | grep -Eq '(^localhost$|[.:])'; then
+                      normalized_image="docker.io/${image}"
+                    fi
+                    ;;
+                  *)
+                    normalized_image="docker.io/library/${image}"
+                    ;;
+                esac
                 echo "prepull ${NODE_NAME:-unknown}: pulling ${image}"
-                if chroot /host /usr/bin/ctr -n k8s.io images pull "${image}"; then
-                  echo "prepull ${NODE_NAME:-unknown}: pulled ${image}"
+                if { [ -x /host/usr/bin/nsenter ] && [ -x /host/usr/bin/ctr ] && [ -e /host/proc/1/ns/net ] && [ -e /host/proc/1/ns/mnt ] \
+                    && /host/usr/bin/nsenter --mount=/host/proc/1/ns/mnt --net=/host/proc/1/ns/net -- /usr/bin/ctr -n k8s.io images pull "${normalized_image}"; } \
+                  || chroot /host /usr/bin/ctr -n k8s.io images pull "${normalized_image}"; then
+                  echo "prepull ${NODE_NAME:-unknown}: pulled ${normalized_image}"
                 else
-                  echo "prepull ${NODE_NAME:-unknown}: failed ${image}" >&2
+                  echo "prepull ${NODE_NAME:-unknown}: failed ${normalized_image}" >&2
                   return 1
                 fi
                 return 0
@@ -140,7 +157,7 @@ spec:
                 - /bin/sh
                 - -c
                 - test -s /tmp/prepull-ready
-            initialDelaySeconds: 5
+            initialDelaySeconds: {{ $readinessInitialDelaySeconds }}
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3

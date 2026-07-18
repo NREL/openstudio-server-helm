@@ -8,6 +8,10 @@ global:
     registry: "pulp-dev.hpc.nlr.gov"
     repositoryPrefix: "pulp-container-aurora-179d"
   nodeGroups:
+    # Prevent worker pods from spilling onto web nodes.
+    workerAffinityMode: "required"
+    # Keep all web-role workloads pinned to web nodes.
+    webAffinityMode: "required"
     # Web nodes carry taint worker-pods:not-allowed:NoSchedule to keep worker pods off them.
     # Infra pods (db, web, web-background, etc.) use role=web and must tolerate this taint.
     # Without this, any pod using tolerationsForRole(web) fails to schedule after a restart.
@@ -42,6 +46,13 @@ worker:
   resque:
     jobTimeoutSeconds: 14400  # 4-hour wall-clock limit per simulation subprocess
   container:
+    resources:
+      requests:
+        cpu: 400m
+        memory: 700Mi
+      limits:
+        cpu: 500m
+        memory: 1200Mi
     terminationGracePeriodSeconds: 660
     preStop:
       enabled: true
@@ -96,16 +107,37 @@ worker_hpa:
           periodSeconds: 60
 
 prepull:
-  enabled: true
+  # Enable only for planned warmup windows; keep disabled in steady-state.
+  enabled: false
   role: "worker"
   warmMode: "continuous"
   intervalSeconds: 1200
   spreadSeconds: 900
   failOnAnyPullError: false
 
+web:
+  replicas: 1
+  strategy:
+    # Keep exactly one web pod during rollouts (no temporary surge replica).
+    maxSurge: 0
+    maxUnavailable: 1
+
+web_hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
+
 web_background:
   replicas: 1
-  workerCount: 12
+  workerCount: 42
+  container:
+    resources:
+      requests:
+        cpu: 12
+        memory: 12Gi
+      limits:
+        cpu: 24
+        memory: 24Gi
 
 web_background_hpa:
   enabled: false
@@ -118,10 +150,22 @@ web_background_hpa:
 # Cinder quota-fit overrides for this cluster.
 nfs-server-provisioner:
   persistence:
-    size: 4320Gi
+    size: 3900Gi
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "18Gi"
+    limits:
+      cpu: "2"
+      memory: "28Gi"
+  tolerations:
+    - key: worker-pods
+      operator: Equal
+      value: not-allowed
+      effect: NoSchedule
 
 nfs_pvc:
-  storage: 4000Gi
+  storage: 3500Gi
 
 db:
   persistence:

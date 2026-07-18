@@ -101,9 +101,8 @@ helm template openstudio-server "${CHART_DIR}" \
   --set db.name=custom-db \
   --set redis.name=custom-redis \
   --set nfs_pvc.name=custom-nfs-pvc \
-  --set load_balancer.name=custom-lb \
-  --set load_balancer.ports.http_port=8080 \
-  --set load_balancer.ports.https_port=8443 >/dev/null
+  --set ingress.name=custom-web-ingress \
+  --set ingress.servicePort=8080 >/dev/null
 
 if helm template openstudio-server "${CHART_DIR}" \
   --set global.provider.name=aws \
@@ -150,6 +149,17 @@ if ! helm template openstudio-server "${CHART_DIR}" \
   --set secrets.validateExistingSecret=false \
   | grep -q 'pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0'; then
   echo "Expected registry profile to render internal registry image references"
+  exit 1
+fi
+
+if ! helm template openstudio-server "${CHART_DIR}" \
+  --set global.provider.name=openstack \
+  --set secrets.validateExistingSecret=false \
+  --set worker_autoscaling.mode=keda-hybrid \
+  --set worker_autoscaling.keda.externalScaler.enabled=true \
+  --set worker_autoscaling.keda.externalScaler.deployment.image=ghcr.io/example/openstudio-keda-external-scaler:latest \
+  | grep -q 'type: external'; then
+  echo "Expected external scaler mode to render KEDA external trigger"
   exit 1
 fi
 

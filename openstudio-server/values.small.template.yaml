@@ -64,7 +64,7 @@ nfs-server-provisioner:
     size: 550Gi
   # Pull from the local zot mirror endpoint instead of Docker Hub.
   image:
-    repository: "erezsh2/nfs-provisioner"
+    repository: "quay.io/kubernetes_incubator/nfs-provisioner"
     tag: "v2.3.0"
   storageClass:
     allowVolumeExpansion: false

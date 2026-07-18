@@ -2,7 +2,7 @@
 {{- if default true (get $preDeleteHook "enabled") }}
 {{- $cleanupName := printf "%s-nfs-client-cleanup" .Release.Name | trunc 63 | trimSuffix "-" -}}
 {{- $cleanupServiceAccount := printf "%s-sa" $cleanupName | trunc 63 | trimSuffix "-" -}}
-{{- $cleanupImageRaw := default "bitnami/kubectl:1.31" (get $preDeleteHook "image") -}}
+{{- $cleanupImageRaw := default "docker.io/bitnami/kubectl:1.31" (get $preDeleteHook "image") -}}
 {{- $cleanupImage := include "openstudio.imageWithRegistry" (dict "root" . "image" $cleanupImageRaw) -}}
 {{- $cleanupImagePullPolicy := default (include "openstudio.defaultWorkloadImagePullPolicy" .) (get $preDeleteHook "imagePullPolicy") -}}
 ---
