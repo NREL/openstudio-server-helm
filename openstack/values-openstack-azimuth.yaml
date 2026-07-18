@@ -107,8 +107,8 @@ worker_hpa:
           periodSeconds: 60
 
 prepull:
-  # Enable only for planned warmup windows; keep disabled in steady-state.
-  enabled: false
+  # Keep enabled to continuously warm worker-node image cache and reduce pull storms.
+  enabled: true
   role: "worker"
   warmMode: "continuous"
   intervalSeconds: 1200
