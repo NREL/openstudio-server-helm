@@ -1,7 +1,7 @@
 # Local overrides for Azimuth-managed cluster: openstudio-server-july1v2
 
 cluster:
-  name: "openstudio-server-july1v2"
+  name: "openstudio-server-july27v1"
 
 global:
   images:
@@ -43,6 +43,8 @@ worker:
   # Liveness probe enabled: restarts workers that hang on a simulation for > 4 hours.
   # Root cause: openstudio subprocess hangs indefinitely with no timeout; all worker slots fill
   # up; Resque shows working=true but processed counter is flat — queue appears stalled.
+  runtimeOverrides:
+    enabled: true
   resque:
     jobTimeoutSeconds: 14400  # 4-hour wall-clock limit per simulation subprocess
   container:

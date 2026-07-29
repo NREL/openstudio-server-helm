@@ -495,6 +495,12 @@ worker:
     # For emergency restart at full fleet scale, use the KEDA-pause procedure instead.
     maxSurge: 500
     maxUnavailable: 0
+  # Optional runtime monkey-patch initializers mounted into worker pods.
+  # 98_lock_abandoned_ebadf_rescue: patches DjJobs::RunSimulateDataPoint#lock_abandoned?
+  # to rescue Errno::EBADF (NFS stale file handle or lock-janitor race) so the worker
+  # re-downloads analysis.zip rather than failing the datapoint with an unhandled exception.
+  runtimeOverrides:
+    enabled: false
   # Resque job execution limits.
   resque:
     # Wall-clock timeout (seconds) for a single simulation job subprocess.

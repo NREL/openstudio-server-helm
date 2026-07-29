@@ -1160,7 +1160,9 @@ Optional readiness-gated scale-up (external scaler route):
 
 ### Install KEDA (self-managed prerequisite)
 
-Install KEDA once per cluster before enabling `worker_autoscaling.mode: keda-hybrid`.
+**Automatic installation (recommended):** The install script (`scripts/install.sh`) now automatically installs KEDA when `worker_autoscaling.mode: keda-hybrid` or `web_background_autoscaling.mode: keda` is enabled. No manual steps required.
+
+**Manual installation (alternative):** Install KEDA once per cluster before enabling `worker_autoscaling.mode: keda-hybrid`.
 
 1. Add/update the KEDA Helm repository:
 

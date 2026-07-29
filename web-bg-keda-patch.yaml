@@ -1,0 +1,19 @@
+web_background_autoscaling:
+  mode: "keda"
+  keda:
+    pollingIntervalSeconds: 15
+    cooldownPeriodSeconds: 300
+    queueNames:
+      - analyses
+      - background
+      - analysis_wrappers
+    queueLengthPerPod: 12
+    activationQueueLength: 3
+    fallback:
+      failureThreshold: 3
+      replicas: 3
+
+web_background_hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1

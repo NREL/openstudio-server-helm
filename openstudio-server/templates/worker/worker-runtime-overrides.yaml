@@ -1,0 +1,42 @@
+{{- $worker := default (dict) .Values.worker -}}
+{{- $workerRuntimeOverrides := default (dict) (get $worker "runtimeOverrides") -}}
+{{- if (default false (get $workerRuntimeOverrides "enabled")) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openstudio.workerName" . }}-runtime-overrides
+data:
+  98_lock_abandoned_ebadf_rescue.rb: |
+    # frozen_string_literal: true
+    #
+    # Patch DjJobs::RunSimulateDataPoint#lock_abandoned? to rescue Errno::EBADF.
+    #
+    # Root cause: On NFS mounts, flock() can raise EBADF when the file descriptor
+    # becomes invalid between File.open and the flock call. This happens due to:
+    #   - NFS stale file handle (brief server hiccup or NFS reconnect after pod restart)
+    #   - Race with lock_janitor deleting the lock file in the window between
+    #     File.open and flock
+    # The existing method only rescues Errno::ENOENT; an unrescued EBADF propagates
+    # out of initialize_worker, kills the job, and marks the datapoint failed even
+    # though the analysis zip is fine. Treating EBADF as abandoned is safe: it means
+    # the lock file descriptor is invalid, so no live holder can be blocking us.
+
+    module OpenStudioLockAbandonedEBADFFix
+      def lock_abandoned?(lock_file_path)
+        super
+      rescue Errno::EBADF
+        # File descriptor became invalid between File.open and flock: either an NFS
+        # stale-handle transient or the lock janitor deleted the file in the race
+        # window. No live holder remains; treat as abandoned so the caller
+        # re-downloads analysis.zip rather than failing the datapoint.
+        true
+      end
+    end
+
+    Rails.application.config.to_prepare do
+      target = DjJobs::RunSimulateDataPoint
+      unless target.ancestors.include?(OpenStudioLockAbandonedEBADFFix)
+        target.prepend(OpenStudioLockAbandonedEBADFFix)
+      end
+    end
+{{- end }}

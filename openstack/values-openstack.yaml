@@ -30,4 +30,4 @@ redis:
     storageClass: "csi-cinder"
 
 worker_hpa:
-  maxReplicas: 1443
+  maxReplicas: 10000

@@ -4,8 +4,8 @@
 
 worker:
   strategy:
-    # Keep conservative rollout behavior while node health/remediation is unstable.
-    maxSurge: 1
+    # Aggressive rollout for large fleets. At maxSurge=1, restarting 5k workers takes ~45 days.
+    maxSurge: 500
     maxUnavailable: 0
 
 worker_autoscaling:

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: host-net-debug
+  namespace: openstudio-server
+spec:
+  hostNetwork: true
+  nodeSelector:
+    kubernetes.io/hostname: openstudio-server-july27v1-worker-4zk9s-zkfjm
+  containers:
+  - name: debug
+    image: ubuntu:latest
+    command: ["sleep", "3600"]

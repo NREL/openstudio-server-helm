@@ -3,7 +3,6 @@ kind: Deployment
 metadata:
   name: {{ include "openstudio.workerName" . }}
 spec:
-  replicas: 2  # TEMPORARY: hardcoded; remove to restore KEDA autoscaling
   selector:
     matchLabels:
       app: {{ default "worker" .Values.worker.label }}
@@ -30,6 +29,7 @@ spec:
     {{ $workerPreStop := default (dict) (get $workerContainer "preStop") }}
     {{ $workerLiveness := default (dict) (get $workerContainer "livenessProbe") }}
     {{ $workerResque := default (dict) (get $worker "resque") }}
+    {{ $workerRuntimeOverrides := default (dict) (get $worker "runtimeOverrides") }}
     {{ $workerLockJanitor := default (dict) (get $workerResque "lockJanitor") }}
     {{ $workerTopologySpread := default (dict) (get $worker "topologySpread") }}
     {{ $workerAntiAffinity := default (dict) (get $worker "antiAffinity") }}
@@ -237,6 +237,12 @@ spec:
           volumeMounts:
             - name: osdata-worker
               mountPath: "/mnt/openstudio"
+            {{- if (default false (get $workerRuntimeOverrides "enabled")) }}
+            - name: worker-runtime-overrides
+              mountPath: "/opt/openstudio/server/config/initializers/98_lock_abandoned_ebadf_rescue.rb"
+              subPath: 98_lock_abandoned_ebadf_rescue.rb
+              readOnly: true
+            {{- end }}
           env:
             - name:  QUEUES
               value: {{ .Values.worker.queues | quote }}
@@ -342,3 +348,8 @@ spec:
         - name: osdata-worker
           persistentVolumeClaim:
             claimName: {{ include "openstudio.nfsPvcName" . }}
+        {{- if (default false (get $workerRuntimeOverrides "enabled")) }}
+        - name: worker-runtime-overrides
+          configMap:
+            name: {{ include "openstudio.workerName" . }}-runtime-overrides
+        {{- end }}

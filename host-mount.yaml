@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: host-mount-jump
+  namespace: openstudio-server
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: openstudio-server-july27v1-worker-4zk9s-zkfjm
+  containers:
+  - name: debug
+    image: ubuntu:latest
+    command: ["sleep", "3600"]
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - mountPath: /host
+      name: host-root
+  volumes:
+  - name: host-root
+    hostPath:
+      path: /
