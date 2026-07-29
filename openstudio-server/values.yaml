@@ -367,8 +367,13 @@ web:
     minReadySeconds: 15
   runtimeOverrides:
     # Optional runtime monkey-patch initializers for:
-    # - seed_zip start guards (prevent zero-datapoint runs from missing uploads)
-    # - safe requeue behavior
+    # - 97_seed_zip_idempotent_extract: make zip extraction overwrite existing files
+    #   so that retries after a partial/interrupted extraction don't falsely mark
+    #   the analysis zip as corrupt ("Destination '...' already exists" error)
+    # - 98_seed_zip_guard: prevent zero-datapoint runs from missing uploads
+    # - 99_resque_requeue_fix: safe requeue behavior
+    # Also mounts 97_seed_zip_idempotent_extract to the web-background pod (where
+    # ResqueJobs::InitializeAnalysis runs) when enabled.
     # Keep disabled unless this override is explicitly required.
     enabled: false
   container:

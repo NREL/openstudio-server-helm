@@ -5,6 +5,42 @@ kind: ConfigMap
 metadata:
   name: {{ include "openstudio.webName" . }}-runtime-overrides
 data:
+  97_seed_zip_idempotent_extract.rb: |
+    # frozen_string_literal: true
+    #
+    # Patch Zip::Entry#extract so that seed zip extraction is idempotent:
+    # if a file already exists at the destination (a leftover from an interrupted
+    # prior extraction attempt), overwrite it instead of raising
+    # Zip::DestinationFileExistsError and causing the analysis to be falsely
+    # reported as corrupt.
+    #
+    # Root cause: ResqueJobs::InitializeAnalysis retries extraction up to 3 times
+    # but does not clean the destination between retries. Once any file lands on
+    # disk the next attempt fails with "Destination '...' already exists", which
+    # Analysis#run_initialization wraps as a corrupt-zip error.
+
+    module OpenStudioSeedZipIdempotentExtract
+      module ZipEntryPatch
+        # Always pass overwrite_destination: true so that a pre-existing file
+        # from a previous partial extraction is silently replaced.
+        def extract(dest_path = nil, overwrite_destination: false, **kwargs, &block)
+          super(dest_path, overwrite_destination: true, **kwargs, &block)
+        rescue ArgumentError
+          # Older rubyzip (< 2.x) does not support keyword arguments; fall back
+          # to the continuation-block API where returning true means "overwrite".
+          super(dest_path, **kwargs) { true }
+        end
+      end
+    end
+
+    Rails.application.config.to_prepare do
+      require "zip"
+      if defined?(Zip::Entry) &&
+          !Zip::Entry.ancestors.include?(OpenStudioSeedZipIdempotentExtract::ZipEntryPatch)
+        Zip::Entry.prepend(OpenStudioSeedZipIdempotentExtract::ZipEntryPatch)
+      end
+    end
+
   98_seed_zip_guard.rb: |
     # frozen_string_literal: true
 

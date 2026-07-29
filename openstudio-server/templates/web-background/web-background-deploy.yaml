@@ -22,6 +22,7 @@ spec:
     {{ $redis := default (dict) .Values.redis }}
     {{ $webBackgroundContainer := default (dict) .Values.web_background.container }}
     {{ $webBackgroundStartup := default (dict) (get $webBackgroundContainer "startup") }}
+    {{ $webRuntimeOverrides := default (dict) (get .Values.web "runtimeOverrides") }}
     spec:
       {{- include "openstudio.affinityForRole" (dict "root" . "role" "web") | nindent 6 }}
       {{- include "openstudio.tolerationsForRole" (dict "root" . "role" "web") | nindent 6 }}
@@ -65,6 +66,12 @@ spec:
           volumeMounts:
             - name: nfs
               mountPath: "/mnt/openstudio"
+            {{- if (default false (get $webRuntimeOverrides "enabled")) }}
+            - name: web-runtime-overrides
+              mountPath: "/opt/openstudio/server/config/initializers/97_seed_zip_idempotent_extract.rb"
+              subPath: 97_seed_zip_idempotent_extract.rb
+              readOnly: true
+            {{- end }}
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
               value: {{ .Values.rserve.number_of_workers | quote }}
@@ -134,3 +141,8 @@ spec:
         - name: nfs
           persistentVolumeClaim:
             claimName: {{ include "openstudio.nfsPvcName" . }}
+        {{- if (default false (get $webRuntimeOverrides "enabled")) }}
+        - name: web-runtime-overrides
+          configMap:
+            name: {{ include "openstudio.webName" . }}-runtime-overrides
+        {{- end }}

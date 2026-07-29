@@ -106,6 +106,10 @@ spec:
               mountPath: "/mnt/openstudio"
             {{- if (default false (get $webRuntimeOverrides "enabled")) }}
             - name: web-runtime-overrides
+              mountPath: "/opt/openstudio/server/config/initializers/97_seed_zip_idempotent_extract.rb"
+              subPath: 97_seed_zip_idempotent_extract.rb
+              readOnly: true
+            - name: web-runtime-overrides
               mountPath: "/opt/openstudio/server/config/initializers/98_seed_zip_guard.rb"
               subPath: 98_seed_zip_guard.rb
               readOnly: true
