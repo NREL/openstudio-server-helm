@@ -10,8 +10,8 @@ worker:
     nodeAffinityPolicy: "Honor"
     nodeTaintsPolicy: "Ignore"
   strategy:
-    # Conservative rollout while high-scale worker churn is being stabilized.
-    maxSurge: 1
+    # Aggressive rollout for large fleets. At maxSurge=1, restarting 5k workers takes ~45 days.
+    maxSurge: 500
     maxUnavailable: 0
   container:
     resources:
@@ -19,14 +19,13 @@ worker:
         cpu: 200m       # Reduced from 600m: matches actual ~1m usage with 200x headroom
         memory: "500Mi" # Reduced from 700Mi: matches actual ~213Mi usage with 2.3x headroom
         # Scheduler-enforced disk budget used to constrain worker density per node.
-        ephemeral-storage: "2Gi"
       limits:
         cpu: 1          # Cap burst to prevent CPU starvation of other pods on node
         memory: "1Gi"   # Hard limit to prevent OOM on node; OOMKill single pod instead of node
-        ephemeral-storage: "8Gi"
-    terminationGracePeriodSeconds: 600
+    terminationGracePeriodSeconds: 660  # Keep above preStop maxWait+TERM grace to avoid hook truncation (maxWaitSeconds:600 + forceTerminateGrace:20 + buffer:40)
     preStop:
       enabled: true
       signal: "3"
       pollIntervalSeconds: 10
       maxWaitSeconds: 600
+      fastTerminateSeconds: 600 # Use full maxWaitSeconds window: simulations run up to WORKER_JOB_TIMEOUT_SECONDS; killing after 120s causes PruneDeadWorkerDirtyExit churn during node scale-down

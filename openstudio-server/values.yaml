@@ -47,7 +47,7 @@ global:
     org: "nrel"
     serverRepository: "openstudio-server"
     rserveRepository: "openstudio-rserve"
-    tag: "3.10.0"
+    tag: "3.10.0-179"
 
 # Optional shared ServiceAccount for chart workloads.
 # If create=true, chart creates one and attaches merged image pull secrets.
@@ -320,7 +320,7 @@ web_background:
   replicas: 1
   # Number of Resque child workers per web-background pod (COUNT env).
   # Higher workerCount per pod reduces total pod count for the background layer.
-  workerCount: 12       # 2x increase: more workers per pod for job creation throughput
+  workerCount: 55       # increased to address analyses queue backlog
   # Optional explicit node selector override for web-background pods.
   nodeSelector: {}
   container:
@@ -485,7 +485,10 @@ worker:
   # For intentional large-scale rollouts, increase maxUnavailable temporarily
   # (e.g. 500 or "10%"), but only when the queue is empty to avoid DirtyExit accumulation.
   strategy:
-    maxSurge: 1
+    # 500 allows parallel rolling-update across ~8% of a 5k fleet per cycle.
+    # At maxSurge=1, a 5926-worker restart with 11min grace takes ~45 days.
+    # For emergency restart at full fleet scale, use the KEDA-pause procedure instead.
+    maxSurge: 500
     maxUnavailable: 0
   # Resque job execution limits.
   resque:
@@ -556,7 +559,7 @@ worker:
       signal: "3"              # SIGQUIT: Resque gracefully finishes current job
       pollIntervalSeconds: 10  # Reduced from 30: faster detection of job completion
       maxWaitSeconds: 600      # Reduced from 5100: 10 min max drain (was 85 min)
-      fastTerminateSeconds: 120 # Fast-terminate bias: bounded graceful attempt before deterministic fallback
+      fastTerminateSeconds: 600 # Use full maxWaitSeconds window: simulations run up to WORKER_JOB_TIMEOUT_SECONDS; killing after 120s causes PruneDeadWorkerDirtyExit churn during node scale-down
       forceTerminateGraceSeconds: 20 # Wait after TERM before optional KILL fallback
       forceKillEnabled: true # If true, send KILL when TERM fallback still leaves worker processes
     # Two independent checks, gated on worker.resque.jobTimeoutSeconds and
@@ -580,7 +583,7 @@ worker:
 # Worker HPA - Optimized for production workloads with aggressive scale-up
 worker_hpa:
   minReplicas: 2
-  maxReplicas: 12500
+  maxReplicas: 10000
   targetCPUUtilizationPercentage: 50
   stabilizationWindowSeconds: 600
   behavior:

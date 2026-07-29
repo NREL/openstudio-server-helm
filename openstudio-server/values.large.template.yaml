@@ -199,6 +199,11 @@ worker:
   podDisruptionBudget:
     enabled: true
     minAvailable: 1
+  # Rolling update strategy for large fleets.
+  # At maxSurge=1, restarting 5k workers takes ~45 days (11min grace × 5k pods).
+  strategy:
+    maxSurge: 500
+    maxUnavailable: 0
   container:
     imagePullPolicy: "IfNotPresent"
     resources:
@@ -208,14 +213,13 @@ worker:
       limits:
         cpu: 2          # Cap burst to prevent node OOM (B8)
         memory: "2Gi"   # Hard limit for memory safety (B8)
-    # PreStop reduced from 5200s to 600s for faster scale-in (B12)
-    terminationGracePeriodSeconds: 600
+    terminationGracePeriodSeconds: 660  # Keep above preStop maxWait+TERM grace to avoid hook truncation (maxWaitSeconds:600 + forceTerminateGrace:20 + buffer:40)
     preStop:
       enabled: true
       maxWaitSeconds: 600       # 10 min max drain (was 85 min)
       pollIntervalSeconds: 10   # Faster detection of job completion (was 30s)
       signal: 3                 # SIGQUIT
-      fastTerminateSeconds: 120 # Bounded graceful wait before deterministic TERM/KILL fallback
+      fastTerminateSeconds: 600 # Use full maxWaitSeconds window: simulations run up to WORKER_JOB_TIMEOUT_SECONDS; killing after 120s causes PruneDeadWorkerDirtyExit churn during node scale-down
       forceTerminateGraceSeconds: 20
       forceKillEnabled: true
 

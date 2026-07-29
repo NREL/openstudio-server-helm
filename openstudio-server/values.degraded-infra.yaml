@@ -47,13 +47,13 @@ worker:
     resources:
       requests:
         cpu: 400m
-        memory: "1Gi"
+        memory: "700Mi"
       limits:
         cpu: 2
         memory: "2Gi"
     terminationGracePeriodSeconds: 660
     preStop:
-      fastTerminateSeconds: 240
+      fastTerminateSeconds: 600
       forceTerminateGraceSeconds: 20
       forceKillEnabled: true
 
