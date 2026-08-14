@@ -19,7 +19,7 @@ spec:
       stabilizationWindowSeconds: {{ .Values.worker_hpa.stabilizationWindowSeconds  }}
       policies:
       - type: Pods
-        value: {{ .Values.worker_hpa.scalePolicyValue  }}
+        value: {{ default .Values.worker_hpa.scalePolicyValue .Values.worker_hpa.scaleDownPolicyValue  }}
         periodSeconds: 60
   metrics:
     - type: Resource

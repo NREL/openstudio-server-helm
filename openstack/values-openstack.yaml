@@ -144,8 +144,15 @@ worker:
         memory: "1200Mi"
     # Cap per-worker scratch space so one runaway job can't fill a node's
     # disk and take down every other pod on it via DiskPressure eviction.
-    emptyDirSizeLimit: "8Gi"
+    emptyDirSizeLimit: "auto"
 
 worker_hpa:
   targetCPUUtilizationPercentage: 5
   maxReplicas: 10000
+  # Throttle scale-down specifically (much lower than the 950/60s shared
+  # with scale-up) to spread worker terminations out over time rather than
+  # bursting hundreds of simultaneous kills, which risks overwhelming a
+  # node's container runtime kill pathway if many land on the same node at
+  # once. Scale-up speed is unaffected. Trade-off: excess worker capacity
+  # is released more slowly after a workload drop-off.
+  scaleDownPolicyValue: 50
