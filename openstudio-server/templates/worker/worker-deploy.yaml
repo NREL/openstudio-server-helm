@@ -20,14 +20,7 @@ spec:
         release: {{ .Release.Name }}
     spec:
       affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - worker-group
+        {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "worker") | nindent 8 }}
       containers:
         - name: {{ .Values.worker.container.name   }}
           image: {{ .Values.worker.container.image   }}
