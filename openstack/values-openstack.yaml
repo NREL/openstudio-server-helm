@@ -1,0 +1,18 @@
+# Example values override for running openstudio-server on an OpenStack
+# Kubernetes cluster (e.g. one created by Azimuth).
+#
+# Usage:
+#   helm install openstudio-server ./openstudio-server -f openstack/values-openstack.yaml
+#
+# This assumes the cluster already exists (e.g. provisioned via Azimuth) and
+# has the Cinder CSI driver installed. It does not create or configure the
+# Kubernetes cluster itself.
+
+provider:
+  name: "openstack"
+
+# Nodes must be labeled "nodegroup: web-group" / "nodegroup: worker-group"
+# to match the scheduling affinity already used by every deployment in this
+# chart (see openstudio-server/templates/*/*-deploy.yaml), for example:
+#   kubectl label node <node-name> nodegroup=web-group
+#   kubectl label node <node-name> nodegroup=worker-group
