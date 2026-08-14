@@ -29,8 +29,30 @@ node_group:
 cluster:
   name: "<your-azimuth-cluster-name>"
 
-# Mirror registry to avoid Docker Hub pull-rate limits from this cluster.
-# Adjust registry/prefix/tags below to match your own mirror.
+# Persistent storage, sized from prior production usage on this cluster
+# (~3.9TB total: 3900Gi NFS backend + 192Gi db + 120Gi redis).
+# storageClass.reclaimPolicy is left at the chart default (Delete) so
+# uninstalling/recreating never leaves an orphaned Cinder volume behind if
+# manual cleanup is forgotten.
+nfs-server-provisioner:
+  persistence:
+    size: 3900Gi
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "18Gi"
+    limits:
+      cpu: "2"
+      memory: "28Gi"
+
+nfs_pvc:
+  # Frontend RWX claim consumed by web/rserve/background pods. Keep this
+  # below nfs-server-provisioner.persistence.size (~85-95% of it).
+  storage: "3500Gi"
+
+# Mirror registry (avoids Docker Hub pull-rate limits from this cluster) and
+# CPU/memory sizing tuned from prior production usage on this cluster.
+# Adjust registry/prefix/tags/resources below to match your own environment.
 db:
   container:
     image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/mongo:8.0.12"
@@ -54,6 +76,16 @@ web_background:
 worker:
   container:
     image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:179-flock"
+    resources:
+      requests:
+        cpu: 400m
+        memory: "700Mi"
+      limits:
+        cpu: 500m
+        memory: "1200Mi"
+    # Cap per-worker scratch space so one runaway job can't fill a node's
+    # disk and take down every other pod on it via DiskPressure eviction.
+    emptyDirSizeLimit: "8Gi"
 
 # Example cluster-specific tuning (adjust for your own workload/quota):
 # worker_hpa:

@@ -185,6 +185,12 @@ worker:
         cpu: 700m
         memory: "900Mi"
     terminationGracePeriodSeconds: 5200
+    # Cap for worker scratch space under /mnt/openstudio (emptyDir, backed
+    # by the node's local disk). Without a cap, one worker writing more
+    # than expected can fill the node's disk and trigger DiskPressure
+    # eviction of every pod on that node, not just the offending one.
+    # Leave empty ("") for no limit (original behavior). Example: "8Gi".
+    emptyDirSizeLimit: ""
 
 worker_hpa:
   name: "worker"

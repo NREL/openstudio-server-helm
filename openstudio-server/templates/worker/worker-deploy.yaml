@@ -54,4 +54,9 @@ spec:
       priorityClassName: low-priority
       volumes:
         - name: osdata-worker
+          {{- if .Values.worker.container.emptyDirSizeLimit }}
+          emptyDir:
+            sizeLimit: {{ .Values.worker.container.emptyDirSizeLimit }}
+          {{- else }}
           emptyDir: {}
+          {{- end }}
