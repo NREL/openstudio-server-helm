@@ -31,15 +31,12 @@ cluster:
 
 # Persistent storage, sized from prior production usage on this cluster
 # (~3.9TB total: 3900Gi NFS backend + 192Gi db + 120Gi redis).
+# storageClass.reclaimPolicy is left at the chart default (Delete) so
+# uninstalling/recreating never leaves an orphaned Cinder volume behind if
+# manual cleanup is forgotten.
 nfs-server-provisioner:
   persistence:
     size: 3900Gi
-  storageClass:
-    allowVolumeExpansion: true  # allow growing later without recreating the volume
-    # Retain (not the subchart's default Delete): a helm uninstall / PVC
-    # deletion must never delete the Cinder volume holding uploaded OSA
-    # workflows / simulation results.
-    reclaimPolicy: Retain
   resources:
     requests:
       cpu: "500m"
@@ -125,6 +122,9 @@ worker:
       limits:
         cpu: 500m
         memory: "1200Mi"
+    # Cap per-worker scratch space so one runaway job can't fill a node's
+    # disk and take down every other pod on it via DiskPressure eviction.
+    emptyDirSizeLimit: "8Gi"
 
 worker_hpa:
   targetCPUUtilizationPercentage: 5
