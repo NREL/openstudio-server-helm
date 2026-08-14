@@ -23,6 +23,7 @@ spec:
             requests:
               cpu:  {{  .Values.redis.container.resources.requests.cpu  }}
               memory:  {{  .Values.redis.container.resources.requests.memory  }}
+            {{- include "openstudio.resourceLimits" .Values.redis.container.resources.limits | nindent 12 }}
           ports:
             - containerPort: {{ .Values.redis.container.port  }}
           volumeMounts:
