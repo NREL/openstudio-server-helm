@@ -27,7 +27,7 @@ node_group:
   affinity_mode: "preferred"
 
 cluster:
-  name: "<your-azimuth-cluster-name>"
+  name: "openstudio-server-azimuth-openstack"
 
 # Persistent storage, sized from prior production usage on this cluster
 # (~3.9TB total: 3900Gi NFS backend + 192Gi db + 120Gi redis).
@@ -44,6 +44,26 @@ nfs-server-provisioner:
     limits:
       cpu: "2"
       memory: "28Gi"
+  # This subchart is a separate vendored dependency with its own hardcoded
+  # default affinity (nodegroup: web-group) -- it does NOT read this
+  # chart's node_group.* values above. Override it directly to match
+  # Azimuth's actual native node label, or this pod will never schedule.
+  # Helm deep-merges values maps rather than replacing them, so the
+  # subchart's own default requiredDuringSchedulingIgnoredDuringExecution
+  # (nodegroup: web-group) must be explicitly nulled out here -- otherwise
+  # it stays merged in alongside this and, being a hard AND constraint,
+  # permanently blocks scheduling since no node has that label.
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution: null
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: capi.stackhpc.com/node-group
+                operator: In
+                values:
+                  - web
 
 nfs_pvc:
   # Frontend RWX claim consumed by web/rserve/background pods. Keep this
@@ -81,7 +101,7 @@ redis:
 
 rserve:
   container:
-    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-rserve:179-flock"
+    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-rserve:3.10.0-179D-test"
     resources:
       requests:
         cpu: 2
@@ -92,7 +112,7 @@ rserve:
 
 web:
   container:
-    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:179-flock"
+    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0-179D-test"
     resources:
       requests:
         cpu: 6
@@ -103,7 +123,7 @@ web:
 
 web_background:
   container:
-    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:179-flock"
+    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0-179D-test"
     resources:
       requests:
         cpu: 12
@@ -114,7 +134,7 @@ web_background:
 
 worker:
   container:
-    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:179-flock"
+    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0-179D-test"
     resources:
       requests:
         cpu: 400m
