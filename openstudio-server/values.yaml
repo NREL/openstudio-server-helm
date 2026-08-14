@@ -7,6 +7,21 @@
 provider:
   name: ""
 
+# Node label used by pod scheduling affinity (see templates/_helpers.tpl,
+# "openstudio.nodeGroupAffinity"). Defaults match this chart's original
+# hardcoded behavior exactly, so existing installs are unaffected. Override
+# per-provider (see openstack/values-openstack.yaml) if your cluster labels
+# node groups differently, e.g. Cluster API/Azimuth clusters auto-label nodes
+# "capi.stackhpc.com/node-group: web|worker" instead of "nodegroup: web-group".
+node_group:
+  label_key: "nodegroup"
+  web_value: "web-group"
+  worker_value: "worker-group"
+  # "required" or "preferred". Use "preferred" if newly-autoscaled nodes may
+  # take a moment to receive their node-group label after joining the
+  # cluster, to avoid pods staying stuck Pending during that window.
+  affinity_mode: "required"
+
 cluster:
   name: "openstudio-server-03"
 
@@ -17,8 +32,12 @@ nfs-server-provisioner:
     size: 550Gi
   storageClass:
     allowVolumeExpansion: false
+    # NFSv4 is stateful and does not tolerate being fronted by a Service
+    # ClusterIP (client callback/lease renewal fails, mounts hang/fail).
+    # vers=3 has fixed mountd/nlockmgr/statd/rpcbind ports and is what this
+    # provisioner is actually tested against.
     mountOptions:
-      - vers=4
+      - vers=3
       - sync
 db:
   name:  "db"

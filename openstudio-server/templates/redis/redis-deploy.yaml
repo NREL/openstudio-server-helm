@@ -15,14 +15,7 @@ spec:
         release: {{ .Release.Name }}
     spec:
       affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
+        {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       containers:
         - name: {{ .Values.redis.container.name  }}
           image: {{ .Values.redis.container.image  }}

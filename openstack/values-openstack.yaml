@@ -1,18 +1,70 @@
 # Example values override for running openstudio-server on an OpenStack
-# Kubernetes cluster (e.g. one created by Azimuth).
+# Kubernetes cluster provisioned by Azimuth.
 #
 # Usage:
 #   helm install openstudio-server ./openstudio-server -f openstack/values-openstack.yaml
 #
-# This assumes the cluster already exists (e.g. provisioned via Azimuth) and
-# has the Cinder CSI driver installed. It does not create or configure the
+# This assumes the cluster already exists (provisioned via Azimuth) and has
+# the Cinder CSI driver installed. It does not create or configure the
 # Kubernetes cluster itself.
 
 provider:
   name: "openstack"
 
-# Nodes must be labeled "nodegroup: web-group" / "nodegroup: worker-group"
-# to match the scheduling affinity already used by every deployment in this
-# chart (see openstudio-server/templates/*/*-deploy.yaml), for example:
-#   kubectl label node <node-name> nodegroup=web-group
-#   kubectl label node <node-name> nodegroup=worker-group
+# Azimuth's Cluster API node groups auto-label nodes with
+# "capi.stackhpc.com/node-group: web|worker" (not the "nodegroup: web-group"
+# / "nodegroup: worker-group" this chart defaults to elsewhere). Since
+# Azimuth autoscales node groups, newly-added nodes get this label
+# automatically — using it here means you never have to hand-label nodes,
+# and new nodes are immediately schedulable.
+node_group:
+  label_key: "capi.stackhpc.com/node-group"
+  web_value: "web"
+  worker_value: "worker"
+  # "preferred" rather than "required": gives new nodes a brief grace period
+  # to fully register their node-group label after joining before pods are
+  # scheduled on them, without risking pods stuck Pending in the meantime.
+  affinity_mode: "preferred"
+
+cluster:
+  name: "<your-azimuth-cluster-name>"
+
+# Mirror registry to avoid Docker Hub pull-rate limits from this cluster.
+# Adjust registry/prefix/tags below to match your own mirror.
+db:
+  container:
+    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/mongo:8.0.12"
+
+redis:
+  container:
+    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/redis:6.0.9"
+
+rserve:
+  container:
+    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-rserve:179-flock"
+
+web:
+  container:
+    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:179-flock"
+
+web_background:
+  container:
+    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:179-flock"
+
+worker:
+  container:
+    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:179-flock"
+
+# Example cluster-specific tuning (adjust for your own workload/quota):
+# worker_hpa:
+#   targetCPUUtilizationPercentage: 5
+#   maxReplicas: 10000
+#
+# nfs-server-provisioner:
+#   resources:
+#     requests:
+#       cpu: "500m"
+#       memory: "18Gi"
+#     limits:
+#       cpu: "2"
+#       memory: "28Gi"
