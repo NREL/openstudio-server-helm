@@ -198,6 +198,13 @@ worker_hpa:
   maxReplicas: 20
   targetCPUUtilizationPercentage: 50
   stabilizationWindowSeconds: 3600
-
-
-
+  # Scale-up burst size, in pods per periodSeconds=60.
+  scalePolicyValue: 25
+  # Optional separate cap for scaleDown, in pods per periodSeconds=60.
+  # Defaults to scalePolicyValue (original behavior: scale-up and scale-down
+  # share the same burst size) when unset. Scale-down bursts of hundreds of
+  # simultaneous pod terminations risk overwhelming a node's container
+  # runtime kill pathway if many land on the same node at once; set this
+  # lower than scalePolicyValue to throttle scale-down specifically without
+  # slowing scale-up responsiveness.
+  scaleDownPolicyValue: null

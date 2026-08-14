@@ -13,8 +13,8 @@ spec:
     scaleDown:
       stabilizationWindowSeconds: {{ .Values.worker_hpa.stabilizationWindowSeconds  }}
       policies:
-      - type: Percent
-        value: 25
+      - type: Pods
+        value: {{ default .Values.worker_hpa.scalePolicyValue .Values.worker_hpa.scaleDownPolicyValue  }}
         periodSeconds: 60
   metrics:
     - type: Resource
