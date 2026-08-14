@@ -57,9 +57,10 @@ spec:
       priorityClassName: low-priority
       volumes:
         - name: osdata-worker
-          {{- if .Values.worker.container.emptyDirSizeLimit }}
+          {{- $sizeLimit := include "openstudio.workerEmptyDirSizeLimit" . }}
+          {{- if $sizeLimit }}
           emptyDir:
-            sizeLimit: {{ .Values.worker.container.emptyDirSizeLimit }}
+            sizeLimit: {{ $sizeLimit }}
           {{- else }}
           emptyDir: {}
           {{- end }}

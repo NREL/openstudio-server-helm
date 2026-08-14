@@ -192,8 +192,25 @@ worker:
     # by the node's local disk). Without a cap, one worker writing more
     # than expected can fill the node's disk and trigger DiskPressure
     # eviction of every pod on that node, not just the offending one.
-    # Leave empty ("") for no limit (original behavior). Example: "8Gi".
+    #   - Leave empty ("") for no limit (original behavior).
+    #   - Set an explicit size, e.g. "8Gi", to hardcode a cap.
+    #   - Set "auto" to compute it at install/upgrade time from live node
+    #     data: (smallest worker node's allocatable ephemeral-storage x
+    #     (1 - emptyDirAutoMarginPercent/100)) / (that node's allocatable
+    #     cpu / this worker's cpu request). Requires a live cluster
+    #     (doesn't work under "helm template"/"helm lint") and is a
+    #     snapshot -- re-run "helm upgrade" after resizing nodes or
+    #     changing the cpu request above to recalculate. Falls back to
+    #     emptyDirAutoFallback if no worker nodes are labeled yet.
     emptyDirSizeLimit: ""
+    # Safety margin subtracted from a node's disk before dividing across
+    # workers, to leave room for image layers, logs, and DaemonSets sharing
+    # the node. Only used when emptyDirSizeLimit is "auto".
+    emptyDirAutoMarginPercent: 15
+    # Used when emptyDirSizeLimit is "auto" but no worker nodes are
+    # currently labeled (e.g. lookup unavailable, or first install before
+    # the autoscaler has created any worker nodes yet).
+    emptyDirAutoFallback: "8Gi"
 
 worker_hpa:
   name: "worker"

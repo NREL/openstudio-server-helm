@@ -68,3 +68,112 @@ limits:
 {{- end }}
 {{- end }}
 {{- end -}}
+
+{{/*
+Parse a Kubernetes resource quantity string (e.g. "51396492Ki", "97Gi",
+"4", "3800m", a plain byte count) into a float64 number of GiB.
+
+Only handles the forms Node.status.allocatable actually reports in
+practice for cpu/ephemeral-storage (bare integers, "m" millicores, and
+binary Ki/Mi/Gi/Ti suffixes) -- not a general-purpose quantity parser
+(no decimal K/M/G/T, no Pi/Ei, no negative/exponent forms).
+*/}}
+{{- define "openstudio.quantityToGi" -}}
+{{- $q := trim (toString .) -}}
+{{- $num := float64 (regexFind "^[0-9.]+" $q) -}}
+{{- $unit := regexFind "[A-Za-z]+$" $q -}}
+{{- if eq $unit "Ki" -}}
+{{- divf $num 1048576.0 -}}
+{{- else if eq $unit "Mi" -}}
+{{- divf $num 1024.0 -}}
+{{- else if eq $unit "Gi" -}}
+{{- $num -}}
+{{- else if eq $unit "Ti" -}}
+{{- mulf $num 1024.0 -}}
+{{- else if eq $unit "m" -}}
+{{- divf $num 1000.0 -}}
+{{- else -}}
+{{- divf $num 1073741824.0 -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Parse a Kubernetes CPU quantity string (e.g. "4", "3800m") into cores as a
+float64.
+*/}}
+{{- define "openstudio.cpuToCores" -}}
+{{- $q := trim (toString .) -}}
+{{- if hasSuffix "m" $q -}}
+{{- divf (float64 (trimSuffix "m" $q)) 1000.0 -}}
+{{- else -}}
+{{- float64 $q -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Auto-computed per-worker emptyDir sizeLimit for the /mnt/openstudio scratch
+mount, based on live cluster state read via `lookup` at the moment
+"helm install"/"helm upgrade" runs against a real cluster.
+
+IMPORTANT CAVEATS (read before enabling):
+  - `lookup` only works when Helm is talking to a live cluster (a real
+    install/upgrade). It returns nothing under "helm template" or "helm
+    lint", so those always take the fallback path -- expected and safe,
+    but means this can't be dry-run-verified without a live cluster.
+  - This is a snapshot taken once per install/upgrade, not continuously
+    recalculated. Resizing nodes or changing worker CPU requests only
+    takes effect on your next "helm upgrade".
+  - Assumes CPU requests are the binding constraint on how many workers
+    the scheduler packs onto a node (true for this chart's worker sizing,
+    but not a hard guarantee if other large pods share worker nodes).
+  - Takes the minimum across all currently-labeled worker nodes, so mixed
+    node sizes are handled safely (sized for your smallest worker node)
+    but a first install before any worker nodes exist yet falls back too.
+
+Formula per matching node:
+  maxWorkersOnNode = max(1, floor(node allocatable cpu / worker cpu request))
+  perWorkerGi      = (node allocatable ephemeral-storage * (1 - margin/100)) / maxWorkersOnNode
+
+Only triggers when worker.container.emptyDirSizeLimit == "auto"; any other
+value (including "", the default) is returned unchanged -- fully backward
+compatible / opt-in.
+*/}}
+{{- define "openstudio.workerEmptyDirSizeLimit" -}}
+{{- $configured := .Values.worker.container.emptyDirSizeLimit -}}
+{{- if ne $configured "auto" -}}
+{{- $configured -}}
+{{- else -}}
+{{- $fallback := default "8Gi" .Values.worker.container.emptyDirAutoFallback -}}
+{{- $marginPercent := default 15.0 (float64 .Values.worker.container.emptyDirAutoMarginPercent) -}}
+{{- $nodeGroup := default (dict) .Values.node_group -}}
+{{- $labelKey := default "nodegroup" (get $nodeGroup "label_key") -}}
+{{- $workerValue := default "worker-group" (get $nodeGroup "worker_value") -}}
+{{- $cpuRequestCores := include "openstudio.cpuToCores" .Values.worker.container.resources.requests.cpu | float64 -}}
+{{- $nodes := (lookup "v1" "Node" "" "") -}}
+{{- $items := default list (default (dict) $nodes).items -}}
+{{- $state := dict "minGi" 0.0 -}}
+{{- range $node := $items -}}
+{{- $labels := default (dict) $node.metadata.labels -}}
+{{- if eq (get $labels $labelKey) $workerValue -}}
+{{- $allocatable := default (dict) $node.status.allocatable -}}
+{{- $diskQty := get $allocatable "ephemeral-storage" -}}
+{{- $cpuQty := get $allocatable "cpu" -}}
+{{- if and $diskQty $cpuQty (gt $cpuRequestCores 0.0) -}}
+{{- $diskGi := include "openstudio.quantityToGi" $diskQty | float64 -}}
+{{- $nodeCores := include "openstudio.cpuToCores" $cpuQty | float64 -}}
+{{- $maxWorkers := max 1 (int (floor (divf $nodeCores $cpuRequestCores))) -}}
+{{- $usableGi := mulf $diskGi (subf 1.0 (divf $marginPercent 100.0)) -}}
+{{- $perWorkerGi := divf $usableGi (float64 $maxWorkers) -}}
+{{- if or (eq $state.minGi 0.0) (lt $perWorkerGi $state.minGi) -}}
+{{- $_ := set $state "minGi" $perWorkerGi -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $state.minGi 0.0 -}}
+{{- $fallback -}}
+{{- else -}}
+{{- printf "%.0fGi" (floor $state.minGi) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
