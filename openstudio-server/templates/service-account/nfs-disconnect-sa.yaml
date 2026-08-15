@@ -1,17 +1,44 @@
+# Pre-delete cleanup hook identity + RBAC.
+#
+# These are marked as `pre-delete` HOOK resources (not regular release
+# resources) so that EVERY uninstall run recreates them fresh before the hook
+# Job starts. If they were regular resources, the first uninstall would delete
+# them, and a second uninstall against a stuck release would re-render the hook
+# Job but fail to start its pod ("serviceaccount not found") -- exactly the
+# 2026-08-15 Bug A.
+#
+# hook-delete-policy: before-hook-creation,hook-succeeded,hook-failed
+#   - before-hook-creation: a stale SA/Role/RoleBinding from a previous
+#     (failed) uninstall is removed before this run's copies are created.
+#   - hook-succeeded/hook-failed: tidy up after each hook run.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ .Release.Name }}-nfs-disconnect
   namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ .Release.Name }}-nfs-disconnect
   namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
+    verbs: ["delete", "list", "get"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["delete", "list", "get"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
     verbs: ["delete", "list", "get"]
   - apiGroups: [""]
     resources: ["pods"]
@@ -25,6 +52,10 @@ kind: RoleBinding
 metadata:
   name: {{ .Release.Name }}-nfs-disconnect
   namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
 subjects:
   - kind: ServiceAccount
     name: {{ .Release.Name }}-nfs-disconnect
@@ -32,4 +63,41 @@ subjects:
 roleRef:
   kind: Role
   name: {{ .Release.Name }}-nfs-disconnect
+  apiGroup: rbac.authorization.k8s.io
+---
+# Cluster-scoped permissions for the cleanup hook. The hook deletes the chart's
+# cluster-scoped resources (PriorityClasses, StorageClass) itself because helm's
+# own uninstall demonstrably leaves them behind on a partially-failed run
+# (2026-08-15 Bug B). Same hook-resource lifecycle as the namespaced role above.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-nfs-disconnect-cluster
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+rules:
+  - apiGroups: ["scheduling.k8s.io"]
+    resources: ["priorityclasses"]
+    verbs: ["delete", "list", "get"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["delete", "list", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-nfs-disconnect-cluster
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-nfs-disconnect
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Release.Name }}-nfs-disconnect-cluster
   apiGroup: rbac.authorization.k8s.io
