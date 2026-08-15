@@ -68,3 +68,85 @@ limits:
 {{- end }}
 {{- end }}
 {{- end -}}
+
+{{/*
+Calculate web-background Resque worker count based on memory limit.
+
+Logic:
+  - Parse web_background.container.resources.limits.memory (e.g., "32Gi") to MiB
+  - workers = floor(limit_mib / worker_memory_mib)
+  - If no limit set or parsing fails: fall back to rserve.number_of_workers
+  - Minimum 1 worker
+
+Usage:
+  {{- include "openstudio.webBackgroundWorkers" . | quote }}
+
+Returns: integer as string
+*/}}
+{{- define "openstudio.parseMemoryToMiB" -}}
+{{- $mem := . -}}
+{{- if hasSuffix "Gi" $mem -}}
+  {{- mul (int (trimSuffix "Gi" $mem)) 1024 -}}
+{{- else if hasSuffix "Mi" $mem -}}
+  {{- int (trimSuffix "Mi" $mem) -}}
+{{- else if hasSuffix "G" $mem -}}
+  {{- mul (int (trimSuffix "G" $mem)) 1000 -}}
+{{- else if hasSuffix "M" $mem -}}
+  {{- int (trimSuffix "M" $mem) -}}
+{{- else -}}
+  0
+{{- end -}}
+{{- end -}}
+
+{{/*
+Resolve a container image reference with an optional private registry prefix.
+
+A reference is considered already-qualified (used as-is) when its first
+path segment contains a "." or ":" — i.e. it has an explicit registry host
+such as "registry.k8s.io/kubectl:v1.34.9" or
+"pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0".
+A plain Docker Hub-style reference such as "bitnami/kubectl:latest" (first
+segment "bitnami" has no "." or ":") is NOT qualified and gets the registry
+prefix applied. Without this distinction the registry/repositoryPrefix would
+be prepended unconditionally and produce broken double-prefixed references
+such as:
+
+  pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/registry.k8s.io/kubectl:v1.34.9
+
+Call with the root chart context so the helper can read the registry settings:
+
+  {{- include "openstudio.imageWithRegistry" (dict "root" . "image" .Values.hooks.preDeleteCleanup.image) | quote }}
+*/}}
+{{- define "openstudio.imageWithRegistry" -}}
+{{- $image := .image -}}
+{{- $registry := .root.Values.global.images.registry -}}
+{{- $prefix := .root.Values.global.images.repositoryPrefix -}}
+{{- if or (not $registry) (not $prefix) -}}
+{{- $image -}}
+{{- else -}}
+  {{- /* Explicit registry host (first path segment contains "." or ":") is used as-is */ -}}
+  {{- $hasRegistry := regexMatch "^[^/]+[.:][^/]*/.+" $image -}}
+  {{- if $hasRegistry -}}
+    {{- $image -}}
+  {{- else -}}
+    {{- printf "%s/%s/%s" $registry $prefix $image -}}
+  {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "openstudio.webBackgroundWorkers" -}}
+{{- $wb := .Values.web_background -}}
+{{- $rserve := .Values.rserve -}}
+{{- $limits := $wb.container.resources.limits -}}
+{{- if $limits.memory -}}
+  {{- $limitMiB := include "openstudio.parseMemoryToMiB" $limits.memory -}}
+  {{- if gt (int $limitMiB) 0 -}}
+    {{- $workers := div (int $limitMiB) (int $wb.worker_memory_mib) -}}
+    {{- if lt $workers 1 -}}1{{- else -}}{{ $workers }}{{- end -}}
+  {{- else -}}
+    {{ $rserve.number_of_workers }}
+  {{- end -}}
+{{- else -}}
+  {{ $rserve.number_of_workers }}
+{{- end -}}
+{{- end -}}

@@ -11,6 +11,29 @@
 provider:
   name: "openstack"
 
+# Global image registry used to prefix unqualified image references
+# (e.g. hooks' "bitnami/kubectl:latest" -> "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/bitnami/kubectl:latest").
+# Images that already carry an explicit registry host (the nrel/* images below)
+# are left untouched by the imageWithRegistry helper.
+global:
+  images:
+    registry: "pulp-dev.hpc.nlr.gov"
+    repositoryPrefix: "pulp-container-aurora-179d"
+
+# CRITICAL: Generate your own secure secret key!
+# Run: openssl rand -hex 64
+web:
+  secret_key_value: "{{WEB_SECRET_KEY}}"
+  container:
+    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0-179D-test"
+    resources:
+      requests:
+        cpu: 6
+        memory: "50Gi"
+      limits:
+        cpu: 12
+        memory: "60Gi"
+
 # Azimuth's Cluster API node groups auto-label nodes with
 # "capi.stackhpc.com/node-group: web|worker" (not the "nodegroup: web-group"
 # / "nodegroup: worker-group" this chart defaults to elsewhere). Since
@@ -21,10 +44,8 @@ node_group:
   label_key: "capi.stackhpc.com/node-group"
   web_value: "web"
   worker_value: "worker"
-  # "preferred" rather than "required": gives new nodes a brief grace period
-  # to fully register their node-group label after joining before pods are
-  # scheduled on them, without risking pods stuck Pending in the meantime.
-  affinity_mode: "preferred"
+  # "required" ensures pods ONLY schedule on correctly labeled nodes
+  affinity_mode: "required"
 
 cluster:
   name: "openstudio-server-azimuth-openstack"
@@ -74,6 +95,9 @@ nfs_pvc:
 # CPU/memory sizing tuned from prior production usage on this cluster.
 # Adjust registry/prefix/tags/resources below to match your own environment.
 db:
+  # CRITICAL: Change these defaults for production!
+  username: "openstudio"
+  password: "{{DB_PASSWORD}}"
   container:
     image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/mongo:8.0.12"
     resources:
@@ -87,6 +111,8 @@ db:
     size: 192Gi
 
 redis:
+  # CRITICAL: Change this default for production!
+  password: "{{REDIS_PASSWORD}}"
   container:
     image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/redis:6.0.9"
     resources:
@@ -99,7 +125,14 @@ redis:
   persistence:
     size: 120Gi
 
+redis_svc:
+  name: "queue"
+  label: "redis"
+  port: 6379
+  url: "redis://:{{REDIS_PASSWORD}}@queue:6379"
+
 rserve:
+  number_of_workers: "15"
   container:
     image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-rserve:3.10.0-179D-test"
     resources:
@@ -110,41 +143,40 @@ rserve:
         cpu: 4
         memory: "8Gi"
 
-web:
-  container:
-    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0-179D-test"
-    resources:
-      requests:
-        cpu: 6
-        memory: "50Gi"
-      limits:
-        cpu: 12
-        memory: "60Gi"
-
 web_background:
+  # ONLY 1 REPLICA ALLOWED - per openstudio-server developer
+  # (only worker deployment can scale >1 replica)
+  replicas: 1
+  # Dynamic worker calculation (auto-parses container.resources.limits.memory):
+  #   workers = floor(limit_memory_MiB / worker_memory_mib)
+  #   e.g., "32Gi" limit + 300 MiB/worker = 109 workers
+  worker_memory_mib: 300
   container:
     image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0-179D-test"
     resources:
       requests:
-        cpu: 12
-        memory: "12Gi"
-      limits:
-        cpu: 24
+        cpu: 4
         memory: "24Gi"
+      limits:
+        cpu: 8
+        memory: "32Gi"
 
 worker:
   container:
     image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0-179D-test"
     resources:
       requests:
-        cpu: 400m
-        memory: "700Mi"
+        cpu: 1
+        memory: "1.2Gi"
       limits:
-        cpu: 500m
-        memory: "1200Mi"
+        cpu: 1
+        memory: "1.2Gi"
+    # CRITICAL: Reduced from 1800 (30 min) to 60s for faster uninstall cleanup.
+    # Pre-stop hook handles graceful shutdown within this window.
+    terminationGracePeriodSeconds: 60
     # Cap per-worker scratch space so one runaway job can't fill a node's
     # disk and take down every other pod on it via DiskPressure eviction.
-    emptyDirSizeLimit: "auto"
+    emptyDirSizeLimit: ""
 
 worker_hpa:
   targetCPUUtilizationPercentage: 5

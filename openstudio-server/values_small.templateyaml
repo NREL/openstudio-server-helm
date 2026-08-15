@@ -164,7 +164,7 @@ worker:
       requests:
         cpu: 700m
         memory: "900Mi"
-    terminationGracePeriodSeconds: 5200
+    terminationGracePeriodSeconds: 60
 
 worker_hpa:
   name: "worker"

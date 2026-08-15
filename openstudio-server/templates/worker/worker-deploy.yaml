@@ -30,7 +30,23 @@ spec:
           lifecycle:
             preStop:
               exec:
-                command: ['/bin/sh', '-c', 'echo "Creating kill.worker file" >&2; touch /opt/openstudio/server/bin/kill.worker; echo "Sending QUIT signal to Resque" >&2; pkill -f -QUIT resque; echo "Waiting for Ruby or OpenStudio processes to end" >&2; while [ $(eval "pgrep -c ruby") -gt 1 ] || [ $(eval "pgrep -c openstudio") -gt 0 ]; do sleep 15; echo "Still waiting..." >&2; done; echo "Killing remaining processes" >&2; pkill -P 1;']
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    echo "Creating kill.worker file" >&2
+                    touch /opt/openstudio/server/bin/kill.worker
+                    echo "Sending QUIT signal to Resque" >&2
+                    pkill -f -QUIT resque
+                    echo "Waiting for Ruby or OpenStudio processes to end (max 50s)" >&2
+                    timeout=50
+                    while [ $timeout -gt 0 ] && ( [ $(eval "pgrep -c ruby") -gt 1 ] || [ $(eval "pgrep -c openstudio") -gt 0 ] ); do
+                      sleep 2
+                      echo "Still waiting... ($timeout seconds remaining)" >&2
+                      timeout=$((timeout-2))
+                    done
+                    echo "Killing remaining processes" >&2
+                    pkill -P 1
           resources:
             requests:
               cpu:  {{  .Values.worker.container.resources.requests.cpu  }}

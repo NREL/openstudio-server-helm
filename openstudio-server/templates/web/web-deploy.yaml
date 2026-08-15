@@ -42,7 +42,7 @@ spec:
               mountPath: "/mnt/openstudio"
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
-              value: {{ .Values.rserve.number_of_workers | quote }}
+              value: {{ .Values.web_background.number_of_workers | quote }}
             - name: QUEUES
               value: analysis_wrappers
             - name: SECRET_KEY_BASE
@@ -74,6 +74,7 @@ spec:
             timeoutSeconds: 120
             failureThreshold: 3
       priorityClassName: high-priority
+      terminationGracePeriodSeconds: 60
       volumes:
         - name: nfs
           persistentVolumeClaim:
