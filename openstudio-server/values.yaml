@@ -11,10 +11,18 @@ global:
     repositoryPrefix: ""
 
 # Hook configuration
+# Pre-delete hook ("nfs-client-cleanup" Job) drains all release workloads except
+# the NFS server provisioner subchart, waits for client pods to be gone, and
+# force-deletes leftovers. It keeps the NFS server up until every client pod has
+# unmounted, so pods cannot hang in Terminating on a dead NFS mount.
 hooks:
   preDeleteCleanup:
-    image: "bitnami/kubectl:latest"
-    activeDeadlineSeconds: 180
+    image: "bitnami/kubectl:latest" # single source of truth for the hook image
+    # Total Job budget: image pull + workload deletion + podWaitTimeoutSeconds +
+    # force-delete + settle. Keep comfortably above podWaitTimeoutSeconds.
+    activeDeadlineSeconds: 300
+    # How long to wait for client pods to drain before force-deleting them.
+    podWaitTimeoutSeconds: 120
 
 # Set to google, aws, azure, or openstack
 provider:

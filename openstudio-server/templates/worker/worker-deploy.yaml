@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.worker.name   }}
+  labels:
+    release: {{ .Release.Name }}
   annotations:
     cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
 spec:
@@ -37,7 +39,7 @@ spec:
                     echo "Creating kill.worker file" >&2
                     touch /opt/openstudio/server/bin/kill.worker
                     echo "Sending QUIT signal to Resque" >&2
-                    pkill -f -QUIT resque
+                    pkill -f -QUIT resque || true
                     echo "Waiting for Ruby or OpenStudio processes to end (max 50s)" >&2
                     timeout=50
                     while [ $timeout -gt 0 ] && ( [ $(eval "pgrep -c ruby") -gt 1 ] || [ $(eval "pgrep -c openstudio") -gt 0 ] ); do
@@ -46,7 +48,7 @@ spec:
                       timeout=$((timeout-2))
                     done
                     echo "Killing remaining processes" >&2
-                    pkill -P 1
+                    pkill -P 1 || true
           resources:
             requests:
               cpu:  {{  .Values.worker.container.resources.requests.cpu  }}
