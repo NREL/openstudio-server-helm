@@ -33,7 +33,7 @@ spec:
               mountPath: "/mnt/openstudio"
           env:
              - name: OS_SERVER_NUMBER_OF_WORKERS
-               value: {{ .Values.rserve.number_of_workers | quote }}
+               value: {{ .Values.web_background.number_of_workers | quote }}
              - name: SECRET_KEY_BASE
                value: {{ .Values.web.secret_key_value }}
              - name: REDIS_URL
@@ -50,6 +50,7 @@ spec:
             timeoutSeconds: 30
             failureThreshold: 3
       priorityClassName: high-priority
+      terminationGracePeriodSeconds: 60
       volumes:
         - name: osdata
           persistentVolumeClaim:

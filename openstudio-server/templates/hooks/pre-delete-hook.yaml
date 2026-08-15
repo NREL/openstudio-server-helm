@@ -2,28 +2,39 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: nfs-client-cleanup
-  namespace: default
+  namespace: {{ .Release.Namespace }}
   annotations:
     "helm.sh/hook": pre-delete
     "helm.sh/hook-weight": "3"
     "helm.sh/hook-delete-policy": hook-succeeded
 spec:
+  activeDeadlineSeconds: {{ .Values.hooks.preDeleteCleanup.activeDeadlineSeconds }}
   template:
     metadata:
       name: nfs-client-cleanup
     spec:
+      serviceAccountName: {{ .Release.Name }}-nfs-disconnect
       containers:
         - name: kubectl
-          image: "k8s.gcr.io/hyperkube:v1.12.1"
-          securityContext:
-            privileged: true
-          imagePullPolicy: "IfNotPresent"
+          image: {{ include "openstudio.imageWithRegistry" (dict "root" . "image" .Values.hooks.preDeleteCleanup.image) | quote }}
           command:
-          - /bin/sh
-          - -c
-          - >
-              kubectl delete deployment web;
-              kubectl delete deployment web-background;
-              kubectl delete deployment rserve;
-              sleep 60;
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Cleaning up OpenStudio Server resources in namespace {{ .Release.Namespace }}"
+              # Delete all deployments managed by this release (cascades to pods).
+              # Exclude the NFS server provisioner subchart (app=nfs-server-provisioner)
+              # so its NFS server stays up while client pods unmount -- otherwise
+              # client mounts hang/fail and pods stick in Terminating.
+              kubectl -n {{ .Release.Namespace }} delete deployment -l 'release={{ .Release.Name }},app!=nfs-server-provisioner' --ignore-not-found=true
+              # Delete statefulsets (exclude NFS server provisioner)
+              kubectl -n {{ .Release.Namespace }} delete statefulset -l 'release={{ .Release.Name }},app!=nfs-server-provisioner' --ignore-not-found=true
+              # Wait for pods to terminate, excluding Failed/Succeeded phases and
+              # the NFS server provisioner pod (kept up on purpose until clients unmount).
+              echo "Waiting for pods to terminate..."
+              kubectl -n {{ .Release.Namespace }} wait --for=delete pod -l 'release={{ .Release.Name }},app!=nfs-server-provisioner' --timeout=120s --field-selector=status.phase!=Failed,status.phase!=Succeeded 2>/dev/null || true
+              # Wait for NFS mounts to be released
+              echo "Waiting for NFS mount release..."
+              sleep 15
       restartPolicy: Never

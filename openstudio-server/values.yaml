@@ -3,6 +3,19 @@
 # Declare variables to be passed into your templates.
 
 
+# Global image registry settings - used by imageWithRegistry helper
+# Set these per-provider (e.g., openstack/values-openstack.yaml) for private registries
+global:
+  images:
+    registry: ""
+    repositoryPrefix: ""
+
+# Hook configuration
+hooks:
+  preDeleteCleanup:
+    image: "bitnami/kubectl:latest"
+    activeDeadlineSeconds: 180
+
 # Set to google, aws, azure, or openstack
 provider:
   name: ""
@@ -130,6 +143,11 @@ web_background:
   name: "web-background"
   label: "web-background"
   replicas: 1
+  # Dynamic worker calculation (auto-parses container.resources.limits.memory):
+  #   workers = floor(limit_memory_MiB / worker_memory_mib)
+  #   e.g., "32Gi" limit + 300 MiB/worker = 109 workers
+  #   If no memory limit set, falls back to rserve.number_of_workers
+  worker_memory_mib: 300
   container:
     name: "web-background"
     image: "nrel/openstudio-server:3.8.0-1"

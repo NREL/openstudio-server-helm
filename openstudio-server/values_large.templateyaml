@@ -163,9 +163,9 @@ worker:
     image: "nrel/openstudio-server:3.8.0-1"
     resources:
       requests:
-        cpu: 700m
-        memory: "900Mi"
-    terminationGracePeriodSeconds: 5200
+        cpu: 1
+        memory: "1Gi"
+    terminationGracePeriodSeconds: 60
 
 worker_hpa:
   name: "worker"

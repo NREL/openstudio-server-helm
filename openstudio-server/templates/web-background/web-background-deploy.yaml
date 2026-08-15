@@ -34,7 +34,7 @@ spec:
               mountPath: "/mnt/openstudio"
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
-              value: {{ .Values.rserve.number_of_workers | quote }}
+              value: {{ .Values.web_background.number_of_workers | quote }}
             - name: QUEUES
               value: background,analyses
             - name: SECRET_KEY_BASE
@@ -45,7 +45,7 @@ spec:
               value: {{ .Values.db.username }}
             - name: MONGO_PASSWORD
               value: {{ .Values.db.password }}
-          command: ["/usr/local/bin/start-web-background"]
+          command: ["/bin/bash", "-c", "cd /opt/openstudio/server && COUNT=${OS_SERVER_NUMBER_OF_WORKERS} bundle exec rake environment resque:workers"]
           livenessProbe:
             exec:
               command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
@@ -54,6 +54,7 @@ spec:
             timeoutSeconds: 30
             failureThreshold: 3
       priorityClassName: high-priority
+      terminationGracePeriodSeconds: 60
       volumes:
         - name: nfs
           persistentVolumeClaim:
