@@ -12,20 +12,20 @@ provider:
   name: "openstack"
 
 # Global image registry used to prefix unqualified image references
-# (e.g. hooks' "bitnami/kubectl:latest" -> "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/bitnami/kubectl:latest").
+# (e.g. hooks' "bitnami/kubectl:latest" -> "mirror.example.com/my-prefix/bitnami/kubectl:latest").
 # Images that already carry an explicit registry host (the nrel/* images below)
 # are left untouched by the imageWithRegistry helper.
 global:
   images:
-    registry: "pulp-dev.hpc.nlr.gov"
-    repositoryPrefix: "pulp-container-aurora-179d"
+    registry: "mirror.example.com"
+    repositoryPrefix: "my-prefix"
 
 # CRITICAL: Generate your own secure secret key!
 # Run: openssl rand -hex 64
 web:
   secret_key_value: "{{WEB_SECRET_KEY}}"
   container:
-    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0-179D-test"
+    image: "nrel/openstudio-server:3.8.0-1"
     resources:
       requests:
         cpu: 6
@@ -99,7 +99,7 @@ db:
   username: "openstudio"
   password: "{{DB_PASSWORD}}"
   container:
-    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/mongo:8.0.12"
+    image: "mongo:6.0.7"
     resources:
       requests:
         cpu: 4
@@ -115,7 +115,7 @@ redis:
   password: "{{REDIS_PASSWORD}}"
   maxclients: 40000
   container:
-    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/redis:6.0.9"
+    image: "redis:6.0.9"
     resources:
       requests:
         cpu: 8
@@ -135,7 +135,7 @@ redis_svc:
 rserve:
   number_of_workers: "15"
   container:
-    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-rserve:3.10.0-179D-test"
+    image: "nrel/openstudio-rserve:3.8.0-1"
     resources:
       requests:
         cpu: 2
@@ -153,7 +153,7 @@ web_background:
   #   e.g., "32Gi" limit + 300 MiB/worker = 109 workers
   worker_memory_mib: 300
   container:
-    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0-179D-test"
+    image: "nrel/openstudio-server:3.8.0-1"
     resources:
       requests:
         cpu: 4
@@ -164,7 +164,7 @@ web_background:
 
 worker:
   container:
-    image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0-179D-test"
+    image: "nrel/openstudio-server:3.8.0-1"
     resources:
       requests:
         cpu: 1

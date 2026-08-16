@@ -104,14 +104,14 @@ Resolve a container image reference with an optional private registry prefix.
 A reference is considered already-qualified (used as-is) when its first
 path segment contains a "." or ":" — i.e. it has an explicit registry host
 such as "registry.k8s.io/kubectl:v1.34.9" or
-"pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/openstudio-server:3.10.0".
+"mirror.example.com/my-prefix/nrel/openstudio-server:3.8.0-1".
 A plain Docker Hub-style reference such as "bitnami/kubectl:latest" (first
 segment "bitnami" has no "." or ":") is NOT qualified and gets the registry
 prefix applied. Without this distinction the registry/repositoryPrefix would
 be prepended unconditionally and produce broken double-prefixed references
 such as:
 
-  pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/registry.k8s.io/kubectl:v1.34.9
+  mirror.example.com/my-prefix/registry.k8s.io/kubectl:v1.34.9
 
 Call with the root chart context so the helper can read the registry settings:
 
