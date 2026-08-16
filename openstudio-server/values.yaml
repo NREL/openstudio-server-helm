@@ -224,6 +224,12 @@ worker_hpa:
   maxReplicas: 20
   targetCPUUtilizationPercentage: 50
   stabilizationWindowSeconds: 3600
+  # Stabilization window for scale-UP (seconds). Prevents a single transient
+  # CPU sample above target (pod startup, requeue storm after a scale-down)
+  # from driving the HPA to maxReplicas via the scale-up policy before
+  # sustained load is confirmed. Defaults to stabilizationWindowSeconds
+  # when unset (backwards compatible).
+  scaleUpStabilizationWindowSeconds: 300
   # Scale-up burst size, in pods per periodSeconds=60.
   scalePolicyValue: 25
   # Optional separate cap for scaleDown, in pods per periodSeconds=60.
