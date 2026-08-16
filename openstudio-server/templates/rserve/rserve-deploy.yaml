@@ -30,6 +30,7 @@ spec:
             requests:
               cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
               memory:  {{  .Values.rserve.container.resources.requests.memory  }}
+            {{- include "openstudio.resourceLimits" .Values.rserve.container.resources.limits | nindent 12 }}
           volumeMounts:
             - name: osdata
               mountPath: "/mnt/openstudio"

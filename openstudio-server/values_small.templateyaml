@@ -69,6 +69,7 @@ redis:
   name: "redis"
   label: "redis"
   password: "openstudio"
+  maxclients: 10000
   container:
     name: "redis"
     image: "redis:6.0.9"

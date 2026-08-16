@@ -109,6 +109,9 @@ redis:
   name: "redis"
   label: "redis"
   password: "openstudio"
+  # Max concurrent client connections for the redis server (--maxclients).
+  # Tune upward for deployments with many worker pods.
+  maxclients: 10000
   container:
     name: "redis"
     image: "redis:6.0.9"

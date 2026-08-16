@@ -104,6 +104,7 @@ db:
 redis:
   # CRITICAL: Change this default for production!
   password: "{{REDIS_PASSWORD}}"
+  maxclients: 40000
   container:
     image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/redis:6.0.9"
 

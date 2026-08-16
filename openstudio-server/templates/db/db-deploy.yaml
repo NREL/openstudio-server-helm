@@ -35,6 +35,7 @@ spec:
             requests:
               cpu:  {{  .Values.db.container.resources.requests.cpu  }}
               memory:  {{  .Values.db.container.resources.requests.memory  }}
+            {{- include "openstudio.resourceLimits" .Values.db.container.resources.limits | nindent 12 }}
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
               value: {{ .Values.db.username }}

@@ -25,12 +25,13 @@ spec:
             requests:
               cpu:  {{  .Values.redis.container.resources.requests.cpu  }}
               memory:  {{  .Values.redis.container.resources.requests.memory  }}
+            {{- include "openstudio.resourceLimits" .Values.redis.container.resources.limits | nindent 12 }}
           ports:
             - containerPort: {{ .Values.redis.container.port  }}
           volumeMounts:
             - mountPath: /data
               name: {{ .Values.redis.name }}
-          args: ["redis-server", "--appendonly yes", "--requirepass", "{{ .Values.redis.password  }}"]
+          args: ["redis-server", "--appendonly yes", "--requirepass", "{{ .Values.redis.password  }}", "--maxclients", "{{ .Values.redis.maxclients  }}"]
       priorityClassName: high-priority
       volumes:
         - name: {{ .Values.redis.name }}
