@@ -100,6 +100,15 @@ db:
   password: "{{DB_PASSWORD}}"
   container:
     image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/mongo:8.0.12"
+    resources:
+      requests:
+        cpu: 4
+        memory: "22Gi"
+      limits:
+        cpu: 8
+        memory: "44Gi"
+  persistence:
+    size: 192Gi
 
 redis:
   # CRITICAL: Change this default for production!
@@ -107,6 +116,15 @@ redis:
   maxclients: 40000
   container:
     image: "pulp-dev.hpc.nlr.gov/pulp-container-aurora-179d/nrel/redis:6.0.9"
+    resources:
+      requests:
+        cpu: 8
+        memory: "16Gi"
+      limits:
+        cpu: 16
+        memory: "24Gi"
+  persistence:
+    size: 120Gi
 
 redis_svc:
   name: "queue"

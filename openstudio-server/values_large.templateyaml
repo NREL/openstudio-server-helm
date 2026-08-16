@@ -1,6 +1,10 @@
 # Default values for openstudio-server.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
+#
+# High-production sizing profile (sized for a large compute cluster
+# running 10k+ concurrent worker pods). For a minimal/small profile
+# see values_small.templateyaml.
 
 
 # Set to google, aws or azure
@@ -14,9 +18,16 @@ nfs-server-provisioner:
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 550Gi
+    size: 3900Gi
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "18Gi"
+    limits:
+      cpu: "2"
+      memory: "28Gi"
   storageClass:
-    allowVolumeExpansion: false
+    allowVolumeExpansion: true
     mountOptions:
       - vers=4
       - sync
@@ -32,12 +43,15 @@ db:
       requests:
         cpu: 4
         memory: "22Gi"
+      limits:
+        cpu: 8
+        memory: "44Gi"
     ports:
       db_port: 27017
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 200Gi
+    size: 192Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -62,7 +76,7 @@ nfs_pvc:
   accessModes:
     - "ReadWriteMany"
   storage_class: ""
-  storage: "500Gi"
+  storage: "3500Gi"
 
 
 redis:
@@ -75,13 +89,16 @@ redis:
     image: "redis:6.0.9"
     resources:
       requests:
-        cpu: 3
-        memory: "4Gi"
+        cpu: 8
+        memory: "16Gi"
+      limits:
+        cpu: 16
+        memory: "24Gi"
     port: 6379
   persistence:
     enabled: true
     storageClass: "ssd"
-    size: 200Gi
+    size: 120Gi
     accessModes:
       - "ReadWriteOnce"
 
@@ -94,14 +111,17 @@ redis_svc:
 rserve:
   name: "rserve"
   label: "rserve"
-  number_of_workers: "1"
+  number_of_workers: "15"
   container:
     name: "rserve"
     image: "nrel/openstudio-rserve:3.8.0-1"
     resources:
       requests:
-        cpu: 1
-        memory: "1Gi"
+        cpu: 2
+        memory: "4Gi"
+      limits:
+        cpu: 4
+        memory: "8Gi"
 
 rserve_svc:
   name: "rserve"
@@ -112,13 +132,19 @@ web_background:
   name: "web-background"
   label: "web-background"
   replicas: 1
+  # Dynamic worker calculation (auto-parses container.resources.limits.memory):
+  #   workers = floor(limit_memory_MiB / worker_memory_mib)
+  worker_memory_mib: 300
   container:
     name: "web-background" 
     image: "nrel/openstudio-server:3.8.0-1"
     resources:
       requests:
-        cpu: 2
-        memory: "4Gi"
+        cpu: 4
+        memory: "24Gi"
+      limits:
+        cpu: 8
+        memory: "32Gi"
 
 web:
   name: "web"
@@ -136,6 +162,9 @@ web:
       requests:
         cpu: 6
         memory: "50Gi"
+      limits:
+        cpu: 12
+        memory: "60Gi"
     port:
      http: 80
      https: 443
@@ -165,15 +194,17 @@ worker:
     resources:
       requests:
         cpu: 1
-        memory: "1Gi"
+        memory: "1.2Gi"
+      limits:
+        cpu: 1
+        memory: "1.2Gi"
     terminationGracePeriodSeconds: 60
+    emptyDirSizeLimit: ""
 
 worker_hpa:
   name: "worker"
   minReplicas: 2
-  maxReplicas: 3800
-  targetCPUUtilizationPercentage: 50
+  maxReplicas: 10000
+  targetCPUUtilizationPercentage: 5
   stabilizationWindowSeconds: 3600
-
-
-
+  scaleDownPolicyValue: 50
