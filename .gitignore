@@ -5,3 +5,5 @@ openstack/values-openstack.yaml
 
 # Local operational/remediation state - never commit
 .health-remediation-state/
+# Agent tool artifacts - never commit
+.agents/
