@@ -238,3 +238,66 @@ worker_hpa:
   # lower than scalePolicyValue to throttle scale-down specifically without
   # slowing scale-up responsiveness.
   scaleDownPolicyValue: null
+
+# Optional Kubernetes Indexed Job for running external_batch analyses on the
+# existing cluster, reusing the chart's NFS PVC. See issue #99 and the
+# README "External Batch (Indexed Jobs)" section for the dispatch workflow.
+#
+# When enabled, an opt-in Job (templates/job-external-batch.yaml) and a
+# ConfigMap carrying the upstream run_chunk.rb (configmaps/runner-cm.yaml)
+# are rendered. No Resque worker changes — traditional worker and Indexed
+# Job modes coexist.
+external_batch:
+  # Master switch. Default false so existing installs are unaffected.
+  enabled: false
+  # The analysis whose packaged datapoints the runner will execute. Becomes
+  # part of the Job name and is used to locate the package/results dirs on
+  # the shared NFS. Set this when enabling.
+  analysis_id: ""
+  # Total chunks in the manifest. completionMode: Indexed gives each pod a
+  # unique JOB_COMPLETION_INDEX in [0, completions).
+  completions: 1
+  # Number of pods running concurrently. <= completions.
+  parallelism: 1
+  # K8s Job backoffLimit; matches the worker pod's general retry tolerance.
+  backoff_limit: 3
+  # 24h default — matches the longest OpenStudio annual simulation runtime.
+  active_deadline_seconds: 86400
+  # Clean up completed pods after this many seconds. Indexed jobs leave
+  # around terminal pods otherwise.
+  ttl_seconds_after_finished: 3600
+  container:
+    # Pinned by digest to commit d63c8eb2e3b37bca2494e66cab3c4457cf5c4e61
+    # of NatLabRockies/OpenStudio-server (docker tag :3.10.0-179D-test).
+    # The external_batch runner predates the chart's pinned appVersion
+    # (3.8.0-1), so this is intentionally decoupled — pointing at the
+    # chart's worker image would fail at runtime with "file not found"
+    # for run_chunk.rb. Bump both this digest and
+    # configmaps/runner/run_chunk.rb together from the matching upstream
+    # commit. See upstream issue NatLabRockies/OpenStudio-server#864 —
+    # the pin is temporary and should be replaced with a stable release
+    # tag once one is published.
+    image: nrel/openstudio-server@sha256:9b0871fc4f9c746afd5e8d36775d2564d07679ee4779cb3997a53ea112c65875
+    imagePullPolicy: IfNotPresent
+  storage:
+    # Where the chart already mounts the NFS PVC (matches web/web-background/
+    # rserve deploys). The runner expects:
+    #   <mountPath>/external_batch/analysis_<analysis_id>/package/
+    #     manifest.json
+    #     analysis_<id>/data_point_<dp_id>/data_point.osw
+    #   <mountPath>/external_batch/analysis_<analysis_id>/results/
+    #     <dp_id>/status.json
+    #     chunk_<i>.done
+    # That layout is written by the server's ExternalBatch::Packager job
+    # when an analysis is submitted with --batch-run-method external_batch_run.
+    mountPath: /mnt/openstudio
+    # Override the PVC claim name. Defaults to .Values.nfs_pvc.name (matches
+    # the chart's existing PVC pattern).
+    existingClaim: ""
+  resources:
+    requests:
+      cpu: "2000m"
+      memory: "4Gi"
+    limits:
+      cpu: "4000m"
+      memory: "8Gi"

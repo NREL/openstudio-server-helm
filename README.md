@@ -246,3 +246,87 @@ them locally saves a round trip:
 - [ ] If you changed `values.yaml`, the chart still renders with default values
 - [ ] If you added a new `*.yaml` file under `templates/`, run `helm template`
       with several value combos and visually verify the output
+
+## External Batch (Indexed Jobs)
+
+When enabled, this chart can run `external_batch_run` analyses as native
+Kubernetes `batch/v1` Jobs (`completionMode: Indexed`) on the existing
+cluster, reusing the chart's NFS PVC. This complements the standard
+Resque worker deployment — workers handle iterative analyses
+(`batch_run`, `ga`, `pso`); indexed Jobs handle batched runs without
+the `web-background` Resque bottleneck or end-of-analysis compute valley.
+
+The runner is plain stdlib Ruby plus the OpenStudio CLI; the CLI is in
+the `nrel/openstudio-server` image, and the runner script (`run_chunk.rb`)
+ships via ConfigMap at `/scripts/run_chunk.rb` inside each chunk pod.
+
+### Image version (important)
+
+The `external_batch` runner predates the chart's pinned `appVersion`
+(`3.8.0-1`), so `external_batch.container.image` defaults to a digest
+**newer than appVersion**. The default pin
+(`nrel/openstudio-server@sha256:9b0871fc...`, tag `:3.10.0-179D-test`,
+commit `d63c8eb` of `NatLabRockies/OpenStudio-server`) is **temporary**
+per upstream issue `#864` — bump both the digest and
+`openstudio-server/configmaps/runner/run_chunk.rb` together from the
+matching upstream commit when a stable release tag is published.
+
+Pointing this value at the chart's main worker image tag will fail at
+runtime with "file not found" for `run_chunk.rb`.
+
+### Dispatch workflow
+
+The package is written by the server's `ExternalBatch::Packager` job
+when an analysis is submitted with `--batch-run-method external_batch_run`,
+under `<NFS mount>/external_batch/analysis_<id>/package/manifest.json`.
+The Indexed Job picks up that package and writes per-datapoint results
+to `<NFS mount>/external_batch/analysis_<id>/results/`; the server's
+`ExternalBatch::Ingester` polls and ingests.
+
+To dispatch a packaged analysis on demand without modifying the running
+release:
+
+```bash
+# 1. Submit the analysis via the server's existing endpoint with
+#    --batch-run-method external_batch_run. The server will package
+#    datapoints under <NFS mount>/external_batch/analysis_<id>/package.
+
+# 2. Read the number of chunks from manifest.json's "chunks" array, then:
+helm template openstudio-server ./openstudio-server-helm \
+  -s templates/job-external-batch.yaml \
+  -s templates/runner-cm.yaml \
+  --set external_batch.enabled=true \
+  --set external_batch.analysis_id="<ANALYSIS_UUID>" \
+  --set external_batch.completions=$(jq '.chunks | length' manifest.json) \
+  --set external_batch.parallelism=8 \
+  | kubectl apply -f -
+```
+
+### Parameters
+
+| Key | Default | Description |
+|---|---|---|
+| `external_batch.enabled` | `false` | Master switch. Set `true` to render the Job + ConfigMap. |
+| `external_batch.analysis_id` | `""` | The analysis whose package the runner will execute. Becomes part of the Job name and locates the package/results dirs on the shared NFS. |
+| `external_batch.completions` | `1` | Total chunks; each pod gets a unique `JOB_COMPLETION_INDEX` in `[0, completions)`. |
+| `external_batch.parallelism` | `1` | Concurrent chunk pods. Must be `<= completions`. |
+| `external_batch.backoff_limit` | `3` | K8s Job `backoffLimit`. |
+| `external_batch.active_deadline_seconds` | `86400` | 24h — matches the longest annual OpenStudio simulation. |
+| `external_batch.ttl_seconds_after_finished` | `3600` | Clean up completed pods after this many seconds. |
+| `external_batch.container.image` | digest-pinned `:3.10.0-179D-test` | MUST point at a tag that ships the runner script. See "Image version" above. |
+| `external_batch.container.imagePullPolicy` | `IfNotPresent` | |
+| `external_batch.storage.mountPath` | `/mnt/openstudio` | Where the chart already mounts the NFS PVC. |
+| `external_batch.storage.existingClaim` | `""` | Override the PVC claim name. Defaults to `.Values.nfs_pvc.name`. |
+| `external_batch.resources.{requests,limits}` | see `values.yaml` | Per-pod CPU/memory. |
+
+### What this is NOT
+
+- Not a replacement for the standard Resque workers. Iterative analyses
+  (`batch_run`, `ga`, `pso`) still use `web-background` workers.
+- Not a substitute for a proper external batch cluster (AWS Batch, SLURM
+  via Kestrel, Nomad). This chart simply runs the existing local-mode
+  runner (`run_chunk.rb`) on K8s pods, on the existing cluster, reusing
+  the existing NFS PVC.
+- Not bundled with a one-shot "submit and dispatch" tool. The user is
+  expected to render the templates via `helm template ... | kubectl apply -f -`
+  after the server has packaged the analysis.
