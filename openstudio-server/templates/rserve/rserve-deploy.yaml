@@ -25,7 +25,7 @@ spec:
         {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       containers:
         - name: {{ .Values.rserve.container.name }}
-          image: {{ .Values.rserve.container.image }}
+          image: {{ include "openstudio.imageWithRegistry" (dict "root" $ "image" .Values.rserve.container.image) | quote }}
           resources:
             requests:
               cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}

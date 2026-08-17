@@ -10,6 +10,24 @@ global:
     registry: ""
     repositoryPrefix: ""
 
+# Local image registry (optional, deployed as subchart like nfs-server-provisioner)
+# When enabled, a local Docker registry (distribution/registry:2) is deployed in-cluster.
+# If rewriteImages is true, all workload images are rewritten to pull from the local registry.
+localRegistry:
+  enabled: false
+  # Subchart values (passed through to charts/local-registry)
+  image: "registry:2"
+  resources: {}
+  persistence:
+    enabled: true
+    storageClass: "ssd"
+    size: 10Gi
+  # Image rewrite settings
+  rewriteImages: true
+  # Hostname override (for external registry use instead of deployed subchart)
+  hostname: ""
+  port: 5000
+
 # Hook configuration
 # Pre-delete hook ("nfs-client-cleanup" Job) drains all release workloads except
 # the NFS server provisioner subchart, waits for client pods to be gone, and
@@ -243,3 +261,7 @@ worker_hpa:
   # lower than scalePolicyValue to throttle scale-down specifically without
   # slowing scale-up responsiveness.
   scaleDownPolicyValue: null
+
+# Cluster Autoscaler configuration
+clusterAutoscaler:
+  image: "registry.k8s.io/autoscaling/cluster-autoscaler:v1.26.6"

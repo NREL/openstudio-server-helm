@@ -25,6 +25,10 @@ appVersion: 3.8.0-1
 # remote peristent volumes using stateful sets even though they are labled as "Delete". However, Using Deployment
 # together with a PVC, helm does indeed remove the PV upon a helm delete command
 dependencies:
- - name: nfs-server-provisioner
-   version:  1.0.0
-   repository: "@stable"
+  - name: nfs-server-provisioner
+    version:  1.0.0
+    repository: "@stable"
+  - name: localRegistry
+    version: 0.1.0
+    repository: "file://charts/local-registry"
+    # condition: localRegistry.enabled

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "localRegistry.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "localRegistry.labels" . | nindent 4 }}
+data:
+  config.yml: "version: 0.1\nlog:\n  level: info\n  formatter: json\nstorage:\n  filesystem:\n    rootdirectory: /var/lib/registry\n  delete:\n    enabled: true\nhttp:\n  addr: :5000\n  headers:\n    X-Content-Type-Options: [nosniff]\nhealth:\n  storagedriver:\n    enabled: true\n    interval: 10s\n    threshold: 3\n"

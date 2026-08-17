@@ -1,0 +1,81 @@
+# Default values for local-registry.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Global enable/disable for the local registry
+enabled: false
+
+# Registry image
+image: "registry:2"
+imagePullPolicy: IfNotPresent
+
+# Container resources
+resources: {}
+  # limits:
+  #   cpu: 500m
+  #   memory: 512Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+# Persistence configuration
+persistence:
+  enabled: true
+  # storageClass: "ssd"  # Set to your storage class, empty for default
+  size: 10Gi
+  accessMode: ReadWriteOnce
+  # existingClaim: ""  # Use existing PVC instead of creating new one
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 5000
+  # nodePort: 30500  # Only used if type is NodePort
+
+# Security context
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  runAsNonRoot: true
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Additional labels
+labels: {}
+
+# Annotations
+annotations: {}
+
+# Registry configuration (mounted as config.yml)
+# See https://github.com/distribution/distribution/blob/main/docs/configuration.md
+config:
+  version: 0.1
+  log:
+    level: info
+    formatter: json
+  storage:
+    filesystem:
+      rootdirectory: /var/lib/registry
+    delete:
+      enabled: true
+  http:
+    addr: :5000
+    headers:
+      X-Content-Type-Options: [nosniff]
+  health:
+    storagedriver:
+      enabled: true
+      interval: 10s
+      threshold: 3

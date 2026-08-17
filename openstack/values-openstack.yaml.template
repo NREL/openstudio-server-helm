@@ -20,6 +20,16 @@ global:
     registry: "mirror.example.com"
     repositoryPrefix: "my-prefix"
 
+# Local image registry (optional)
+# Enable to deploy an in-cluster Docker registry (distribution/registry:2) and
+# rewrite all workload images to pull from it.
+localRegistry:
+  enabled: false
+  rewriteImages: true
+  persistence:
+    storageClass: "cinder-csi"
+    size: 50Gi
+
 # CRITICAL: Generate your own secure secret key!
 # Run: openssl rand -hex 64
 web:

@@ -1,0 +1,9 @@
+dependencies:
+- name: nfs-server-provisioner
+  repository: https://charts.helm.sh/stable
+  version: 1.0.0
+- name: localRegistry
+  repository: file://charts/local-registry
+  version: 0.1.0
+digest: sha256:da50b1b5d5f72b21f03051702d5c0ac05d4152b148aa975c5ad2eac4ddee9ab7
+generated: "2026-08-16T23:55:00.193477-04:00"

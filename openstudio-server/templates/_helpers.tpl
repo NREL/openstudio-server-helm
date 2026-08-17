@@ -119,18 +119,82 @@ Call with the root chart context so the helper can read the registry settings:
 */}}
 {{- define "openstudio.imageWithRegistry" -}}
 {{- $image := .image -}}
-{{- $registry := .root.Values.global.images.registry -}}
-{{- $prefix := .root.Values.global.images.repositoryPrefix -}}
-{{- if or (not $registry) (not $prefix) -}}
-{{- $image -}}
+{{- $root := .root -}}
+{{- $shouldRewrite := include "openstudio.localRegistryShouldRewrite" $root -}}
+{{- $registry := $root.Values.global.images.registry -}}
+{{- $prefix := $root.Values.global.images.repositoryPrefix -}}
+
+{{- if eq $shouldRewrite "true" -}}
+  {{- $localHost := include "openstudio.localRegistryHost" $root -}}
+  {{- $hasRegistry := regexMatch "^[^/]+[.:][^/]*/.+" $image -}}
+  {{- if $hasRegistry -}}
+    {{- $image -}}
+  {{- else -}}
+    {{- printf "%s/%s" $localHost $image -}}
+  {{- end -}}
+{{- else if or (not $registry) (not $prefix) -}}
+  {{- $image -}}
 {{- else -}}
-  {{- /* Explicit registry host (first path segment contains "." or ":") is used as-is */ -}}
   {{- $hasRegistry := regexMatch "^[^/]+[.:][^/]*/.+" $image -}}
   {{- if $hasRegistry -}}
     {{- $image -}}
   {{- else -}}
     {{- printf "%s/%s/%s" $registry $prefix $image -}}
   {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Check if local registry is enabled
+*/}}
+{{- define "openstudio.localRegistryEnabled" -}}
+{{- $enabled := .Values.localRegistry.enabled -}}
+{{- if kindIs "string" $enabled -}}
+  {{- eq $enabled "true" -}}
+{{- else -}}
+  {{- $enabled -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Check if local registry rewrite should happen (local registry enabled OR external hostname provided)
+*/}}
+{{- define "openstudio.localRegistryShouldRewrite" -}}
+{{- $rewrite := .Values.localRegistry.rewriteImages -}}
+{{- $rewriteBool := false -}}
+{{- if kindIs "string" $rewrite -}}
+  {{- $rewriteBool = eq $rewrite "true" -}}
+{{- else -}}
+  {{- $rewriteBool = $rewrite -}}
+{{- end -}}
+{{- if not $rewriteBool -}}
+  false
+{{- else -}}
+  {{- $enabled := .Values.localRegistry.enabled -}}
+  {{- $enabledBool := false -}}
+  {{- if kindIs "string" $enabled -}}
+    {{- $enabledBool = eq $enabled "true" -}}
+  {{- else -}}
+    {{- $enabledBool = $enabled -}}
+  {{- end -}}
+  {{- $hostname := .Values.localRegistry.hostname -}}
+  {{- if or $enabledBool (and $hostname (ne $hostname "")) -}}
+    true
+  {{- else -}}
+    false
+  {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Get the local registry host:port
+*/}}
+{{- define "openstudio.localRegistryHost" -}}
+{{- $port := int .Values.localRegistry.port -}}
+{{- if .Values.localRegistry.hostname -}}
+{{- printf "%s:%d" .Values.localRegistry.hostname $port -}}
+{{- else -}}
+{{- printf "%s-localRegistry:%d" .Release.Name $port -}}
 {{- end -}}
 {{- end -}}
 

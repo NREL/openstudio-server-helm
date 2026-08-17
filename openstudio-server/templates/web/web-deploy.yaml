@@ -29,7 +29,7 @@ spec:
             command: ["/bin/sh", "-c", "for i in $(seq 1 300); do nc -zvw1 {{  .Values.db.name  }} {{ .Values.db.container.ports.db_port }} && exit 0 || sleep 3; done; exit 1"]
       containers:
         - name:  {{ .Values.web.container.name  }}
-          image: {{ .Values.web.container.image  }}
+          image: {{ include "openstudio.imageWithRegistry" (dict "root" $ "image" .Values.web.container.image) | quote }}
           imagePullPolicy: IfNotPresent
           resources:
             requests:

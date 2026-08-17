@@ -25,7 +25,7 @@ spec:
         {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       containers:
         - name: {{ .Values.db.container.name }}
-          image: {{ .Values.db.container.image }}
+          image: {{ include "openstudio.imageWithRegistry" (dict "root" $ "image" .Values.db.container.image) | quote }}
           ports:
             - containerPort:  {{ .Values.db.container.ports.db_port }}
           volumeMounts:
