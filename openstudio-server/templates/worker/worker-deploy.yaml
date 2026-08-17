@@ -27,7 +27,7 @@ spec:
         {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "worker") | nindent 8 }}
       containers:
         - name: {{ .Values.worker.container.name   }}
-          image: {{ .Values.worker.container.image   }}
+          image: {{ include "openstudio.imageWithRegistry" (dict "root" $ "image" .Values.worker.container.image) | quote }}
           imagePullPolicy: IfNotPresent
           lifecycle:
             preStop:
@@ -63,13 +63,13 @@ spec:
             - name:  COUNT
               value: "1"
             - name: SECRET_KEY_BASE
-              value: {{ .Values.web.secret_key_value }}
+              value: {{ .Values.web.secret_key_value | quote }}
             - name: REDIS_URL
-              value: {{ .Values.redis_svc.url  }}
+              value: {{ .Values.redis_svc.url | quote }}
             - name: MONGO_USER
-              value: {{ .Values.db.username }}
+              value: {{ .Values.db.username | quote }}
             - name: MONGO_PASSWORD
-              value: {{ .Values.db.password }}
+              value: {{ .Values.db.password | quote }}
           command: ["/usr/local/bin/start-workers"]
       terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs.
       priorityClassName: low-priority

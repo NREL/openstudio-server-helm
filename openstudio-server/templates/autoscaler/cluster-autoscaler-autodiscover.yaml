@@ -138,18 +138,28 @@ spec:
         prometheus.io/port: '8085'
     spec:
       affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
+        {{- include "openstudio.nodeGroupAffinity" (dict "root" $ "role" "web") | nindent 8 }}
       priorityClassName: system-cluster-critical
       serviceAccountName: cluster-autoscaler
+      initContainers:
+        - name: wait-for-local-registry
+          image: busybox:1.36
+          {{- $localEnabled := include "openstudio.localRegistryEnabled" $ }}
+          {{- $shouldRewrite := include "openstudio.localRegistryShouldRewrite" $ }}
+          {{- if and (eq $localEnabled "true") (eq $shouldRewrite "true") }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until nc -z {{ include "openstudio.localRegistryHost" $ }}; do
+                echo "Waiting for local registry..."
+                sleep 2
+              done
+          {{- else }}
+          command: ["/bin/sh", "-c", "exit 0"]
+          {{- end }}
       containers:
-        - image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.26.6
+        - image: {{ include "openstudio.imageWithRegistry" (dict "root" $ "image" .Values.clusterAutoscaler.image) | quote }}
           name: cluster-autoscaler
           resources:
             limits:
@@ -183,4 +193,4 @@ spec:
       volumes:
         - name: ssl-certs
           hostPath:
-            path: "/etc/ssl/certs/ca-bundle.crt"
+            path: {{ .Values.clusterAutoscaler.caCertsHostPath | default "/etc/ssl/certs/ca-certificates.crt" | quote }}

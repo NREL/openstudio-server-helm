@@ -25,7 +25,7 @@ spec:
         {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       containers:
         - name: {{ .Values.db.container.name }}
-          image: {{ .Values.db.container.image }}
+          image: {{ include "openstudio.imageWithRegistry" (dict "root" $ "image" .Values.db.container.image) | quote }}
           ports:
             - containerPort:  {{ .Values.db.container.ports.db_port }}
           volumeMounts:
@@ -38,9 +38,9 @@ spec:
             {{- include "openstudio.resourceLimits" .Values.db.container.resources.limits | nindent 12 }}
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
-              value: {{ .Values.db.username }}
+              value: {{ .Values.db.username | quote }}
             - name: MONGO_INITDB_ROOT_PASSWORD
-              value: {{ .Values.db.password }}
+              value: {{ .Values.db.password | quote }}
       priorityClassName: high-priority
       volumes:
         - name: {{ .Values.db.name }}

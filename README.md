@@ -187,6 +187,122 @@ This helm chart provisions persistent storage for the Database (MongoDB) and the
 
 While it's possible to change the storage to use `Retain` vs `Delete`, the helm chart will need to be reconfigured to allow to attach to existing volumes. This will be worked on as an enhancement for a future release.
 
+## Local Image Registry (Optional)
+
+The chart can deploy an in-cluster Docker registry (using `distribution/registry:2`) and rewrite all workload images to pull from it. This is useful for:
+
+- Air-gapped environments without internet access
+- Avoiding Docker Hub rate limits
+- Caching images locally for faster pulls
+- Security/compliance requirements
+
+### Enabling the Local Registry
+
+```bash
+helm install openstudio-server ./openstudio-server \
+  --set localRegistry.enabled=true \
+  --set localRegistry.rewriteImages=true \
+  --set localRegistry.persistence.storageClass=ssd \
+  --set localRegistry.persistence.size=20Gi
+```
+
+Or via values file:
+
+```yaml
+localRegistry:
+  enabled: true
+  rewriteImages: true
+  persistence:
+    storageClass: "ssd"
+    size: 20Gi
+```
+
+### How It Works
+
+When `localRegistry.enabled=true` and `localRegistry.rewriteImages=true`:
+
+1. The `local-registry` subchart deploys a single-replica registry Deployment with PVC
+2. All workload images (web, web-background, worker, db, redis, rserve, cluster-autoscaler, pre-delete hook) are rewritten:
+   - `nrel/openstudio-server:3.8.0-1` → `<release-name>-local-registry:5000/nrel/openstudio-server:3.8.0-1`
+   - `mongo:6.0.7` → `<release-name>-local-registry:5000/mongo:6.0.7`
+   - etc.
+3. The cluster-autoscaler gets an initContainer that waits for the registry to be ready before starting
+
+### Pushing Images to the Local Registry
+
+After deploying with the local registry enabled, you must push all required images to it:
+
+```bash
+# Get the registry service name
+REGISTRY=$(kubectl get svc -n <namespace> -l app.kubernetes.io/name=local-registry -o jsonpath='{.items[0].metadata.name}')
+
+# Port-forward to access locally
+kubectl port-forward -n <namespace> svc/$REGISTRY 5000:5000
+
+# In another terminal, tag and push images
+docker pull nrel/openstudio-server:3.8.0-1
+docker tag nrel/openstudio-server:3.8.0-1 localhost:5000/nrel/openstudio-server:3.8.0-1
+docker push localhost:5000/nrel/openstudio-server:3.8.0-1
+
+# Repeat for all required images:
+# - nrel/openstudio-server:3.8.0-1
+# - nrel/openstudio-rserve:3.8.0-1
+# - mongo:6.0.7
+# - redis:6.0.9
+# - bitnami/kubectl:latest (for pre-delete hook)
+# - registry.k8s.io/autoscaling/cluster-autoscaler:v1.26.6
+```
+
+### Using an External Registry Instead
+
+If you already have a registry deployed elsewhere, you can use it instead of the subchart:
+
+```yaml
+localRegistry:
+  enabled: false        # Don't deploy the subchart
+  hostname: "my-registry.internal"
+  port: 5000
+  rewriteImages: true   # Still rewrite image references
+```
+
+### Configuration Reference
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `localRegistry.enabled` | Deploy the local registry subchart | `false` |
+| `localRegistry.rewriteImages` | Rewrite all workload image references | `true` |
+| `localRegistry.image` | Registry container image | `registry:2` |
+| `localRegistry.persistence.enabled` | Enable PVC for registry storage | `true` |
+| `localRegistry.persistence.storageClass` | Storage class for PVC | `ssd` |
+| `localRegistry.persistence.size` | PVC size | `10Gi` |
+| `localRegistry.hostname` | External registry hostname (if not using subchart) | `""` |
+| `localRegistry.port` | Registry port | `5000` |
+
+### Troubleshooting
+
+- **ImagePullBackOff**: Images haven't been pushed to the local registry yet
+- **PVC Pending**: Check storage class availability and permissions. If the
+  PVC's `storageClassName` doesn't exist on the cluster at all (`storageclass
+  ... not found`), verify `localRegistry.persistence.storageClass` matches a
+  real StorageClass name — e.g. on OpenStack/Azimuth clusters the chart's own
+  provisioned class is named `ssd`, not `cinder-csi` ([#107](https://github.com/NatLabRockies/openstudio-server-helm/issues/107)).
+  If it previously existed and is now `not found`, see the note below on
+  `lookup`-created StorageClasses not self-healing
+  ([#108](https://github.com/NatLabRockies/openstudio-server-helm/issues/108)).
+- **`container has runAsNonRoot and image will run as root`**: fixed as of
+  this chart version — the local-registry container now applies
+  `localRegistry.securityContext` (`runAsUser`/`runAsGroup`) in addition to
+  the pod-level `podSecurityContext`. If you see this on an older release,
+  `helm upgrade` to pick up the fix ([#109](https://github.com/NatLabRockies/openstudio-server-helm/issues/109)).
+- **Cluster-autoscaler stuck in Init**: The initContainer is waiting for the registry; check registry pod logs
+- **Registry not accessible**: Verify service exists and port-forward works
+- **`helm upgrade` fails with `conflict occurred while applying object ...
+  with subresource "scale"`**: unrelated to the local registry itself, but
+  commonly hit right after enabling it if `web`/`worker` HPAs have already
+  scaled at least once — pass `--force-conflicts` to `helm upgrade`
+  ([#110](https://github.com/NatLabRockies/openstudio-server-helm/issues/110), see also
+  [openstack/README.md](./openstack/README.md#troubleshooting)).
+
 ## Auto Scaling
 
 The worker pods are configured to auto-scale based on CPU threshold (default 12%). Once the aggregate CPU for all worker pods exceed the defined threshold (in this case 12%), the Kubernetes engine will start adding additional worker pods up to the maximum specified. This is also dependent on how the Kuebernetes cluster was configured as additional VM node instances will also be added. Please refer to the notes on [aws](/aws/README.md) and [google](/google/README.md) when setting up the cluster and note the instance type and maximum nodes specified.

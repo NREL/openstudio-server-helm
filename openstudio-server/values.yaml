@@ -10,6 +10,113 @@ global:
     registry: ""
     repositoryPrefix: ""
 
+# Local image registry (optional, deployed as subchart like nfs-server-provisioner)
+# When enabled, a local Docker registry (distribution/registry:2) is deployed in-cluster.
+# If rewriteImages is true, all workload images are rewritten to pull from the local registry.
+localRegistry:
+  enabled: false
+  # Subchart values (passed through to charts/local-registry)
+  image: "registry:2"
+  resources: {}
+  persistence:
+    enabled: true
+    storageClass: "ssd"
+    size: 10Gi
+  # Image rewrite settings
+  rewriteImages: true
+  # Hostname override (for external registry use instead of deployed subchart)
+  hostname: ""
+  port: 5000
+
+# containerd node-level registry configuration (certs.d/hosts.toml).
+#
+# Problem this solves: containerd on each node reads its own
+# /etc/containerd/certs.d/<host>/hosts.toml to decide how to reach a given
+# registry host (e.g. an insecure/plain-HTTP local registry, or a mirror
+# fronting a registry that's otherwise unreachable/rate-limited). That file
+# lives on the node's local disk, NOT in-cluster state -- so it does not
+# exist on any node the cluster autoscaler creates after the fact, and is
+# lost if a node is replaced. Manually SSHing/kubectl-debugging it onto nodes
+# is not durable across scale-up events or cluster rebuilds.
+#
+# Fix: a DaemonSet (templates/containerd-registry-config/*) runs on every
+# web/worker node, writes the hosts.toml file(s) below to the node's
+# /etc/containerd/certs.d/, and periodically re-writes them so the DaemonSet
+# both self-heals onto newly-autoscaled nodes (normal DaemonSet scheduling)
+# and repairs any file that gets reset/lost on an existing node.
+#
+# This only ever needs the SERVICE's ClusterIP notion for the local
+# registry, which is resolved from the same localRegistry.hostname/port
+# values already used by the imageWithRegistry helper -- so there is a
+# single source of truth; you don't set the IP twice.
+containerdRegistryConfig:
+  # Master toggle. Auto-enabled (effectively true) whenever the local
+  # registry rewrite is active, even if left false here -- see
+  # openstudio.containerdRegistryConfigEnabled helper. Set explicitly to
+  # true/false to force it on/off regardless of localRegistry settings.
+  enabled: false
+  image: "docker.io/calico/node:v3.29.3" # any small always-on-every-node image with a shell; already pre-pulled on most clusters as part of the CNI, so this DaemonSet doesn't add a new pull dependency
+  # How often (seconds) to re-write the hosts.toml files, so a reset/lost
+  # file (e.g. after node reboot without persistent /etc, or manual edit)
+  # self-heals without needing a pod restart.
+  refreshIntervalSeconds: 300
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+  # Additional registry mirrors to configure, beyond the local registry
+  # (which is handled automatically from localRegistry.* above when
+  # rewriteImages is enabled). Each entry writes
+  # /etc/containerd/certs.d/<host>/hosts.toml on every web/worker node.
+  #
+  # Example (mirroring a registry that's rate-limiting or unreachable):
+  #   extraMirrors:
+  #     - host: "pulp-dev.hpc.nlr.gov"
+  #       server: "https://pulp-dev.hpc.nlr.gov"
+  #       mirror: "http://192.168.66.44:30500"
+  #       capabilities: ["pull", "resolve"]
+  extraMirrors: []
+  # Pre-pull (warm) workload images into containerd's content store directly
+  # via `ctr`, bypassing kubelet entirely.
+  #
+  # Problem this solves: kubelet's default registryPullQPS=5/registryBurst=10
+  # with serializeImagePulls=true throttles and SERIALIZES every image pull
+  # per node, regardless of how fast the registry itself can actually serve
+  # images. Under a large/fast HPA scale-up (many new pods landing on a
+  # freshly-joined node at once), this produces a wall of concurrent
+  # "Failed to pull image ... pull QPS exceeded" / ImagePullBackOff events
+  # even though the local registry has plenty of headroom -- kubelet's own
+  # image manager is the bottleneck, not the network or the registry.
+  # Talking to containerd directly via its socket (as this DaemonSet does)
+  # goes around kubelet's image manager entirely, so a single `ctr images
+  # pull` per image per node completes in ~0.1-0.3s once the layers are in
+  # containerd's content store (confirmed on this cluster), and every
+  # subsequent kubelet-initiated pull for that image on that node is
+  # instant (content-addressed layers already present) instead of
+  # contending for the QPS/burst budget.
+  #
+  # Requires hostPID plus bind-mounting the node's containerd.sock and `ctr`
+  # binary (both standard on every containerd-based node; no extra
+  # dependency installed on the node). Runs once at DaemonSet pod startup
+  # (i.e. once per node join) rather than on every refresh loop, since
+  # images rarely change and repeated pulls of the same content-addressed
+  # layers are cheap no-ops.
+  prewarmImages:
+    enabled: false
+    # containerd's socket + ctr binary paths on the host. Standard for any
+    # containerd-based node (matches every node observed on this cluster);
+    # override if your OS/distro places these elsewhere.
+    containerdSockPath: "/run/containerd/containerd.sock"
+    ctrBinaryPath: "/usr/local/bin/ctr"
+    # Explicit extra images to pre-pull, beyond the ones automatically
+    # derived from web/web_background/worker/rserve/db/redis container
+    # images (see openstudio.prewarmImageList helper). Use this for images
+    # not otherwise covered, e.g. an extra sidecar.
+    extraImages: []
+
 # Hook configuration
 # Pre-delete hook ("nfs-client-cleanup" Job) drains all release workloads except
 # the NFS server provisioner subchart, waits for client pods to be gone, and
@@ -238,3 +345,20 @@ worker_hpa:
   # lower than scalePolicyValue to throttle scale-down specifically without
   # slowing scale-up responsiveness.
   scaleDownPolicyValue: null
+
+# Cluster Autoscaler configuration
+clusterAutoscaler:
+  image: "registry.k8s.io/autoscaling/cluster-autoscaler:v1.26.6"
+  # Host path for the CA bundle, mounted read-only into the container at
+  # /etc/ssl/certs/ca-certificates.crt so the autoscaler can make TLS calls
+  # to the cloud provider API.
+  #
+  # Default matches Debian/Ubuntu (ca-certificates package layout). RHEL/
+  # CentOS/Fedora-based nodes use a different path/filename
+  # ("/etc/ssl/certs/ca-bundle.crt" via the ca-certificates rpm) -- override
+  # this value for those distros. Getting this wrong causes the pod to
+  # CrashLoopBackOff with:
+  #   "OCI runtime create failed: ... mount ...: not a directory: unknown"
+  # (an empty directory gets created+mounted at the source hostPath instead
+  # of the expected file when the configured path doesn't exist).
+  caCertsHostPath: "/etc/ssl/certs/ca-certificates.crt"

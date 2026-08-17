@@ -25,7 +25,7 @@ spec:
         {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       containers:
         - name:  {{  .Values.web_background.container.name  }}
-          image:  {{  .Values.web_background.container.image  }}
+          image: {{ include "openstudio.imageWithRegistry" (dict "root" $ "image" .Values.web_background.container.image) | quote }}
           imagePullPolicy: IfNotPresent
           resources:
             requests:
@@ -41,13 +41,13 @@ spec:
             - name: QUEUES
               value: background,analyses
             - name: SECRET_KEY_BASE
-              value: {{ .Values.web.secret_key_value }}
+              value: {{ .Values.web.secret_key_value | quote }}
             - name: REDIS_URL
-              value: {{ .Values.redis_svc.url  }}
+              value: {{ .Values.redis_svc.url | quote }}
             - name: MONGO_USER
-              value: {{ .Values.db.username }}
+              value: {{ .Values.db.username | quote }}
             - name: MONGO_PASSWORD
-              value: {{ .Values.db.password }}
+              value: {{ .Values.db.password | quote }}
           command: ["/bin/bash", "-c", "cd /opt/openstudio/server && COUNT=${OS_SERVER_NUMBER_OF_WORKERS} bundle exec rake environment resque:workers"]
           livenessProbe:
             exec:

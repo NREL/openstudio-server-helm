@@ -1,0 +1,133 @@
+{{/*
+Chart-managed replacement for a hand-applied "containerd-registry-mirror"
+DaemonSet that predates this template. Writes containerd's node-level
+certs.d/hosts.toml registry config on every web/worker node, so that:
+
+  - a local/insecure registry (localRegistry.hostname:port) and/or any
+    configured mirror (containerdRegistryConfig.extraMirrors) is reachable
+    by containerd at image-pull time, even when node-level DNS can't
+    resolve the in-cluster Service name (see localRegistry.hostname's doc
+    comment in values.yaml/values-openstack.yaml for why that matters on
+    OpenStack/Azimuth clusters specifically).
+  - brand-new nodes created by the cluster autoscaler get this config
+    automatically via normal DaemonSet scheduling -- no manual per-node
+    kubectl debug/SSH step required, and no risk of forgetting it after a
+    scale-up event.
+  - an existing node's file getting reset or edited out from under it
+    (e.g. accidental manual edit, node-level config drift) self-heals on
+    the next refresh loop instead of requiring detection + manual fix.
+
+All actual host/IP values are driven from the same
+localRegistry.hostname/port + containerdRegistryConfig.extraMirrors values
+already used elsewhere in this chart (openstudio.localRegistryHost,
+imageWithRegistry) -- there is exactly one place to change the local
+registry's address, and this DaemonSet, the image-rewrite helper, and the
+cluster-autoscaler init container all stay in sync automatically.
+
+When containerdRegistryConfig.prewarmImages.enabled is also true, this same
+pod additionally pre-pulls every workload image directly into containerd's
+content store via `ctr` (see openstudio.prewarmImagesScript /
+prewarmImages.* doc comment in values.yaml). This bypasses kubelet's
+registryPullQPS/registryBurst/serializeImagePulls throttle, which otherwise
+serializes and rate-limits every pod's image pull per node -- the actual
+bottleneck observed during large/fast worker-HPA scale-ups on this cluster,
+not registry capacity or network bandwidth.
+*/}}
+{{- if eq (include "openstudio.containerdRegistryConfigEnabled" .) "true" }}
+{{- $prewarm := eq (include "openstudio.prewarmImagesEnabled" .) "true" }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: containerd-registry-config
+  labels:
+    app: containerd-registry-config
+    release: {{ .Release.Name }}
+spec:
+  selector:
+    matchLabels:
+      app: containerd-registry-config
+      release: {{ .Release.Name }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: containerd-registry-config
+        release: {{ .Release.Name }}
+    spec:
+      # Runs on every web AND worker node (both are places images get
+      # pulled -- web/db/redis/rserve images on web nodes, worker images on
+      # worker nodes). Unlike openstudio.nodeGroupAffinity (which matches a
+      # single role), this needs an OR across both role values under the
+      # same label key, so it's built inline here rather than reusing that
+      # helper as-is.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ default "nodegroup" .Values.node_group.label_key }}
+                    operator: In
+                    values:
+                      - {{ default "web-group" .Values.node_group.web_value }}
+                      - {{ default "worker-group" .Values.node_group.worker_value }}
+      priorityClassName: system-node-critical
+      hostPID: true
+      containers:
+        - name: writer
+          image: {{ .Values.containerdRegistryConfig.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              write_configs() {
+              {{- include "openstudio.containerdRegistryConfigScript" . | nindent 14 }}
+              }
+              write_configs
+              echo "--- containerd registry config written at $(date -Iseconds) ---"
+              {{- if $prewarm }}
+              prewarm_images() {
+              {{- include "openstudio.prewarmImagesScript" . | nindent 14 }}
+              }
+              # Run once at startup (i.e. once per node join) -- image
+              # content is stable once pulled, so re-running this on every
+              # refresh loop would just be a repeated no-op cost.
+              prewarm_images
+              echo "--- image pre-warm completed at $(date -Iseconds) ---"
+              {{- end }}
+              while true; do
+                sleep {{ .Values.containerdRegistryConfig.refreshIntervalSeconds }}
+                write_configs
+                echo "--- containerd registry config refreshed at $(date -Iseconds) ---"
+              done
+          resources:
+            {{- toYaml .Values.containerdRegistryConfig.resources | nindent 12 }}
+          volumeMounts:
+            - mountPath: /host/etc/containerd
+              name: etc-containerd
+            {{- if $prewarm }}
+            - mountPath: /host{{ .Values.containerdRegistryConfig.prewarmImages.containerdSockPath }}
+              name: containerd-sock
+            - mountPath: /host{{ .Values.containerdRegistryConfig.prewarmImages.ctrBinaryPath }}
+              name: ctr-bin
+            {{- end }}
+      volumes:
+        - name: etc-containerd
+          hostPath:
+            path: /etc/containerd
+            type: Directory
+        {{- if $prewarm }}
+        - name: containerd-sock
+          hostPath:
+            path: {{ .Values.containerdRegistryConfig.prewarmImages.containerdSockPath }}
+            type: Socket
+        - name: ctr-bin
+          hostPath:
+            path: {{ .Values.containerdRegistryConfig.prewarmImages.ctrBinaryPath }}
+            type: File
+        {{- end }}
+{{- end }}

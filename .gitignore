@@ -8,3 +8,12 @@ openstack/values-openstack.yaml
 .health-remediation-state/
 # Agent tool artifacts - never commit
 .agents/
+
+# OS artifacts
+.DS_Store
+
+# Editor configs
+.vscode/
+
+# Helm dependency archives
+*.tgz

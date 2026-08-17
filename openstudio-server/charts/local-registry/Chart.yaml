@@ -1,0 +1,14 @@
+apiVersion: v2
+name: localRegistry
+description: A Helm chart for deploying a local Docker registry (distribution/registry:2) on Kubernetes
+type: application
+version: 0.1.0
+appVersion: "2.8.3"
+keywords:
+  - registry
+  - docker
+  - images
+  - local
+maintainers:
+  - name: OpenStudio Server Team
+    email: openstudio@nrel.gov
