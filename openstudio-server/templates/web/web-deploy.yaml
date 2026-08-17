@@ -22,7 +22,7 @@ spec:
         release: {{ .Release.Name }}
     spec:
       affinity:
-        {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
+        {{- include "openstudio-server.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       initContainers:
           - name: init-wait-for-db
             image: alpine
@@ -35,7 +35,7 @@ spec:
             requests:
               cpu:  {{  .Values.web.container.resources.requests.cpu  }}
               memory:  {{  .Values.web.container.resources.requests.memory  }}
-            {{- include "openstudio.resourceLimits" .Values.web.container.resources.limits | nindent 12 }}
+            {{- include "openstudio-server.resourceLimits" .Values.web.container.resources.limits | nindent 12 }}
           ports:
             - containerPort: {{ .Values.web.container.port.http  }}
             - containerPort: {{ .Values.web.container.port.https  }}
@@ -80,4 +80,4 @@ spec:
       volumes:
         - name: nfs
           persistentVolumeClaim:
-            claimName: nfs-pvc
+            claimName: {{ .Values.nfs_pvc.name }}

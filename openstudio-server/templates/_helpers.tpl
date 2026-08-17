@@ -12,9 +12,9 @@ autoscaled nodes may take a moment to receive their label after joining.
 
 Usage:
   affinity:
-    {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 4 }}
+    {{- include "openstudio-server.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 4 }}
 */}}
-{{- define "openstudio.nodeGroupAffinity" -}}
+{{- define "openstudio-server.nodeGroupAffinity" -}}
 {{- $root := .root -}}
 {{- $nodeGroup := default (dict) $root.Values.node_group -}}
 {{- $labelKey := default "nodegroup" (get $nodeGroup "label_key") -}}
@@ -55,9 +55,9 @@ memory/CPU ceiling. This renders limits only when
 doesn't change behavior for anyone not setting it.
 
 Usage (inside a container's already-open "resources:" block, after "requests:"):
-  {{- include "openstudio.resourceLimits" .Values.web.container.resources.limits | nindent 12 }}
+  {{- include "openstudio-server.resourceLimits" .Values.web.container.resources.limits | nindent 12 }}
 */}}
-{{- define "openstudio.resourceLimits" -}}
+{{- define "openstudio-server.resourceLimits" -}}
 {{- if . }}
 limits:
 {{- if .cpu }}
@@ -79,11 +79,11 @@ Logic:
   - Minimum 1 worker
 
 Usage:
-  {{- include "openstudio.webBackgroundWorkers" . | quote }}
+  {{- include "openstudio-server.webBackgroundWorkers" . | quote }}
 
 Returns: integer as string
 */}}
-{{- define "openstudio.parseMemoryToMiB" -}}
+{{- define "openstudio-server.parseMemoryToMiB" -}}
 {{- $mem := . -}}
 {{- if hasSuffix "Gi" $mem -}}
   {{- mul (int (trimSuffix "Gi" $mem)) 1024 -}}
@@ -115,9 +115,9 @@ such as:
 
 Call with the root chart context so the helper can read the registry settings:
 
-  {{- include "openstudio.imageWithRegistry" (dict "root" . "image" .Values.hooks.preDeleteCleanup.image) | quote }}
+  {{- include "openstudio-server.imageWithRegistry" (dict "root" . "image" .Values.hooks.preDeleteCleanup.image) | quote }}
 */}}
-{{- define "openstudio.imageWithRegistry" -}}
+{{- define "openstudio-server.imageWithRegistry" -}}
 {{- $image := .image -}}
 {{- $registry := .root.Values.global.images.registry -}}
 {{- $prefix := .root.Values.global.images.repositoryPrefix -}}
@@ -134,12 +134,12 @@ Call with the root chart context so the helper can read the registry settings:
 {{- end -}}
 {{- end -}}
 
-{{- define "openstudio.webBackgroundWorkers" -}}
+{{- define "openstudio-server.webBackgroundWorkers" -}}
 {{- $wb := .Values.web_background -}}
 {{- $rserve := .Values.rserve -}}
 {{- $limits := $wb.container.resources.limits -}}
 {{- if $limits.memory -}}
-  {{- $limitMiB := include "openstudio.parseMemoryToMiB" $limits.memory -}}
+  {{- $limitMiB := include "openstudio-server.parseMemoryToMiB" $limits.memory -}}
   {{- if gt (int $limitMiB) 0 -}}
     {{- $workers := div (int $limitMiB) (int $wb.worker_memory_mib) -}}
     {{- if lt $workers 1 -}}1{{- else -}}{{ $workers }}{{- end -}}
@@ -150,3 +150,4 @@ Call with the root chart context so the helper can read the registry settings:
   {{ $rserve.number_of_workers }}
 {{- end -}}
 {{- end -}}
+

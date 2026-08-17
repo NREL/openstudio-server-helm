@@ -192,3 +192,57 @@ While it's possible to change the storage to use `Retain` vs `Delete`, the helm 
 The worker pods are configured to auto-scale based on CPU threshold (default 12%). Once the aggregate CPU for all worker pods exceed the defined threshold (in this case 12%), the Kubernetes engine will start adding additional worker pods up to the maximum specified. This is also dependent on how the Kuebernetes cluster was configured as additional VM node instances will also be added. Please refer to the notes on [aws](/aws/README.md) and [google](/google/README.md) when setting up the cluster and note the instance type and maximum nodes specified.
 
 Once the aggregate CPU of the workers drop below 12%, the Kubernetes engine will start removing worker pod instances. There is a [prestop hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/) configured in the worker pod to ensure that if a openstudio job is still active it will not terminate the pod until it is finished.
+
+## Contributing & Tests
+
+### Local tooling
+
+- **pre-commit** (`.pre-commit-config.yaml`) — runs prettier on Markdown
+  and YAML syntax checks on every commit. Install once with
+  `pre-commit install`.
+- **helm** — `helm lint ./openstudio-server` for chart syntax and
+  structural checks.
+- **helm-unittest** plugin — required only for chart unit tests; see
+  below.
+
+### Chart lint
+
+```bash
+helm lint ./openstudio-server
+```
+
+### Unit tests
+
+Helm-unittest is used for chart unit tests. To run them locally:
+
+```bash
+helm plugin install https://github.com/helm-unittest/helm-unittest   # one-time
+helm unittest ./openstudio-server
+```
+
+Tests live in `openstudio-server/tests/`. The CI workflow at
+`.github/workflows/helm-unittest.yml` runs `helm lint`, `helm unittest`,
+and a smoke `helm template` render (default values + at least one
+override) on every push and PR.
+
+### Pull request checklist
+
+Run locally before pushing — the CI runs the same checks but catching
+them locally saves a round trip:
+
+- [ ] `pre-commit run --all-files` clean (markdown formatting, YAML
+      syntax)
+- [ ] `helm lint ./openstudio-server` clean
+- [ ] `helm unittest ./openstudio-server` passes
+- [ ] `helm template smoketest ./openstudio-server --set provider.name=google`
+      renders without error (default values)
+- [ ] If you touched `nfs_pvc.name`, `existingClaim`, or any value that
+      feeds into a `claimName:` field, run
+      `helm template smoketest ./openstudio-server --set nfs_pvc.name=custom-nfs-claim`
+      and grep the output for `claimName: custom-nfs-claim` to confirm
+      the override propagates. This is the only check that catches the
+      class of regression fixed in #102 (PR #102 d0e4737).
+- [ ] If you added a new template, add a matching `tests/<template>_test.yaml`
+- [ ] If you changed `values.yaml`, the chart still renders with default values
+- [ ] If you added a new `*.yaml` file under `templates/`, run `helm template`
+      with several value combos and visually verify the output
