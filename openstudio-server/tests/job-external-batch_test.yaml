@@ -1,0 +1,300 @@
+suite: test external_batch templates
+templates:
+  - templates/job-external-batch.yaml
+  - templates/runner-cm.yaml
+
+release:
+  name: oss
+  namespace: default
+
+tests:
+  - it: does not render anything when external_batch.enabled is false (default)
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the Job when enabled
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: my-analysis-uuid
+        completions: 4
+        parallelism: 2
+    template: templates/job-external-batch.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - containsDocument:
+          kind: Job
+          apiVersion: batch/v1
+          name: openstudio-server-oss-batch-my-analysis-uuid
+
+  - it: renders the ConfigMap when enabled
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: my-analysis-uuid
+        completions: 4
+        parallelism: 2
+    template: templates/runner-cm.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - containsDocument:
+          kind: ConfigMap
+          apiVersion: v1
+          name: openstudio-server-oss-runner
+
+  - it: Job has correct spec fields from values
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: abc-123
+        completions: 8
+        parallelism: 3
+        backoff_limit: 5
+        active_deadline_seconds: 43200
+        ttl_seconds_after_finished: 1800
+    documentSelector:
+      path: metadata.name
+      value: openstudio-server-oss-batch-abc-123
+    asserts:
+      - equal:
+          path: spec.completions
+          value: 8
+      - equal:
+          path: spec.parallelism
+          value: 3
+      - equal:
+          path: spec.completionMode
+          value: Indexed
+      - equal:
+          path: spec.backoffLimit
+          value: 5
+      - equal:
+          path: spec.activeDeadlineSeconds
+          value: 43200
+      - equal:
+          path: spec.ttlSecondsAfterFinished
+          value: 1800
+      - equal:
+          path: spec.template.spec.restartPolicy
+          value: OnFailure
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: low-priority
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 5200
+
+  - it: container image renders as pinned digest
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: img-test
+        completions: 1
+        parallelism: 1
+    documentSelector:
+      path: metadata.name
+      value: openstudio-server-oss-batch-img-test
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: nrel/openstudio-server@sha256:9b0871fc4f9c746afd5e8d36775d2564d07679ee4779cb3997a53ea112c65875
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: IfNotPresent
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: chunk-runner
+
+  - it: JOB_COMPLETION_INDEX is projected via downward API
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: downward-api-test
+        completions: 4
+        parallelism: 2
+    documentSelector:
+      path: metadata.name
+      value: openstudio-server-oss-batch-downward-api-test
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JOB_COMPLETION_INDEX
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+
+  - it: mounts the NFS PVC and the runner-script ConfigMap
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: mounts-test
+        completions: 1
+        parallelism: 1
+    documentSelector:
+      path: metadata.name
+      value: openstudio-server-oss-batch-mounts-test
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nfs
+            persistentVolumeClaim:
+              claimName: nfs-pvc
+              # claimName comes from .Values.nfs_pvc.name which defaults to "nfs-pvc"
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: runner-script
+            configMap:
+              name: openstudio-server-oss-runner
+              defaultMode: 493  # 0o755 in decimal
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nfs
+            mountPath: /mnt/openstudio
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: runner-script
+            mountPath: /scripts
+
+  - it: honors a custom storage.existingClaim override
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: existing-claim-test
+        completions: 1
+        parallelism: 1
+        storage:
+          mountPath: /mnt/openstudio
+          existingClaim: my-custom-pvc
+    documentSelector:
+      path: metadata.name
+      value: openstudio-server-oss-batch-existing-claim-test
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nfs
+            persistentVolumeClaim:
+              claimName: my-custom-pvc
+
+  - it: container args invoke run_chunk.rb with the correct flag set
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: args-test
+        completions: 1
+        parallelism: 1
+    documentSelector:
+      path: metadata.name
+      value: openstudio-server-oss-batch-args-test
+    asserts:
+      - matchSnapshot:
+          path: spec.template.spec.containers[0].args[0]
+
+  - it: resources block renders limits and requests
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: resources-test
+        completions: 1
+        parallelism: 1
+    documentSelector:
+      path: metadata.name
+      value: openstudio-server-oss-batch-resources-test
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 2000m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 4Gi
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 4000m
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 8Gi
+
+  - it: ConfigMap data.run_chunk.rb contains the runner script
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: cm-test
+        completions: 1
+        parallelism: 1
+    template: templates/runner-cm.yaml
+    documentSelector:
+      path: metadata.name
+      value: openstudio-server-oss-runner
+    asserts:
+      # data["run_chunk.rb"] is a string (not array), so matchRegex is the
+      # right assertion. Bracket syntax because the key contains a dot.
+      - matchRegex:
+          path: data["run_chunk.rb"]
+          pattern: "#!/usr/bin/env ruby"
+      - matchRegex:
+          path: data["run_chunk.rb"]
+          pattern: "Usage: ruby run_chunk.rb --package DIR --results DIR"
+      - matchSnapshot:
+          path: data["run_chunk.rb"]
+
+  - it: fails when enabled but container.image is empty
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: fail-test
+        completions: 1
+        parallelism: 1
+        container:
+          image: ""
+          imagePullPolicy: IfNotPresent
+    template: templates/job-external-batch.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: external_batch.container.image must be set when external_batch.enabled=true
+
+  - it: job has the cluster-autoscaler safe-to-evict annotation
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: evict-test
+        completions: 1
+        parallelism: 1
+    documentSelector:
+      path: metadata.name
+      value: openstudio-server-oss-batch-evict-test
+    asserts:
+      - equal:
+          path: metadata.annotations["cluster-autoscaler.kubernetes.io/safe-to-evict"]
+          value: "false"
+
+  - it: pod uses worker node-group affinity
+    set:
+      external_batch:
+        enabled: true
+        analysis_id: affinity-test
+        completions: 1
+        parallelism: 1
+    documentSelector:
+      path: metadata.name
+      value: openstudio-server-oss-batch-affinity-test
+    asserts:
+      # affinity is an object (not an array), so isSubset is the right matcher
+      - isSubset:
+          path: spec.template.spec.affinity
+          content:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: nodegroup
+                        operator: In
+                        values:
+                          - worker-group
