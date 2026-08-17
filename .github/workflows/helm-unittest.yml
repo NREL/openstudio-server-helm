@@ -21,7 +21,7 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
         with:
-          version: v3.16.4
+          version: v3.21.4
 
       - name: helm lint
         run: helm lint ./openstudio-server
@@ -37,7 +37,7 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
         with:
-          version: v3.16.4
+          version: v3.21.4
 
       - name: Install helm-unittest plugin
         run: helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.2
@@ -56,7 +56,7 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
         with:
-          version: v3.16.4
+          version: v3.21.4
 
       - name: Render with default values
         run: |
