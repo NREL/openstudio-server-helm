@@ -281,9 +281,27 @@ localRegistry:
 ### Troubleshooting
 
 - **ImagePullBackOff**: Images haven't been pushed to the local registry yet
-- **PVC Pending**: Check storage class availability and permissions
+- **PVC Pending**: Check storage class availability and permissions. If the
+  PVC's `storageClassName` doesn't exist on the cluster at all (`storageclass
+  ... not found`), verify `localRegistry.persistence.storageClass` matches a
+  real StorageClass name — e.g. on OpenStack/Azimuth clusters the chart's own
+  provisioned class is named `ssd`, not `cinder-csi` ([#107](https://github.com/NatLabRockies/openstudio-server-helm/issues/107)).
+  If it previously existed and is now `not found`, see the note below on
+  `lookup`-created StorageClasses not self-healing
+  ([#108](https://github.com/NatLabRockies/openstudio-server-helm/issues/108)).
+- **`container has runAsNonRoot and image will run as root`**: fixed as of
+  this chart version — the local-registry container now applies
+  `localRegistry.securityContext` (`runAsUser`/`runAsGroup`) in addition to
+  the pod-level `podSecurityContext`. If you see this on an older release,
+  `helm upgrade` to pick up the fix ([#109](https://github.com/NatLabRockies/openstudio-server-helm/issues/109)).
 - **Cluster-autoscaler stuck in Init**: The initContainer is waiting for the registry; check registry pod logs
 - **Registry not accessible**: Verify service exists and port-forward works
+- **`helm upgrade` fails with `conflict occurred while applying object ...
+  with subresource "scale"`**: unrelated to the local registry itself, but
+  commonly hit right after enabling it if `web`/`worker` HPAs have already
+  scaled at least once — pass `--force-conflicts` to `helm upgrade`
+  ([#110](https://github.com/NatLabRockies/openstudio-server-helm/issues/110), see also
+  [openstack/README.md](./openstack/README.md#troubleshooting)).
 
 ## Auto Scaling
 
