@@ -7,3 +7,6 @@ openstack/values-openstack.yaml
 .health-remediation-state/
 # Agent tool artifacts - never commit
 .agents/
+# Agent per-session execution logs (rendered to repo root by some
+# orchestration tools; canonical home is .agents/results/).
+result-*.md
