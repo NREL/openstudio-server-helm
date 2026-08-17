@@ -1,0 +1,116 @@
+{{/*
+Optional Kubernetes Indexed Job that runs an external_batch analysis on the
+existing cluster, reusing the chart's NFS PVC (templates/nfs/nfs-pvc.yaml).
+The runner is plain stdlib Ruby + the OpenStudio CLI from the nrel/openstudio-
+server image at the digest pinned in .Values.external_batch.container.image;
+the runner script itself ships via ConfigMap (templates/runner-cm.yaml) at
+/scripts/run_chunk.rb so chunk-runner pods don't depend on the script being
+baked into the image.
+
+Rendered only when external_batch.enabled=true. Each pod gets a chunk index
+from the batch.kubernetes.io/job-completion-index annotation via the
+downward API; that index selects which slice of manifest.json's chunks[]
+array this pod processes.
+
+Package layout assumed (written by the server's ExternalBatch::Packager job
+when an analysis is submitted with --batch-run-method external_batch_run):
+
+  <storage.mountPath>/external_batch/analysis_<analysis_id>/
+    package/
+      manifest.json
+      analysis_<id>/
+        data_point_<dp_id>/data_point.osw
+        ...
+    results/                <- runner writes per-datapoint output here
+
+The server polls the results directory and ingests completed datapoints via
+ExternalBatch::Ingester (server/app/lib/external_batch/ingester.rb).
+
+Image note: external_batch predates the chart's pinned appVersion (3.8.0-1),
+so .Values.external_batch.container.image defaults to a digest newer than
+appVersion. The default is pinned by digest for reproducibility. Bump both
+the digest and configmaps/runner/run_chunk.rb together from the matching
+upstream commit.
+
+Requires .Values.external_batch.container.image to be set when enabled —
+fails loudly rather than silently falling back to a worker image that
+doesn't contain the runner script.
+*/}}
+{{- if .Values.external_batch.enabled }}
+{{- if not .Values.external_batch.container.image }}
+{{- fail "external_batch.container.image must be set when external_batch.enabled=true" }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "openstudio-server.fullname" . }}-batch-{{ .Values.external_batch.analysis_id | default "manual" }}
+  labels:
+    app.kubernetes.io/name: {{ include "openstudio-server.name" . }}-external-batch
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/component: simulation-job
+  annotations:
+    # Long-running jobs should not be evicted by the cluster autoscaler
+    # mid-analysis (mirrors the worker deployment annotation).
+    cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+spec:
+  completions: {{ .Values.external_batch.completions }}
+  parallelism: {{ .Values.external_batch.parallelism }}
+  completionMode: Indexed
+  backoffLimit: {{ .Values.external_batch.backoff_limit }}
+  activeDeadlineSeconds: {{ .Values.external_batch.active_deadline_seconds }}
+  ttlSecondsAfterFinished: {{ .Values.external_batch.ttl_seconds_after_finished }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "openstudio-server.name" . }}-external-batch
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: simulation-job
+    spec:
+      restartPolicy: OnFailure
+      affinity:
+        {{- include "openstudio-server.nodeGroupAffinity" (dict "root" . "role" "worker") | nindent 8 }}
+      priorityClassName: low-priority
+      terminationGracePeriodSeconds: 5200
+      containers:
+        - name: chunk-runner
+          image: {{ .Values.external_batch.container.image }}
+          imagePullPolicy: {{ .Values.external_batch.container.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.external_batch.resources | nindent 12 }}
+          env:
+            # batch.kubernetes.io/job-completion-index is set by the Job
+            # controller on each pod in completionMode: Indexed jobs
+            # (k8s 1.21+). The downward-API projection is more robust than
+            # shell interpolation of an implicit env var.
+            - name: JOB_COMPLETION_INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+            - name: ANALYSIS_ID
+              value: {{ .Values.external_batch.analysis_id | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              PACKAGE_DIR={{ .Values.external_batch.storage.mountPath }}/external_batch/analysis_${ANALYSIS_ID}/package
+              RESULTS_DIR={{ .Values.external_batch.storage.mountPath }}/external_batch/analysis_${ANALYSIS_ID}/results
+              ruby /scripts/run_chunk.rb \
+                --package "$PACKAGE_DIR" \
+                --results "$RESULTS_DIR" \
+                --chunk "${JOB_COMPLETION_INDEX}" \
+                --openstudio /usr/local/bin/openstudio
+          volumeMounts:
+            - name: nfs
+              mountPath: {{ .Values.external_batch.storage.mountPath }}
+            - name: runner-script
+              mountPath: /scripts
+      volumes:
+        - name: nfs
+          persistentVolumeClaim:
+            claimName: {{ .Values.external_batch.storage.existingClaim | default .Values.nfs_pvc.name }}
+        - name: runner-script
+          configMap:
+            name: {{ include "openstudio-server.fullname" . }}-runner
+            defaultMode: 0o755
+{{- end }}

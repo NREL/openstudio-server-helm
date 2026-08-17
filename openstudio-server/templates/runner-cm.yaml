@@ -1,0 +1,30 @@
+{{/*
+ConfigMap carrying the upstream external_batch runner script (run_chunk.rb)
+so chunk-runner pods don't depend on the script being baked into the
+worker image. The script is plain stdlib Ruby + the OpenStudio CLI, both
+present in the nrel/openstudio-server image at the pinned digest in
+values.yaml.
+
+The script content is sourced verbatim from commit
+d63c8eb2e3b37bca2494e66cab3c4457cf5c4e61 of NatLabRockies/OpenStudio-server
+(the same commit that produced the digest pinned in
+.Values.external_batch.container.image). When bumping the image digest,
+refresh this file from the matching upstream commit.
+
+Mounted by templates/job-external-batch.yaml at /scripts/run_chunk.rb with
+defaultMode 0755 so the script is executable inside the pod.
+*/}}
+{{- if .Values.external_batch.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openstudio-server.fullname" . }}-runner
+  labels:
+    app.kubernetes.io/name: {{ include "openstudio-server.name" . }}-external-batch
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/component: simulation-job
+data:
+  run_chunk.rb: |-
+{{ .Files.Get "configmaps/runner/run_chunk.rb" | nindent 4 }}
+{{- end }}
