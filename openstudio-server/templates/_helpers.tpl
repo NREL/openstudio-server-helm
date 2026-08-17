@@ -198,6 +198,152 @@ Get the local registry host:port
 {{- end -}}
 {{- end -}}
 
+{{/*
+Check if the containerd node-level registry config DaemonSet should be
+deployed. Auto-enabled whenever the local registry rewrite is active (so
+enabling localRegistry "just works" without a second flag to remember), but
+can also be forced on/off explicitly via containerdRegistryConfig.enabled
+for cases with only extraMirrors and no local registry.
+*/}}
+{{- define "openstudio.containerdRegistryConfigEnabled" -}}
+{{- $explicit := .Values.containerdRegistryConfig.enabled -}}
+{{- $explicitBool := false -}}
+{{- if kindIs "string" $explicit -}}
+  {{- $explicitBool = eq $explicit "true" -}}
+{{- else -}}
+  {{- $explicitBool = $explicit -}}
+{{- end -}}
+{{- $rewrite := include "openstudio.localRegistryShouldRewrite" . -}}
+{{- if or $explicitBool (eq $rewrite "true") -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{/*
+Render the shell commands that write each containerd certs.d/hosts.toml
+entry this DaemonSet is responsible for: the auto-derived local-registry
+entry (from openstudio.localRegistryHost -- the exact same
+localRegistry.hostname/port values imageWithRegistry already uses, so the
+IP/host is never configured twice) plus any user-supplied
+containerdRegistryConfig.extraMirrors entries.
+
+Intentionally emits plain shell text (not a data structure round-tripped
+through YAML) since the entries are static at Helm render time -- simplest
+thing that works.
+
+Usage (inside a shell script body):
+  {{- include "openstudio.containerdRegistryConfigScript" . }}
+*/}}
+{{- define "openstudio.containerdRegistryConfigScript" -}}
+{{- $root := . -}}
+{{- $shouldRewrite := include "openstudio.localRegistryShouldRewrite" $root -}}
+{{- if eq $shouldRewrite "true" -}}
+{{- $localHost := include "openstudio.localRegistryHost" $root }}
+D="/host/etc/containerd/certs.d/{{ $localHost }}"
+mkdir -p "$D"
+cat > "$D/hosts.toml" <<'HT'
+server = "http://{{ $localHost }}"
+
+[host."http://{{ $localHost }}"]
+  capabilities = ["pull", "resolve", "push"]
+  skip_verify = true
+HT
+{{ end -}}
+{{- range $root.Values.containerdRegistryConfig.extraMirrors }}
+{{- $caps := default (list "pull" "resolve") .capabilities }}
+D="/host/etc/containerd/certs.d/{{ .host }}"
+mkdir -p "$D"
+cat > "$D/hosts.toml" <<'HT'
+server = "{{ .server }}"
+
+[host."{{ .mirror }}"]
+  capabilities = [{{ range $i, $c := $caps }}{{ if $i }}, {{ end }}"{{ $c }}"{{ end }}]
+{{- if .skip_verify }}
+  skip_verify = true
+{{- end }}
+HT
+{{ end -}}
+{{- end -}}
+
+{{/*
+Compute the deduplicated list of fully-resolved (registry-rewritten) images
+that this release's own workloads will pull on web/worker nodes: db, redis,
+rserve, web, web_background, worker, plus any
+containerdRegistryConfig.prewarmImages.extraImages. Reuses
+openstudio.imageWithRegistry so this list is always consistent with what
+each Deployment template actually renders as its image -- no separate list
+to keep in sync by hand.
+
+Usage:
+  {{- include "openstudio.prewarmImageList" . }}
+Returns one image ref per line.
+*/}}
+{{- define "openstudio.prewarmImageList" -}}
+{{- $root := . -}}
+{{- $images := list -}}
+{{- $images = append $images (include "openstudio.imageWithRegistry" (dict "root" $root "image" $root.Values.db.container.image)) -}}
+{{- $images = append $images (include "openstudio.imageWithRegistry" (dict "root" $root "image" $root.Values.redis.container.image)) -}}
+{{- $images = append $images (include "openstudio.imageWithRegistry" (dict "root" $root "image" $root.Values.rserve.container.image)) -}}
+{{- $images = append $images (include "openstudio.imageWithRegistry" (dict "root" $root "image" $root.Values.web.container.image)) -}}
+{{- $images = append $images (include "openstudio.imageWithRegistry" (dict "root" $root "image" $root.Values.web_background.container.image)) -}}
+{{- $images = append $images (include "openstudio.imageWithRegistry" (dict "root" $root "image" $root.Values.worker.container.image)) -}}
+{{- range $root.Values.containerdRegistryConfig.prewarmImages.extraImages -}}
+  {{- $images = append $images . -}}
+{{- end -}}
+{{- range ($images | uniq) }}
+{{ . }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Render the shell commands that pre-pull (warm) every image from
+openstudio.prewarmImageList directly into containerd's content store via
+`ctr`, bypassing kubelet's image manager (and its
+registryPullQPS/registryBurst/serializeImagePulls throttling) entirely --
+see the long comment on containerdRegistryConfig.prewarmImages in
+values.yaml for why that throttle matters.
+
+Usage (inside a shell script body):
+  {{- include "openstudio.prewarmImagesScript" . }}
+*/}}
+{{- define "openstudio.prewarmImagesScript" -}}
+{{- $root := . -}}
+{{- $sock := $root.Values.containerdRegistryConfig.prewarmImages.containerdSockPath -}}
+{{- $ctr := $root.Values.containerdRegistryConfig.prewarmImages.ctrBinaryPath -}}
+export CONTAINERD_ADDRESS="/host{{ $sock }}"
+CTR="/host{{ $ctr }}"
+{{- range (include "openstudio.prewarmImageList" $root | trim | splitList "\n") }}
+{{- if . }}
+echo "pre-warming image {{ . }}"
+"$CTR" -n k8s.io images pull --hosts-dir /host/etc/containerd/certs.d {{ . }} || echo "WARNING: pre-warm failed for {{ . }} (non-fatal, kubelet will still pull normally)"
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Check if image pre-warming (direct-to-containerd ctr pull, bypassing
+kubelet's pull throttle) should be enabled. Requires both the containerd
+registry config DaemonSet itself being enabled (prewarming needs somewhere
+to run) and containerdRegistryConfig.prewarmImages.enabled being true.
+*/}}
+{{- define "openstudio.prewarmImagesEnabled" -}}
+{{- $dsEnabled := include "openstudio.containerdRegistryConfigEnabled" . -}}
+{{- $explicit := .Values.containerdRegistryConfig.prewarmImages.enabled -}}
+{{- $explicitBool := false -}}
+{{- if kindIs "string" $explicit -}}
+  {{- $explicitBool = eq $explicit "true" -}}
+{{- else -}}
+  {{- $explicitBool = $explicit -}}
+{{- end -}}
+{{- if and (eq $dsEnabled "true") $explicitBool -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
 {{- define "openstudio.webBackgroundWorkers" -}}
 {{- $wb := .Values.web_background -}}
 {{- $rserve := .Values.rserve -}}

@@ -138,14 +138,7 @@ spec:
         prometheus.io/port: '8085'
     spec:
       affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
+        {{- include "openstudio.nodeGroupAffinity" (dict "root" $ "role" "web") | nindent 8 }}
       priorityClassName: system-cluster-critical
       serviceAccountName: cluster-autoscaler
       initContainers:
@@ -200,4 +193,4 @@ spec:
       volumes:
         - name: ssl-certs
           hostPath:
-            path: "/etc/ssl/certs/ca-bundle.crt"
+            path: {{ .Values.clusterAutoscaler.caCertsHostPath | default "/etc/ssl/certs/ca-certificates.crt" | quote }}
