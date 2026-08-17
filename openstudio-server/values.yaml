@@ -136,7 +136,6 @@ redis_svc:
 rserve:
   name: "rserve"
   label: "rserve"
-  number_of_workers: "1"
   container:
     name: "rserve"
     image: "nrel/openstudio-rserve:3.8.0-1"
@@ -154,11 +153,7 @@ web_background:
   name: "web-background"
   label: "web-background"
   replicas: 1
-  # Dynamic worker calculation (auto-parses container.resources.limits.memory):
-  #   workers = floor(limit_memory_MiB / worker_memory_mib)
-  #   e.g., "32Gi" limit + 300 MiB/worker = 109 workers
-  #   If no memory limit set, falls back to rserve.number_of_workers
-  worker_memory_mib: 300
+  number_of_workers: "30"
   container:
     name: "web-background"
     image: "nrel/openstudio-server:3.8.0-1"

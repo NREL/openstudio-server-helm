@@ -1,4 +1,5 @@
 .idea
+aws/values-aws.yaml
 
 # Secrets file - generated from template, do not commit
 openstack/values-openstack.yaml
