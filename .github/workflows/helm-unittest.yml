@@ -1,0 +1,72 @@
+name: helm
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: helm lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: helm lint
+        run: helm lint ./openstudio-server
+
+  unittest:
+    name: helm unittest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.2
+
+      - name: helm unittest
+        run: helm unittest ./openstudio-server
+
+  template-render:
+    name: helm template (smoke render)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Render with default values
+        run: |
+          helm template smoketest ./openstudio-server --set provider.name=google > /tmp/render-default.yaml
+          test -s /tmp/render-default.yaml
+
+      - name: Render with custom override
+        run: |
+          helm template smoketest ./openstudio-server \
+            --set provider.name=aws \
+            --set nfs_pvc.name=custom-nfs-claim \
+            > /tmp/render-custom.yaml
+          grep -q "claimName: custom-nfs-claim" /tmp/render-custom.yaml
