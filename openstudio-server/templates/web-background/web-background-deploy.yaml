@@ -61,4 +61,4 @@ spec:
       volumes:
         - name: nfs
           persistentVolumeClaim:
-            claimName: nfs-pvc
+            claimName: {{ .Values.nfs_pvc.name }}
