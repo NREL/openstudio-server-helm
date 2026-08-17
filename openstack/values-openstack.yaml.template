@@ -27,7 +27,7 @@ localRegistry:
   enabled: false
   rewriteImages: true
   persistence:
-    storageClass: "cinder-csi"
+    storageClass: "ssd"
     size: 50Gi
 
 # CRITICAL: Generate your own secure secret key!

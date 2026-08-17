@@ -38,9 +38,9 @@ spec:
             {{- include "openstudio.resourceLimits" .Values.db.container.resources.limits | nindent 12 }}
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
-              value: {{ .Values.db.username }}
+              value: {{ .Values.db.username | quote }}
             - name: MONGO_INITDB_ROOT_PASSWORD
-              value: {{ .Values.db.password }}
+              value: {{ .Values.db.password | quote }}
       priorityClassName: high-priority
       volumes:
         - name: {{ .Values.db.name }}

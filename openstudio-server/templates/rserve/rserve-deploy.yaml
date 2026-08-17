@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.rserve.name  }}
+  name: {{ .Values.rserve.name }}
   labels:
     release: {{ .Release.Name }}
 spec:
@@ -28,26 +28,26 @@ spec:
           image: {{ include "openstudio.imageWithRegistry" (dict "root" $ "image" .Values.rserve.container.image) | quote }}
           resources:
             requests:
-              cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
-              memory:  {{  .Values.rserve.container.resources.requests.memory  }}
+              cpu: {{ .Values.rserve.container.resources.requests.cpu }}
+              memory: {{ .Values.rserve.container.resources.requests.memory }}
             {{- include "openstudio.resourceLimits" .Values.rserve.container.resources.limits | nindent 12 }}
           volumeMounts:
             - name: osdata
               mountPath: "/mnt/openstudio"
           env:
-             - name: OS_SERVER_NUMBER_OF_WORKERS
-               value: {{ .Values.web_background.number_of_workers | quote }}
-             - name: SECRET_KEY_BASE
-               value: {{ .Values.web.secret_key_value }}
-             - name: REDIS_URL
-               value: {{ .Values.redis_svc.url  }}
-             - name: MONGO_USER
-               value: {{ .Values.db.username }}
-             - name: MONGO_PASSWORD
-               value: {{ .Values.db.password }}
+            - name: OS_SERVER_NUMBER_OF_WORKERS
+              value: {{ .Values.web_background.number_of_workers | quote }}
+            - name: SECRET_KEY_BASE
+              value: {{ .Values.web.secret_key_value | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.redis_svc.url | quote }}
+            - name: MONGO_USER
+              value: {{ .Values.db.username | quote }}
+            - name: MONGO_PASSWORD
+              value: {{ .Values.db.password | quote }}
           livenessProbe:
             exec:
-              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
+              command: ["grep", "-qs", "/mnt/openstudio ", "/proc/mounts"]
             initialDelaySeconds: 5
             periodSeconds: 30
             timeoutSeconds: 30

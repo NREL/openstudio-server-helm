@@ -194,7 +194,7 @@ Get the local registry host:port
 {{- if .Values.localRegistry.hostname -}}
 {{- printf "%s:%d" .Values.localRegistry.hostname $port -}}
 {{- else -}}
-{{- printf "%s-localRegistry:%d" .Release.Name $port -}}
+{{- printf "%s-local-registry:%d" .Release.Name $port -}}
 {{- end -}}
 {{- end -}}
 

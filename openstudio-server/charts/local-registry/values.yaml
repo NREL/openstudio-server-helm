@@ -2,6 +2,12 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+# Override the chart name used in generated object names/labels. The Chart.yaml
+# "name" is "localRegistry" (mixed-case, kept for backward-compat with the
+# parent chart's dependency/values wiring), but Kubernetes object names must be
+# lowercase RFC 1123 subdomains, so force a lowercase name here.
+nameOverride: "local-registry"
+
 # Global enable/disable for the local registry
 enabled: false
 
@@ -32,16 +38,16 @@ service:
   port: 5000
   # nodePort: 30500  # Only used if type is NodePort
 
-# Security context
+# Security context (container-level)
 securityContext:
   runAsUser: 1000
   runAsGroup: 1000
-  fsGroup: 1000
   runAsNonRoot: true
 
-# Pod security context
+# Pod security context (pod-level; fsGroup only applies here)
 podSecurityContext:
   runAsNonRoot: true
+  fsGroup: 1000
 
 # Node selector
 nodeSelector: {}
