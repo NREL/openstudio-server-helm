@@ -25,7 +25,7 @@ spec:
         {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       initContainers:
           - name: init-wait-for-db
-            image: alpine
+            image: {{ .Values.web.initContainer.image | default "alpine" | quote }}
             command: ["/bin/sh", "-c", "for i in $(seq 1 300); do nc -zvw1 {{  .Values.db.name  }} {{ .Values.db.container.ports.db_port }} && exit 0 || sleep 3; done; exit 1"]
       containers:
         - name:  {{ .Values.web.container.name  }}
