@@ -22,7 +22,7 @@ spec:
       serviceAccountName: {{ .Release.Name }}-nfs-disconnect
       containers:
         - name: kubectl
-          image: {{ include "openstudio.imageWithRegistry" (dict "root" . "image" .Values.hooks.preDeleteCleanup.image) | quote }}
+          image: {{ include "openstudio-server.imageWithRegistry" (dict "root" . "image" .Values.hooks.preDeleteCleanup.image) | quote }}
           # values.yaml is the single source of truth for this image (tracked fix #1).
           # IfNotPresent avoids a forced re-pull of :latest on every uninstall eating
           # into the activeDeadlineSeconds budget.

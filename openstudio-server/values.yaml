@@ -29,7 +29,7 @@ provider:
   name: ""
 
 # Node label used by pod scheduling affinity (see templates/_helpers.tpl,
-# "openstudio.nodeGroupAffinity"). Defaults match this chart's original
+# "openstudio-server.nodeGroupAffinity"). Defaults match this chart's original
 # hardcoded behavior exactly, so existing installs are unaffected. Override
 # per-provider (see openstack/values-openstack.yaml) if your cluster labels
 # node groups differently, e.g. Cluster API/Azimuth clusters auto-label nodes

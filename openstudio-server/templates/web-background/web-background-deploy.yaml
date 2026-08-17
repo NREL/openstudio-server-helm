@@ -22,7 +22,7 @@ spec:
         release: {{ .Release.Name }}
     spec:
       affinity:
-        {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
+        {{- include "openstudio-server.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       containers:
         - name:  {{  .Values.web_background.container.name  }}
           image:  {{  .Values.web_background.container.image  }}
@@ -31,7 +31,7 @@ spec:
             requests:
               cpu:  {{  .Values.web_background.container.resources.requests.cpu  }}
               memory:  {{  .Values.web_background.container.resources.requests.memory  }}
-            {{- include "openstudio.resourceLimits" .Values.web_background.container.resources.limits | nindent 12 }}
+            {{- include "openstudio-server.resourceLimits" .Values.web_background.container.resources.limits | nindent 12 }}
           volumeMounts:
             - name: nfs
               mountPath: "/mnt/openstudio"
