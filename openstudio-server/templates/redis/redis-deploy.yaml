@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.redis.name  }}
+  labels:
+    release: {{ .Release.Name }}
 spec:
   replicas: 1
   selector:
@@ -15,14 +17,7 @@ spec:
         release: {{ .Release.Name }}
     spec:
       affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
+        {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       containers:
         - name: {{ .Values.redis.container.name  }}
           image: {{ .Values.redis.container.image  }}
@@ -30,12 +25,13 @@ spec:
             requests:
               cpu:  {{  .Values.redis.container.resources.requests.cpu  }}
               memory:  {{  .Values.redis.container.resources.requests.memory  }}
+            {{- include "openstudio.resourceLimits" .Values.redis.container.resources.limits | nindent 12 }}
           ports:
             - containerPort: {{ .Values.redis.container.port  }}
           volumeMounts:
             - mountPath: /data
               name: {{ .Values.redis.name }}
-          args: ["redis-server", "--appendonly yes", "--requirepass", "{{ .Values.redis.password  }}"]
+          args: ["redis-server", "--appendonly yes", "--requirepass", "{{ .Values.redis.password  }}", "--maxclients", "{{ .Values.redis.maxclients  }}"]
       priorityClassName: high-priority
       volumes:
         - name: {{ .Values.redis.name }}

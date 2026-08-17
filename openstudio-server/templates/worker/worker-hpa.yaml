@@ -1,7 +1,9 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ .Values.worker_hpa.name  }}
+  name: {{ .Values.worker_hpa.name  }}-hpa
+  labels:
+    release: {{ .Release.Name }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -10,11 +12,22 @@ spec:
   minReplicas: {{ .Values.worker_hpa.minReplicas  }}
   maxReplicas: {{ .Values.worker_hpa.maxReplicas  }}
   behavior:
+    scaleUp:
+      # Without a stabilization window (K8s default 0s) a single transient
+      # CPU sample above target — e.g. a pod-startup burst or a wave of
+      # requeued jobs after a mass scale-down — can drive a 950-pod/min
+      # scale-up all the way to maxReplicas before sustained load is
+      # confirmed. Defaults to the scaleDown window when unset.
+      stabilizationWindowSeconds: {{ default .Values.worker_hpa.stabilizationWindowSeconds .Values.worker_hpa.scaleUpStabilizationWindowSeconds }}
+      policies:
+      - type: Pods
+        value: {{ .Values.worker_hpa.scalePolicyValue  }}
+        periodSeconds: 60
     scaleDown:
       stabilizationWindowSeconds: {{ .Values.worker_hpa.stabilizationWindowSeconds  }}
       policies:
-      - type: Percent
-        value: 25
+      - type: Pods
+        value: {{ default .Values.worker_hpa.scalePolicyValue .Values.worker_hpa.scaleDownPolicyValue  }}
         periodSeconds: 60
   metrics:
     - type: Resource

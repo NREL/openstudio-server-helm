@@ -20,6 +20,13 @@ parameters:
   kind: Managed
   storageaccounttype: StandardSSD_LRS
 {{ end }}
+{{ if eq .Values.provider.name "openstack" }}
+# The in-tree "kubernetes.io/cinder" provisioner was removed along with the
+# in-tree cloud provider in Kubernetes 1.26+. Clusters provisioned by Azimuth
+# (and any other modern OpenStack/Cluster API cluster) only ship the external
+# Cinder CSI driver, so this must use its provisioner name instead.
+provisioner: cinder.csi.openstack.org
+{{ end }}
 reclaimPolicy: Delete
 allowVolumeExpansion: true
 volumeBindingMode: WaitForFirstConsumer

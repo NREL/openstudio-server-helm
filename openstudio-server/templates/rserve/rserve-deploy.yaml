@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.rserve.name  }}
+  labels:
+    release: {{ .Release.Name }}
 spec:
   replicas: 1
   selector:
@@ -20,14 +22,7 @@ spec:
         release: {{ .Release.Name }}
     spec:
       affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
+        {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       containers:
         - name: {{ .Values.rserve.container.name }}
           image: {{ .Values.rserve.container.image }}
@@ -35,12 +30,13 @@ spec:
             requests:
               cpu:  {{  .Values.rserve.container.resources.requests.cpu  }}
               memory:  {{  .Values.rserve.container.resources.requests.memory  }}
+            {{- include "openstudio.resourceLimits" .Values.rserve.container.resources.limits | nindent 12 }}
           volumeMounts:
             - name: osdata
               mountPath: "/mnt/openstudio"
           env:
              - name: OS_SERVER_NUMBER_OF_WORKERS
-               value: {{ .Values.rserve.number_of_workers | quote }}
+               value: {{ .Values.web_background.number_of_workers | quote }}
              - name: SECRET_KEY_BASE
                value: {{ .Values.web.secret_key_value }}
              - name: REDIS_URL
@@ -57,6 +53,7 @@ spec:
             timeoutSeconds: 30
             failureThreshold: 3
       priorityClassName: high-priority
+      terminationGracePeriodSeconds: 60
       volumes:
         - name: osdata
           persistentVolumeClaim:

@@ -1,0 +1,191 @@
+# Example values override for running openstudio-server on an OpenStack
+# Kubernetes cluster provisioned by Azimuth.
+#
+# Usage:
+#   helm install openstudio-server ./openstudio-server -f openstack/values-openstack.yaml
+#
+# This assumes the cluster already exists (provisioned via Azimuth) and has
+# the Cinder CSI driver installed. It does not create or configure the
+# Kubernetes cluster itself.
+
+provider:
+  name: "openstack"
+
+# Global image registry used to prefix unqualified image references
+# (e.g. hooks' "bitnami/kubectl:latest" -> "mirror.example.com/my-prefix/bitnami/kubectl:latest").
+# Images that already carry an explicit registry host (the nrel/* images below)
+# are left untouched by the imageWithRegistry helper.
+global:
+  images:
+    registry: "mirror.example.com"
+    repositoryPrefix: "my-prefix"
+
+# CRITICAL: Generate your own secure secret key!
+# Run: openssl rand -hex 64
+web:
+  secret_key_value: "{{WEB_SECRET_KEY}}"
+  container:
+    image: "nrel/openstudio-server:3.8.0-1"
+    resources:
+      requests:
+        cpu: 6
+        memory: "50Gi"
+      limits:
+        cpu: 12
+        memory: "60Gi"
+
+# Azimuth's Cluster API node groups auto-label nodes with
+# "capi.stackhpc.com/node-group: web|worker" (not the "nodegroup: web-group"
+# / "nodegroup: worker-group" this chart defaults to elsewhere). Since
+# Azimuth autoscales node groups, newly-added nodes get this label
+# automatically — using it here means you never have to hand-label nodes,
+# and new nodes are immediately schedulable.
+node_group:
+  label_key: "capi.stackhpc.com/node-group"
+  web_value: "web"
+  worker_value: "worker"
+  # "required" ensures pods ONLY schedule on correctly labeled nodes
+  affinity_mode: "required"
+
+cluster:
+  name: "openstudio-server-azimuth-openstack"
+
+# Persistent storage, sized from prior production usage on this cluster
+# (~3.9TB total: 3900Gi NFS backend + 192Gi db + 120Gi redis).
+# storageClass.reclaimPolicy is left at the chart default (Delete) so
+# uninstalling/recreating never leaves an orphaned Cinder volume behind if
+# manual cleanup is forgotten.
+nfs-server-provisioner:
+  persistence:
+    size: 3900Gi
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "18Gi"
+    limits:
+      cpu: "2"
+      memory: "28Gi"
+  # This subchart is a separate vendored dependency with its own hardcoded
+  # default affinity (nodegroup: web-group) -- it does NOT read this
+  # chart's node_group.* values above. Override it directly to match
+  # Azimuth's actual native node label, or this pod will never schedule.
+  # Helm deep-merges values maps rather than replacing them, so the
+  # subchart's own default requiredDuringSchedulingIgnoredDuringExecution
+  # (nodegroup: web-group) must be explicitly nulled out here -- otherwise
+  # it stays merged in alongside this and, being a hard AND constraint,
+  # permanently blocks scheduling since no node has that label.
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution: null
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: capi.stackhpc.com/node-group
+                operator: In
+                values:
+                  - web
+
+nfs_pvc:
+  # Frontend RWX claim consumed by web/rserve/background pods. Keep this
+  # below nfs-server-provisioner.persistence.size (~85-95% of it).
+  storage: "3500Gi"
+
+# Mirror registry (avoids Docker Hub pull-rate limits from this cluster) and
+# CPU/memory sizing tuned from prior production usage on this cluster.
+# Adjust registry/prefix/tags/resources below to match your own environment.
+db:
+  # CRITICAL: Change these defaults for production!
+  username: "openstudio"
+  password: "{{DB_PASSWORD}}"
+  container:
+    image: "mongo:6.0.7"
+    resources:
+      requests:
+        cpu: 4
+        memory: "22Gi"
+      limits:
+        cpu: 8
+        memory: "44Gi"
+  persistence:
+    size: 192Gi
+
+redis:
+  # CRITICAL: Change this default for production!
+  password: "{{REDIS_PASSWORD}}"
+  maxclients: 40000
+  container:
+    image: "redis:6.0.9"
+    resources:
+      requests:
+        cpu: 8
+        memory: "16Gi"
+      limits:
+        cpu: 16
+        memory: "24Gi"
+  persistence:
+    size: 120Gi
+
+redis_svc:
+  name: "queue"
+  label: "redis"
+  port: 6379
+  url: "redis://:{{REDIS_PASSWORD}}@queue:6379"
+
+rserve:
+  number_of_workers: "15"
+  container:
+    image: "nrel/openstudio-rserve:3.8.0-1"
+    resources:
+      requests:
+        cpu: 2
+        memory: "4Gi"
+      limits:
+        cpu: 4
+        memory: "8Gi"
+
+web_background:
+  # ONLY 1 REPLICA ALLOWED - per openstudio-server developer
+  # (only worker deployment can scale >1 replica)
+  replicas: 1
+  # Dynamic worker calculation (auto-parses container.resources.limits.memory):
+  #   workers = floor(limit_memory_MiB / worker_memory_mib)
+  #   e.g., "32Gi" limit + 300 MiB/worker = 109 workers
+  worker_memory_mib: 300
+  container:
+    image: "nrel/openstudio-server:3.8.0-1"
+    resources:
+      requests:
+        cpu: 4
+        memory: "24Gi"
+      limits:
+        cpu: 8
+        memory: "32Gi"
+
+worker:
+  container:
+    image: "nrel/openstudio-server:3.8.0-1"
+    resources:
+      requests:
+        cpu: 1
+        memory: "1.2Gi"
+      limits:
+        cpu: 1
+        memory: "1.2Gi"
+    # CRITICAL: Reduced from 1800 (30 min) to 60s for faster uninstall cleanup.
+    # Pre-stop hook handles graceful shutdown within this window.
+    terminationGracePeriodSeconds: 60
+    # Cap per-worker scratch space so one runaway job can't fill a node's
+    # disk and take down every other pod on it via DiskPressure eviction.
+    emptyDirSizeLimit: ""
+
+worker_hpa:
+  targetCPUUtilizationPercentage: 5
+  maxReplicas: 10000
+  # Throttle scale-down specifically (much lower than the 950/60s shared
+  # with scale-up) to spread worker terminations out over time rather than
+  # bursting hundreds of simultaneous kills, which risks overwhelming a
+  # node's container runtime kill pathway if many land on the same node at
+  # once. Scale-up speed is unaffected. Trade-off: excess worker capacity
+  # is released more slowly after a workload drop-off.
+  scaleDownPolicyValue: 50

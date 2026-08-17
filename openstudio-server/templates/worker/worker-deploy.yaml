@@ -2,6 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.worker.name   }}
+  labels:
+    release: {{ .Release.Name }}
+  annotations:
+    cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
 spec:
   replicas: 1
   selector:
@@ -20,32 +24,42 @@ spec:
         release: {{ .Release.Name }}
     spec:
       affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - worker-group
+        {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "worker") | nindent 8 }}
       containers:
         - name: {{ .Values.worker.container.name   }}
           image: {{ .Values.worker.container.image   }}
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           lifecycle:
             preStop:
               exec:
-                command: ['/bin/sh','-c', 'pkill -3 -f resque;  while [ $(eval "pgrep -c ruby") -gt 1 ] || [ $(eval "pgrep -c openstudio") -gt 0 ]  ; do sleep 300;  done; pkill -P 1;']
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    echo "Creating kill.worker file" >&2
+                    touch /opt/openstudio/server/bin/kill.worker
+                    echo "Sending QUIT signal to Resque" >&2
+                    pkill -f -QUIT resque || true
+                    echo "Waiting for Ruby or OpenStudio processes to end (max 50s)" >&2
+                    timeout=50
+                    while [ $timeout -gt 0 ] && ( [ $(eval "pgrep -c ruby") -gt 1 ] || [ $(eval "pgrep -c openstudio") -gt 0 ] ); do
+                      sleep 2
+                      echo "Still waiting... ($timeout seconds remaining)" >&2
+                      timeout=$((timeout-2))
+                    done
+                    echo "Killing remaining processes" >&2
+                    pkill -P 1 || true
           resources:
             requests:
               cpu:  {{  .Values.worker.container.resources.requests.cpu  }}
               memory:  {{  .Values.worker.container.resources.requests.memory  }}
+            {{- include "openstudio.resourceLimits" .Values.worker.container.resources.limits | nindent 12 }}
           volumeMounts:
             - name: osdata-worker
               mountPath: "/mnt/openstudio"
           env:
             - name:  QUEUES
-              value: simulations
+              value: requeued,simulations
             - name:  COUNT
               value: "1"
             - name: SECRET_KEY_BASE
@@ -61,4 +75,9 @@ spec:
       priorityClassName: low-priority
       volumes:
         - name: osdata-worker
+          {{- if .Values.worker.container.emptyDirSizeLimit }}
+          emptyDir:
+            sizeLimit: {{ .Values.worker.container.emptyDirSizeLimit }}
+          {{- else }}
           emptyDir: {}
+          {{- end }}

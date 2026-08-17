@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.web.name  }}
+  labels:
+    release: {{ .Release.Name }}
 spec:
   replicas: 1
   selector:
@@ -20,14 +22,7 @@ spec:
         release: {{ .Release.Name }}
     spec:
       affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nodegroup
-                    operator: In
-                    values:
-                      - web-group
+        {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       initContainers:
           - name: init-wait-for-db
             image: alpine
@@ -35,11 +30,12 @@ spec:
       containers:
         - name:  {{ .Values.web.container.name  }}
           image: {{ .Values.web.container.image  }}
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           resources:
             requests:
               cpu:  {{  .Values.web.container.resources.requests.cpu  }}
               memory:  {{  .Values.web.container.resources.requests.memory  }}
+            {{- include "openstudio.resourceLimits" .Values.web.container.resources.limits | nindent 12 }}
           ports:
             - containerPort: {{ .Values.web.container.port.http  }}
             - containerPort: {{ .Values.web.container.port.https  }}
@@ -48,7 +44,7 @@ spec:
               mountPath: "/mnt/openstudio"
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
-              value: {{ .Values.rserve.number_of_workers | quote }}
+              value: {{ .Values.web_background.number_of_workers | quote }}
             - name: QUEUES
               value: analysis_wrappers
             - name: SECRET_KEY_BASE
@@ -80,6 +76,7 @@ spec:
             timeoutSeconds: 120
             failureThreshold: 3
       priorityClassName: high-priority
+      terminationGracePeriodSeconds: 60
       volumes:
         - name: nfs
           persistentVolumeClaim:
