@@ -325,18 +325,22 @@ worker:
 
 worker_hpa:
   name: "worker"
-  minReplicas: 2
-  maxReplicas: 20
-  targetCPUUtilizationPercentage: 50
-  stabilizationWindowSeconds: 3600
+  minReplicas: 10
+  maxReplicas: 1000
+  targetCPUUtilizationPercentage: 40
+  stabilizationWindowSeconds: 600
   # Stabilization window for scale-UP (seconds). Prevents a single transient
   # CPU sample above target (pod startup, requeue storm after a scale-down)
   # from driving the HPA to maxReplicas via the scale-up policy before
   # sustained load is confirmed. Defaults to stabilizationWindowSeconds
   # when unset (backwards compatible).
-  scaleUpStabilizationWindowSeconds: 300
+  scaleUpStabilizationWindowSeconds: 120
   # Scale-up burst size, in pods per periodSeconds=60.
-  scalePolicyValue: 25
+  scalePolicyValue: 100
+  # Optional Percent policy for scale-up (e.g., 200 = 200%/min).
+  # Enables rapid scale-up for large spikes (e.g., 500 -> 1500 pods).
+  # Set to 0 or omit to disable.
+  scaleUpPercentPolicyValue: 200
   # Optional separate cap for scaleDown, in pods per periodSeconds=60.
   # Defaults to scalePolicyValue (original behavior: scale-up and scale-down
   # share the same burst size) when unset. Scale-down bursts of hundreds of
@@ -344,7 +348,7 @@ worker_hpa:
   # runtime kill pathway if many land on the same node at once; set this
   # lower than scalePolicyValue to throttle scale-down specifically without
   # slowing scale-up responsiveness.
-  scaleDownPolicyValue: null
+  scaleDownPolicyValue: 10
 
 # Cluster Autoscaler configuration
 clusterAutoscaler:
