@@ -1,12 +1,25 @@
 # A simple example of ClusterConfig object with two nodegroups:
+#
+# 2026-08-19: reconciled to match the actual production cluster
+# (openstudio-server-03, us-west-2) after a scale-up incident where worker
+# pods stalled at 2378/10000. This file previously described a
+# different region/cluster name/version/AZ layout than what's actually
+# deployed -- it was drifted from prod and unusable as a reference for
+# recreating or reasoning about the live environment. Values below are
+# taken directly from `eksctl get nodegroup --cluster openstudio-server-03
+# --region us-west-2` and `aws eks describe-cluster` at incident-remediation
+# time. AZ 2d is capacity-constrained (spot UnfulfillableCapacity and its
+# subnet has 0 free IPs) so its maxSize is intentionally left lower than
+# 2a/2c, which have far more subnet IP headroom and successfully fill spot
+# capacity.
 --- 
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
 
 metadata:
-  name: openstudio-server
-  region: us-east-2
-  version: "1.31"
+  name: openstudio-server-03
+  region: us-west-2
+  version: "1.34"
 
 vpc:
   cidr: 192.168.0.0/16
@@ -26,10 +39,10 @@ iam:
 
 managedNodeGroups:
   - name: web-node-group
-    instanceType: m7i.8xlarge
+    instanceType: m7i.16xlarge
     minSize: 0
-    maxSize: 2
-    desiredCapacity: 1
+    maxSize: 4
+    desiredCapacity: 2
     labels:
       nodegroup: web-group
     privateNetworking: true
@@ -43,17 +56,20 @@ managedNodeGroups:
       allow: true
       # Update publicKeyPath for your public key
       publicKeyPath: ~/.ssh/id_rsa.pub
-    availabilityZones: ["us-east-2a"]
+    availabilityZones: ["us-west-2a"]
     volumeSize: 550
     volumeType: gp3
 
-  - name: worker-node-group-spot
+  # 2c has the most free subnet IP space (~1,900-2,700 free across its
+  # worker subnets) and has reliably filled spot requests -- given the
+  # highest maxSize headroom for the worker HPA's scale-up.
+  - name: worker-node-group-spot-2c
     instanceTypes: ["c5.metal", "c5a.24xlarge", "c5ad.24xlarge", "c5d.metal",
     "c6a.24xlarge", "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge",
     "c7a.24xlarge", "c7i.24xlarge", "c7i.metal-24xl", "inf1.24xlarge"]
     minSize: 0
-    maxSize: 50
-    desiredCapacity: 1
+    maxSize: 120
+    desiredCapacity: 60
     labels:
       nodegroup: worker-group
     privateNetworking: true
@@ -68,7 +84,61 @@ managedNodeGroups:
       allow: true
       # Update publicKeyPath for your public key
       publicKeyPath: ~/.ssh/id_rsa.pub
-    availabilityZones: ["us-east-2c"]
+    availabilityZones: ["us-west-2c"]
+    volumeSize: 400
+    volumeType: gp3
+
+  - name: worker-node-group-spot-2a
+    instanceTypes: ["c5.metal", "c5a.24xlarge", "c5ad.24xlarge", "c5d.metal",
+    "c6a.24xlarge", "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge",
+    "c7a.24xlarge", "c7i.24xlarge", "c7i.metal-24xl", "inf1.24xlarge"]
+    minSize: 0
+    maxSize: 60
+    desiredCapacity: 50
+    labels:
+      nodegroup: worker-group
+    privateNetworking: true
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        externalDNS: true
+        certManager: true
+        ebs: true
+    spot: true
+    ssh:
+      allow: true
+      # Update publicKeyPath for your public key
+      publicKeyPath: ~/.ssh/id_rsa.pub
+    availabilityZones: ["us-west-2a"]
+    volumeSize: 400
+    volumeType: gp3
+
+  # 2d's worker subnet has 0 free IPs and spot requests here have failed
+  # with "UnfulfillableCapacity" -- kept at the original maxSize since
+  # raising it further would not help until subnet/IP or capacity
+  # constraints in this AZ are separately addressed.
+  - name: worker-node-group-spot-2d
+    instanceTypes: ["c5.metal", "c5a.24xlarge", "c5ad.24xlarge", "c5d.metal",
+    "c6a.24xlarge", "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge",
+    "c7a.24xlarge", "c7i.24xlarge", "c7i.metal-24xl", "inf1.24xlarge"]
+    minSize: 0
+    maxSize: 50
+    desiredCapacity: 17
+    labels:
+      nodegroup: worker-group
+    privateNetworking: true
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        externalDNS: true
+        certManager: true
+        ebs: true
+    spot: true
+    ssh:
+      allow: true
+      # Update publicKeyPath for your public key
+      publicKeyPath: ~/.ssh/id_rsa.pub
+    availabilityZones: ["us-west-2d"]
     volumeSize: 400
     volumeType: gp3
 
@@ -76,6 +146,10 @@ addons:
   - name: eks-pod-identity-agent
   - name: aws-ebs-csi-driver
   - name: vpc-cni
+    configurationValues: |
+      env:
+        ENABLE_PREFIX_DELEGATION: "true"
+        WARM_PREFIX_TARGET: "1"
 
 addonsConfig:
   autoApplyPodIdentityAssociations: true
