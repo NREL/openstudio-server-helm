@@ -39,7 +39,7 @@ spec:
             - name: OS_SERVER_NUMBER_OF_WORKERS
               value: {{ .Values.web_background.number_of_workers | quote }}
             - name: QUEUES
-              value: background,analyses
+              value: background,analyses,analysis_wrappers
             - name: SECRET_KEY_BASE
               value: {{ .Values.web.secret_key_value | quote }}
             - name: REDIS_URL
@@ -48,7 +48,15 @@ spec:
               value: {{ .Values.db.username | quote }}
             - name: MONGO_PASSWORD
               value: {{ .Values.db.password | quote }}
-          command: ["/bin/bash", "-c", "cd /opt/openstudio/server && COUNT=${OS_SERVER_NUMBER_OF_WORKERS} bundle exec rake environment resque:workers"]
+            - name: OS_SERVER_PROJECT_PATH
+              value: "/mnt/openstudio"
+            # Keep Ruby/Paperclip temp files on the same NFS filesystem as the final
+            # asset destination so any attachment writes are atomic same-device renames
+            # rather than non-atomic cross-device copies. See web-deploy.yaml for the
+            # full rationale (seed_zip corruption at rest on NFS).
+            - name: TMPDIR
+              value: "/mnt/openstudio/tmp"
+          command: ["/bin/bash", "-c", "mkdir -p \"$TMPDIR\" && cd /opt/openstudio/server && COUNT=${OS_SERVER_NUMBER_OF_WORKERS} bundle exec rake environment resque:workers"]
           livenessProbe:
             exec:
               command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]

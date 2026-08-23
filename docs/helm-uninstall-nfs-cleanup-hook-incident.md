@@ -176,3 +176,48 @@ selects exactly this release's resources (and nothing else) during the drain.
 Tracked future fixes #1-#6 above remain open; item on deleting `nfs-pvc` from the hook
 while the provisioner is still up is still the plan for eliminating the known NFS PV
 residual.
+
+---
+
+## Follow-up (2026-08-19): Bug B recurrence — watch-stream drop now hits the hook Job's own status wait
+
+**Symptom:**
+
+```
+helm uninstall openstudio-server -n openstudio-server
+Warning: watch ended with error ... stream ID 109; INTERNAL_ERROR ... has prevented the request from succeeding
+Error: resource Job/openstudio-server/nfs-client-cleanup not ready. status: InProgress, message: Job in progress
+context deadline exceeded
+```
+
+**Root cause:** identical class of failure to 2026-08-15 Bug B, just a different call
+site. Bug B's fix made the hook delete PriorityClasses/StorageClass with one-shot
+`kubectl delete` calls specifically because Helm's own watch-based delete-and-wait
+doesn't recover from a dropped apiserver watch stream. That fix did not cover
+**Helm's wait on the hook Job's status itself** — `helm uninstall --wait` polls/watches
+the Job to confirm it reached `Succeeded` before proceeding, and that watch is subject
+to the exact same `INTERNAL_ERROR` drops. When the watch dies, Helm has no fallback
+poll and just runs out its `--timeout` budget, then exits non-zero, even though the Job
+had already finished (confirmed via `kubectl get job` / `kubectl describe job` — no Job
+existed at all shortly after the error, i.e. it completed and its
+`hook-succeeded,hook-failed` delete policy already removed it).
+
+**Practical impact:** the release is left in `helm status` = `uninstalling` /
+`Deletion in progress (or silently failed)`, and most chart resources are still live
+(nfs-server-provisioner, containerd-registry-config daemonset, cluster-autoscaler,
+PVCs, `nfs` StorageClass, ClusterRoles/Bindings) even though nothing is actually stuck.
+Simply re-running `helm uninstall` succeeded immediately, because the hook had nothing
+left to do.
+
+**Fix applied:** `scripts/uninstall.sh` now retries `helm uninstall` automatically
+(default 3 attempts, 10s backoff) when the output matches a known-retryable
+watch-stream pattern (`INTERNAL_ERROR`, `context deadline exceeded`, or
+`not ready. status: InProgress`), instead of failing on the first hit. A genuinely
+`Failed` hook Job (not `InProgress`) is deliberately excluded from the retry pattern —
+that case still needs `docs/helm-uninstall-force-clean-runbook.md`, not a blind retry.
+
+**Still open:** this is a mitigation, not a root-c­ause fix — the underlying flakiness
+is in this cluster's apiserver watch-stream stability, which is outside chart control.
+A more thorough fix would have Helm/the caller poll Job/resource status via `kubectl get`
+(no long-lived watch) instead of relying on `helm uninstall --wait`'s internal watch at
+all; tracked as a variant of future fix #4 above.

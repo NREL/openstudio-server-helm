@@ -1,0 +1,133 @@
+# New worker node groups using the three subnets carved out of the VPC's
+# previously-unused 100.64.0.0/16 CIDR block (see
+# docs/subnet-ip-exhaustion-network-request.md for the full background on
+# why these subnets exist -- us-west-2a/2b/2d were suffering aws-cni pod-IP
+# exhaustion on their original subnets).
+#
+# 2026-08-21: created against the live production cluster
+# (openstudio-server-03, us-west-2, k8s 1.34) once the new subnets were
+# confirmed present in the VPC:
+#   private-2a-100-64  subnet-02f7305f11fada38b  us-west-2a  100.64.0.0/20
+#   private-2b-100-64  subnet-0c935c8acff2810b6  us-west-2b  100.64.16.0/20
+#   private-2d-100-64  subnet-01ccbeba4e7db32df  us-west-2d  100.64.32.0/20
+#
+# `subnets:` (explicit subnet IDs) is used instead of `availabilityZones:`
+# so eksctl targets these exact new subnets rather than re-resolving the AZ
+# name to whichever subnet it picks by default (which would just be one of
+# the already-IP-starved original subnets in that AZ). This also sidesteps
+# the AZ-validation quirk noted in docs/subnet-ip-exhaustion-network-request.md
+# for us-west-2d (that quirk only applies to eksctl's automatic
+# AZ->subnet resolution path, not to nodegroups created with explicit
+# subnet IDs -- already proven out by the existing worker-node-group-spot-2d
+# nodegroup, which also targets a 2d subnet this way).
+#
+# Named "*-100-64" (matching the subnet name suffix) to distinguish these
+# from the pre-existing worker-node-group-spot-2a/2c/2d groups, which remain
+# in place unchanged -- these are additive capacity, not replacements.
+#
+# Config mirrors eks_config_large-spot.yaml's existing spot worker groups
+# (same instanceTypes list/ordering, same prepull-needed taint, same
+# addon policies) for consistency with the live cluster. Create with:
+#   eksctl create nodegroup -f eks_config_worker-100-64.yaml
+---
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: openstudio-server-03
+  region: us-west-2
+  version: "1.34"
+
+managedNodeGroups:
+  - name: worker-node-group-spot-2a-100-64
+    instanceTypes: ["c5a.24xlarge", "c5ad.24xlarge", "c6a.24xlarge",
+    "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge", "c7a.24xlarge",
+    "c7i.24xlarge", "c5.metal", "c7i.metal-24xl", "inf1.24xlarge"]
+    minSize: 0
+    maxSize: 200
+    desiredCapacity: 0
+    labels:
+      nodegroup: worker-group
+    # See eks_config_large-spot.yaml's worker-node-group-spot-2c taints:
+    # comment for why this is here (gates scheduling until the containerd
+    # prewarm DaemonSet has pre-pulled workload images on the fresh node).
+    taints:
+      - key: prepull-needed
+        value: "true"
+        effect: NoSchedule
+    privateNetworking: true
+    subnets:
+      - subnet-02f7305f11fada38b # private-2a-100-64
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        externalDNS: true
+        certManager: true
+        ebs: true
+    spot: true
+    ssh:
+      allow: true
+      # Update publicKeyPath for your public key
+      publicKeyPath: ~/.ssh/id_rsa.pub
+    volumeSize: 400
+    volumeType: gp3
+
+  - name: worker-node-group-spot-2b-100-64
+    instanceTypes: ["c5a.24xlarge", "c5ad.24xlarge", "c6a.24xlarge",
+    "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge", "c7a.24xlarge",
+    "c7i.24xlarge", "c5.metal", "c7i.metal-24xl", "inf1.24xlarge"]
+    minSize: 0
+    maxSize: 200
+    desiredCapacity: 0
+    labels:
+      nodegroup: worker-group
+    taints:
+      - key: prepull-needed
+        value: "true"
+        effect: NoSchedule
+    privateNetworking: true
+    subnets:
+      - subnet-0c935c8acff2810b6 # private-2b-100-64
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        externalDNS: true
+        certManager: true
+        ebs: true
+    spot: true
+    ssh:
+      allow: true
+      # Update publicKeyPath for your public key
+      publicKeyPath: ~/.ssh/id_rsa.pub
+    volumeSize: 400
+    volumeType: gp3
+
+  - name: worker-node-group-spot-2d-100-64
+    instanceTypes: ["c5a.24xlarge", "c5ad.24xlarge", "c6a.24xlarge",
+    "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge", "c7a.24xlarge",
+    "c7i.24xlarge", "c5.metal", "c7i.metal-24xl", "inf1.24xlarge"]
+    minSize: 0
+    maxSize: 200
+    desiredCapacity: 0
+    labels:
+      nodegroup: worker-group
+    taints:
+      - key: prepull-needed
+        value: "true"
+        effect: NoSchedule
+    privateNetworking: true
+    subnets:
+      - subnet-01ccbeba4e7db32df # private-2d-100-64
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        externalDNS: true
+        certManager: true
+        ebs: true
+    spot: true
+    ssh:
+      allow: true
+      # Update publicKeyPath for your public key
+      publicKeyPath: ~/.ssh/id_rsa.pub
+    volumeSize: 400
+    volumeType: gp3

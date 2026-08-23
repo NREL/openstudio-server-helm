@@ -312,12 +312,29 @@ Usage (inside a shell script body):
 {{- $root := . -}}
 {{- $sock := $root.Values.containerdRegistryConfig.prewarmImages.containerdSockPath -}}
 {{- $ctr := $root.Values.containerdRegistryConfig.prewarmImages.ctrBinaryPath -}}
-export CONTAINERD_ADDRESS="/host{{ $sock }}"
-CTR="/host{{ $ctr }}"
+{{- $region := $root.Values.containerdRegistryConfig.prewarmImages.ecrRegion | default "us-west-2" -}}
+{{/*
+2026-08-19: previously invoked /host/usr/bin/aws and /host<ctr> directly via
+ld-linux with --library-path /host/lib64. On AL2023 nodes /usr/bin/aws is an
+*absolute* symlink (-> /usr/local/aws-cli/v2/current/bin/aws), which resolves
+against the container's own root, not /host, when accessed as
+/host/usr/bin/aws -- producing "cannot open shared object file" and silently
+falling through to unauthenticated pulls (which then 403 on ECR's private
+repos: "no basic auth credentials"). `chroot /host <path>` makes the target
+binary resolve symlinks against /host as its root, exactly like the running
+node would, without needing to fight relocated dynamic linker paths.
+*/}}
+CTR="chroot /host {{ $ctr }} --address {{ $sock }} -n k8s.io"
+echo "Obtaining ECR auth token..."
+ECR_PASSWORD=$(chroot /host /usr/bin/aws ecr get-login-password --region {{ $region }} 2>&1) && ECR_OK=1 || { echo "WARNING: failed to get ECR token ($ECR_PASSWORD), trying without auth"; ECR_PASSWORD=""; ECR_OK=0; }
 {{- range (include "openstudio.prewarmImageList" $root | trim | splitList "\n") }}
 {{- if . }}
 echo "pre-warming image {{ . }}"
-"$CTR" -n k8s.io images pull --hosts-dir /host/etc/containerd/certs.d {{ . }} || echo "WARNING: pre-warm failed for {{ . }} (non-fatal, kubelet will still pull normally)"
+if [ "$ECR_OK" = "1" ]; then
+  $CTR images pull --user "AWS:$ECR_PASSWORD" {{ . }} || echo "WARNING: pre-warm failed for {{ . }} (non-fatal, kubelet will still pull normally)"
+else
+  $CTR images pull {{ . }} || echo "WARNING: pre-warm failed for {{ . }} (non-fatal, kubelet will still pull normally)"
+fi
 {{- end }}
 {{- end }}
 {{- end -}}

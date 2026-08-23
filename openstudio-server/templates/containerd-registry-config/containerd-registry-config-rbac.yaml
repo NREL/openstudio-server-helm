@@ -1,0 +1,51 @@
+{{/*
+RBAC for the containerd-registry-config DaemonSet.
+
+When prewarmImages is enabled, the DaemonSet's init container uses
+`kubectl taint node` to remove the prepull-needed taint after pre-pull
+completes. This requires permission to get and patch node objects.
+
+The ClusterRole is intentionally read-only + patch (no list/watch/create/
+delete) to follow least-privilege. It is bound only to the DaemonSet's
+service account via a namespace-scoped ClusterRoleBinding.
+*/}}
+{{- if eq (include "openstudio.containerdRegistryConfigEnabled" .) "true" }}
+{{- $prewarm := eq (include "openstudio.prewarmImagesEnabled" .) "true" }}
+{{- if $prewarm }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: containerd-registry-config
+  labels:
+    app: containerd-registry-config
+    release: {{ .Release.Name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-containerd-registry-config
+  labels:
+    app: containerd-registry-config
+    release: {{ .Release.Name }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-containerd-registry-config
+  labels:
+    app: containerd-registry-config
+    release: {{ .Release.Name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-containerd-registry-config
+subjects:
+  - kind: ServiceAccount
+    name: containerd-registry-config
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

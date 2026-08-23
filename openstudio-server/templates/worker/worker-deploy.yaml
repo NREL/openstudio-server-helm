@@ -7,7 +7,24 @@ metadata:
   annotations:
     cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
 spec:
-  replicas: 1
+  {{- if .Values.worker_hpa.enabled }}
+  # No `replicas` field when the HPA is enabled (the default). The HPA
+  # (templates/worker/worker-hpa.yaml) is the sole owner of this Deployment's
+  # replica count. If replicas were declared here, every `helm upgrade` would
+  # try to reassert Helm's opinion of it via server-side apply, conflicting
+  # with the HPA's writes through the `scale` subresource (whichever field
+  # manager touched it last "wins" the ownership) -- causing:
+  #   "Apply failed with 1 conflict: conflict with \"kube-controller-manager\"
+  #    with subresource \"scale\" using apps/v1: .spec.replicas"
+  # on every subsequent upgrade once the HPA scales at least once. Omitting it
+  # lets the API server default it to 1 on first create only, and leaves the
+  # HPA as the field's only writer forever after -- no conflict, ever.
+  {{- else }}
+  # HPA disabled (provider choice, e.g. openstack): replicas are fixed and
+  # Helm is the sole writer of .spec.replicas -- no scale subresource writes,
+  # so no field-ownership conflicts either.
+  replicas: {{ .Values.worker.replicas | default 2 }}
+  {{- end }}
   selector:
     matchLabels:
       app: {{ .Values.worker.name }}
@@ -55,7 +72,7 @@ spec:
               memory:  {{  .Values.worker.container.resources.requests.memory  }}
             {{- include "openstudio.resourceLimits" .Values.worker.container.resources.limits | nindent 12 }}
           volumeMounts:
-            - name: osdata-worker
+            - name: nfs
               mountPath: "/mnt/openstudio"
           env:
             - name:  QUEUES
@@ -70,14 +87,12 @@ spec:
               value: {{ .Values.db.username | quote }}
             - name: MONGO_PASSWORD
               value: {{ .Values.db.password | quote }}
+            - name: OS_SERVER_PROJECT_PATH
+              value: "/mnt/openstudio"
           command: ["/usr/local/bin/start-workers"]
       terminationGracePeriodSeconds: {{ .Values.worker.container.terminationGracePeriodSeconds }} # for long openstudio jobs.
       priorityClassName: low-priority
       volumes:
-        - name: osdata-worker
-          {{- if .Values.worker.container.emptyDirSizeLimit }}
-          emptyDir:
-            sizeLimit: {{ .Values.worker.container.emptyDirSizeLimit }}
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
+        - name: nfs
+          persistentVolumeClaim:
+            claimName: nfs-pvc

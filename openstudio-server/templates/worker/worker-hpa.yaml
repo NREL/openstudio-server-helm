@@ -1,3 +1,4 @@
+{{- if .Values.worker_hpa.enabled }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -11,24 +12,50 @@ spec:
     name: {{ .Values.worker.name  }}
   minReplicas: {{ .Values.worker_hpa.minReplicas  }}
   maxReplicas: {{ .Values.worker_hpa.maxReplicas  }}
+  {{- $b := .Values.worker_hpa.behavior }}
+  {{- if $b }}
+  # Rich autoscaling/v2 behavior block (new-style values).
   behavior:
     scaleUp:
       # Without a stabilization window (K8s default 0s) a single transient
-      # CPU sample above target — e.g. a pod-startup burst or a wave of
-      # requeued jobs after a mass scale-down — can drive a 950-pod/min
-      # scale-up all the way to maxReplicas before sustained load is
-      # confirmed. Defaults to the scaleDown window when unset.
+      # CPU sample above target -- e.g. a pod-startup burst or a wave of
+      # requeued jobs after a mass scale-down -- can drive scale-up all the
+      # way to maxReplicas before sustained load is confirmed.
+      stabilizationWindowSeconds: {{ $b.scaleUp.stabilizationWindowSeconds }}
+      policies:
+      {{- range $p := $b.scaleUp.policies }}
+      - type: {{ $p.type }}
+        value: {{ $p.value }}
+        periodSeconds: {{ $p.periodSeconds }}
+      {{- end }}
+      selectPolicy: {{ $b.scaleUp.selectPolicy }}
+    scaleDown:
+      stabilizationWindowSeconds: {{ $b.scaleDown.stabilizationWindowSeconds }}
+      policies:
+      {{- range $p := $b.scaleDown.policies }}
+      - type: {{ $p.type }}
+        value: {{ $p.value }}
+        periodSeconds: {{ $p.periodSeconds }}
+      {{- end }}
+      selectPolicy: {{ $b.scaleDown.selectPolicy }}
+  {{- else }}
+  # Legacy flat-key behavior (aws/values-aws.yaml et al.), preserved so
+  # providers that never adopted the nested structure render identically to
+  # the pre-2026-08 template.
+  behavior:
+    scaleUp:
       stabilizationWindowSeconds: {{ default .Values.worker_hpa.stabilizationWindowSeconds .Values.worker_hpa.scaleUpStabilizationWindowSeconds }}
       policies:
       - type: Pods
         value: {{ .Values.worker_hpa.scalePolicyValue  }}
         periodSeconds: 60
     scaleDown:
-      stabilizationWindowSeconds: {{ .Values.worker_hpa.stabilizationWindowSeconds  }}
+      stabilizationWindowSeconds: {{ default .Values.worker_hpa.scaleDownStabilizationWindowSeconds .Values.worker_hpa.stabilizationWindowSeconds }}
       policies:
       - type: Pods
         value: {{ default .Values.worker_hpa.scalePolicyValue .Values.worker_hpa.scaleDownPolicyValue  }}
         periodSeconds: 60
+  {{- end }}
   metrics:
     - type: Resource
       resource:
@@ -36,3 +63,4 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.worker_hpa.targetCPUUtilizationPercentage  }}
+{{- end }}

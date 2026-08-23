@@ -32,7 +32,14 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
 rules:
   - apiGroups: ["apps"]
-    resources: ["deployments", "statefulsets"]
+    # "daemonsets" added alongside deployments/statefulsets: the pre-delete
+    # hook Job also deletes the containerd-registry-config DaemonSet (see
+    # pre-delete-hook.yaml) so cluster-autoscaler node churn can't keep
+    # spawning fresh DaemonSet pods faster than the hook can clear them.
+    # Without this permission the hook's "kubectl delete daemonset" call
+    # fails Forbidden and the script (set -e) aborts right there, leaving
+    # every subsequent uninstall attempt stuck retrying forever.
+    resources: ["deployments", "statefulsets", "daemonsets"]
     verbs: ["delete", "list", "get"]
   - apiGroups: ["batch"]
     resources: ["jobs"]

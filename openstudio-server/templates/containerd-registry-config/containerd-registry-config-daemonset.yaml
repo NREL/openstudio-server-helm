@@ -73,8 +73,44 @@ spec:
                     values:
                       - {{ default "web-group" .Values.node_group.web_value }}
                       - {{ default "worker-group" .Values.node_group.worker_value }}
+      tolerations:
+        # Allow scheduling on nodes with the prepull-needed taint so this
+        # DaemonSet can run on freshly-joined worker nodes, pre-pull images,
+        # and then remove the taint to unblock workload scheduling.
+        - key: prepull-needed
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
       priorityClassName: system-node-critical
       hostPID: true
+      {{- if $prewarm }}
+      serviceAccountName: containerd-registry-config
+      initContainers:
+        - name: remove-taint
+          image: {{ include "openstudio.imageWithRegistry" (dict "root" . "image" (.Values.containerdRegistryConfig.kubectlImage | default "bitnami/kubectl:latest")) | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Removing prepull-needed taint from node $NODE_NAME..."
+              kubectl taint node "$NODE_NAME" prepull-needed:NoSchedule- 2>&1 || \
+                kubectl taint node "$NODE_NAME" prepull-needed=true:NoSchedule- 2>&1 || \
+                echo "WARNING: taint removal failed (may not exist or no RBAC)"
+              echo "Taint removal complete for node $NODE_NAME"
+          resources:
+            limits:
+              cpu: 50m
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+      {{- end }}
       containers:
         - name: writer
           image: {{ .Values.containerdRegistryConfig.image | quote }}
@@ -83,9 +119,8 @@ spec:
             - /bin/sh
             - -c
             - |
-              set -e
               write_configs() {
-              {{- include "openstudio.containerdRegistryConfigScript" . | nindent 14 }}
+              {{- include "openstudio.containerdRegistryConfigScript" . | nindent 14 }}{{ "\n              :" }}
               }
               write_configs
               echo "--- containerd registry config written at $(date -Iseconds) ---"
@@ -110,10 +145,9 @@ spec:
             - mountPath: /host/etc/containerd
               name: etc-containerd
             {{- if $prewarm }}
-            - mountPath: /host{{ .Values.containerdRegistryConfig.prewarmImages.containerdSockPath }}
-              name: containerd-sock
-            - mountPath: /host{{ .Values.containerdRegistryConfig.prewarmImages.ctrBinaryPath }}
-              name: ctr-bin
+            - mountPath: /host
+              name: host-root
+              readOnly: true
             {{- end }}
       volumes:
         - name: etc-containerd
@@ -121,13 +155,9 @@ spec:
             path: /etc/containerd
             type: Directory
         {{- if $prewarm }}
-        - name: containerd-sock
+        - name: host-root
           hostPath:
-            path: {{ .Values.containerdRegistryConfig.prewarmImages.containerdSockPath }}
-            type: Socket
-        - name: ctr-bin
-          hostPath:
-            path: {{ .Values.containerdRegistryConfig.prewarmImages.ctrBinaryPath }}
-            type: File
+            path: /
+            type: Directory
         {{- end }}
 {{- end }}

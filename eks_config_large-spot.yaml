@@ -9,9 +9,23 @@
 # taken directly from `eksctl get nodegroup --cluster openstudio-server-03
 # --region us-west-2` and `aws eks describe-cluster` at incident-remediation
 # time. AZ 2d is capacity-constrained (spot UnfulfillableCapacity and its
-# subnet has 0 free IPs) so its maxSize is intentionally left lower than
-# 2a/2c, which have far more subnet IP headroom and successfully fill spot
-# capacity.
+# subnet has 0 free IPs).
+#
+# 2026-08-21: raised 2a/2d maxSize to 200 (matching 2c) and switched
+# cluster-autoscaler-autodiscover.yaml to --balance-similar-node-groups=
+# true, after observing worker-node-group-spot-2c alone absorbing the
+# entire worker-HPA scale-up (2a/2d sat at desired=0 the whole time) --
+# least-waste's tie-break with balance-similar-node-groups=false
+# consistently picked the same group every cycle since all three groups
+# have identical instanceTypes/waste%, capping node-provisioning
+# throughput to a single ASG/AZ's serial launch rate (~43 replicas/min
+# observed against maxReplicas=14500). 2d's subnet/capacity constraint is
+# unresolved, but CA's per-group backoff deprioritizes it automatically if
+# it keeps failing, so raising its cap is low-risk. Also added a
+# prepull-needed taint to all three worker groups (see each group's
+# taints: comment) so the containerd prewarm DaemonSet finishes seeding
+# images before kubelet starts pulling on a fresh node, closing the
+# "pull QPS exceeded" ImagePullBackOff gap observed during scale-up.
 --- 
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
@@ -61,17 +75,57 @@ managedNodeGroups:
     volumeType: gp3
 
   # 2c has the most free subnet IP space (~1,900-2,700 free across its
-  # worker subnets) and has reliably filled spot requests -- given the
-  # highest maxSize headroom for the worker HPA's scale-up.
+  # worker subnets) and has reliably filled spot requests.
+  #
+  # 2026-08-20: maxSize raised 120->200 (eksctl scale nodegroup, in-place/
+  # mutable field) so CA has room to grow this group.
+  # 2026-08-21: with cluster-autoscaler-autodiscover.yaml's
+  # --balance-similar-node-groups now true (see that file's comment),
+  # this maxSize=200 is peer to 2a/2d's matching 200 below -- CA spreads
+  # new nodes across all three concurrently instead of serially filling
+  # 2c alone before ever trying 2a/2d.
+  #
+  # instanceTypes/taints are immutable on an existing managed nodegroup --
+  # applying the reordered instanceTypes list (below) and the new
+  # prepull-needed taint (see all three groups' taints: block) requires an
+  # eksctl create-nodegroup-and-drain-old cycle, not an in-place edit of
+  # this file alone. Track that recreate separately; maxSize/desiredCapacity
+  # here ARE live-mutable via `eksctl scale nodegroup`.
+  #
+  # instanceTypes ordering: .24xlarge/.metal-* virtualized-hypervisor sizes
+  # listed before c5.metal/c7i.metal-24xl. Bare-metal instances have a
+  # materially longer EC2 launch-to-join time (observed several minutes vs
+  # ~60-90s for virtualized 24xlarge sizes on this account) because they
+  # boot the physical host firmware/hypervisor stack from cold, not just a
+  # guest VM -- since eksctl/ASG try instance types in list order per spot
+  # capacity availability, front-loading virtualized types improves both
+  # node-join latency and spot-fleet fill rate during fast HPA scale-ups.
   - name: worker-node-group-spot-2c
-    instanceTypes: ["c5.metal", "c5a.24xlarge", "c5ad.24xlarge", "c5d.metal",
-    "c6a.24xlarge", "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge",
-    "c7a.24xlarge", "c7i.24xlarge", "c7i.metal-24xl", "inf1.24xlarge"]
+    instanceTypes: ["c5a.24xlarge", "c5ad.24xlarge", "c6a.24xlarge",
+    "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge", "c7a.24xlarge",
+    "c7i.24xlarge", "c5.metal", "c7i.metal-24xl", "inf1.24xlarge"]
     minSize: 0
-    maxSize: 120
+    maxSize: 200
     desiredCapacity: 60
     labels:
       nodegroup: worker-group
+    # Gates worker-pod scheduling until the containerd-registry-config
+    # DaemonSet's prewarm initContainer has pre-pulled workload images
+    # directly into containerd (bypassing kubelet's registryPullQPS=5
+    # throttle) and removed this taint. Without it, kubelet starts
+    # throttled image pulls for worker pods the instant a fresh node joins,
+    # racing the prewarm DaemonSet and producing a wall of "pull QPS
+    # exceeded" ImagePullBackOff errors during large scale-ups (observed on
+    # this cluster). Requires containerdRegistryConfig.prewarmImages.enabled
+    # (already true in aws/values-aws.yaml) -- the DaemonSet already
+    # tolerates this taint and removes it once prewarm completes (see
+    # templates/containerd-registry-config/containerd-registry-config-
+    # daemonset.yaml). IMMUTABLE on an existing nodegroup -- requires
+    # recreate to take effect on 2c.
+    taints:
+      - key: prepull-needed
+        value: "true"
+        effect: NoSchedule
     privateNetworking: true
     iam:
       withAddonPolicies:
@@ -88,15 +142,40 @@ managedNodeGroups:
     volumeSize: 400
     volumeType: gp3
 
+  # NOTE: worker-node-group-spot-2c-v4 (a proposed recreate target for 2c,
+  # widening instanceTypes) was previously documented here but was never
+  # actually created against openstudio-server-03 -- `aws eks
+  # describe-nodegroup --nodegroup-name worker-node-group-spot-2c-v4`
+  # returns ResourceNotFoundException. Removed to stop this file drifting
+  # from the live cluster (see eks_config_large-spot.yaml's top-of-file
+  # 2026-08-19 reconciliation note for why that drift matters). If a 2c
+  # recreate is still wanted to apply the instanceTypes/taints changes
+  # above, create a fresh nodegroup (any new name) from the -v4 definition
+  # that used to live here plus the taints: block added to 2c, verify it
+  # absorbs scale-up, then drain/delete the old worker-node-group-spot-2c.
+
   - name: worker-node-group-spot-2a
-    instanceTypes: ["c5.metal", "c5a.24xlarge", "c5ad.24xlarge", "c5d.metal",
-    "c6a.24xlarge", "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge",
-    "c7a.24xlarge", "c7i.24xlarge", "c7i.metal-24xl", "inf1.24xlarge"]
+    instanceTypes: ["c5a.24xlarge", "c5ad.24xlarge", "c6a.24xlarge",
+    "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge", "c7a.24xlarge",
+    "c7i.24xlarge", "c5.metal", "c7i.metal-24xl", "inf1.24xlarge"]
     minSize: 0
-    maxSize: 60
+    # 2026-08-21: raised 60->200 to match 2c/2d now that
+    # --balance-similar-node-groups=true (cluster-autoscaler-autodiscover.
+    # yaml) lets CA spread scale-up across all three worker groups
+    # concurrently instead of relying on least-waste's single-group tie-
+    # break, which previously always picked 2c and left this group's spare
+    # headroom (above the old 60 cap) unused while 2c serially absorbed
+    # 100% of scale-up. Live-mutable via `eksctl scale nodegroup`.
+    maxSize: 200
     desiredCapacity: 50
     labels:
       nodegroup: worker-group
+    # See worker-node-group-spot-2c's taints: comment above -- same
+    # prepull-needed gating, same immutable-on-existing-nodegroup caveat.
+    taints:
+      - key: prepull-needed
+        value: "true"
+        effect: NoSchedule
     privateNetworking: true
     iam:
       withAddonPolicies:
@@ -113,19 +192,32 @@ managedNodeGroups:
     volumeSize: 400
     volumeType: gp3
 
-  # 2d's worker subnet has 0 free IPs and spot requests here have failed
-  # with "UnfulfillableCapacity" -- kept at the original maxSize since
-  # raising it further would not help until subnet/IP or capacity
-  # constraints in this AZ are separately addressed.
+  # 2d's worker subnet has 0 free IPs and spot requests here have
+  # previously failed with "UnfulfillableCapacity" in this AZ specifically.
+  # maxSize raised to match 2a/2c below so CA can still try this group in
+  # a balanced scale-up pass -- CA's per-group backoff
+  # (--initial/--max-node-group-backoff-duration) will deprioritize it
+  # automatically if it keeps failing to provision, so raising the cap
+  # here is low-risk even though the subnet/capacity constraint in this AZ
+  # is unresolved (see docs/subnet-ip-exhaustion-network-request.md).
   - name: worker-node-group-spot-2d
-    instanceTypes: ["c5.metal", "c5a.24xlarge", "c5ad.24xlarge", "c5d.metal",
-    "c6a.24xlarge", "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge",
-    "c7a.24xlarge", "c7i.24xlarge", "c7i.metal-24xl", "inf1.24xlarge"]
+    instanceTypes: ["c5a.24xlarge", "c5ad.24xlarge", "c6a.24xlarge",
+    "c6i.24xlarge", "c6id.24xlarge", "c6in.24xlarge", "c7a.24xlarge",
+    "c7i.24xlarge", "c5.metal", "c7i.metal-24xl", "inf1.24xlarge"]
     minSize: 0
-    maxSize: 50
+    # 2026-08-21: raised 50->200 to match 2a/2c -- see 2a's maxSize comment
+    # above for the balance-similar-node-groups rationale. Live-mutable
+    # via `eksctl scale nodegroup`.
+    maxSize: 200
     desiredCapacity: 17
     labels:
       nodegroup: worker-group
+    # See worker-node-group-spot-2c's taints: comment above -- same
+    # prepull-needed gating, same immutable-on-existing-nodegroup caveat.
+    taints:
+      - key: prepull-needed
+        value: "true"
+        effect: NoSchedule
     privateNetworking: true
     iam:
       withAddonPolicies:

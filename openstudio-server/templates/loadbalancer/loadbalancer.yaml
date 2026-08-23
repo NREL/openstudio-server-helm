@@ -3,8 +3,13 @@ kind: Service
 metadata:
   name: {{ .Values.load_balancer.name  }}
   annotations:
-{{- if and (eq .Values.provider.name "aws") .Values.load_balancer.internal }}
+{{- if eq .Values.provider.name "aws" }}
+{{- if .Values.load_balancer.internal }}
     service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+{{- end }}
+{{- if .Values.load_balancer.idle_timeout }}
+    service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: {{ .Values.load_balancer.idle_timeout | quote }}
+{{- end }}
 {{- else if and (eq .Values.provider.name "azure") .Values.load_balancer.internal }}
     service.beta.kubernetes.io/azure-load-balancer-internal: "true"
 {{- else if and (eq .Values.provider.name "google") .Values.load_balancer.internal }}
@@ -20,6 +25,8 @@ spec:
     - name: {{ .Values.load_balancer.ports.http_name }}
       protocol: {{ .Values.load_balancer.ports.http_protocol }}
       port: {{ .Values.load_balancer.ports.http_port }}
+    {{- if .Values.load_balancer.ports.https_port }}
     - name: {{ .Values.load_balancer.ports.https_name }}
       protocol:  {{ .Values.load_balancer.ports.https_protocol }}
       port:   {{ .Values.load_balancer.ports.https_port }}
+    {{- end }}

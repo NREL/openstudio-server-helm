@@ -170,8 +170,8 @@ nfs-server-provisioner:
 db:
   name:  "db"
   label: "db"
-  username: "openstudio"
-  password: "openstudio"
+  username: ""
+  password: ""
   container:
     name: "mongo-db"
     image: "mongo:6.0.7"
@@ -190,16 +190,32 @@ db:
 
 load_balancer:
   name: "ingress-load-balancer"
-  externalTrafficPolicy: "Local"
+  # "Cluster" (not "Local") on purpose. With "Local", the OpenStack cloud
+  # provider must track every node running a "web" pod as an Octavia LB
+  # pool member and re-sync that member list on every node add/remove.
+  # On Azimuth/OpenStack clusters with an autoscaled worker node group,
+  # node churn (nodes added/removed as analyses start/finish) triggers
+  # Octavia member-list PUTs against a rapidly-changing node count, which
+  # can exceed Octavia's API timeout ("context deadline exceeded") and
+  # leave the LB VIP in a broken state -- observed in production as
+  # ECONNREFUSED on the external IP even though the LB, listener, and pool
+  # all report ACTIVE/ONLINE. "Cluster" lets kube-proxy route from any
+  # node via ClusterIP, decoupling the LB's member set from worker
+  # autoscaling entirely. No app code depends on preserved client source
+  # IPs (verified: no request.remote_ip/REMOTE_ADDR/X-Forwarded-For usage,
+  # no IP-based rate limiting or access control in openstudio-server), and
+  # IP allow-listing is enforced upstream by the OpenStack security group
+  # on the Octavia VIP/port -- unaffected by this setting either way.
+  externalTrafficPolicy: "Cluster"
   label: "web"
   internal: false
   ports:
     http_name: "http"
     http_port: 80
     http_protocol: "TCP"
-    https_name: "https"
-    https_port: 443
-    https_protocol: "TCP"
+    # https_name: "https"
+    # https_port: 443
+    # https_protocol: "TCP"
 
 nfs:
   name: "nfs"
@@ -215,10 +231,10 @@ nfs_pvc:
 redis:
   name: "redis"
   label: "redis"
-  password: "openstudio"
+  password: ""
   # Max concurrent client connections for the redis server (--maxclients).
   # Tune upward for deployments with many worker pods.
-  maxclients: 10000
+  maxclients: 500000
   container:
     name: "redis"
     image: "redis:6.0.9"
@@ -238,7 +254,7 @@ redis_svc:
   name: "queue"
   label: "redis"
   port: 6379
-  url: "redis://:openstudio@queue:6379"
+  url: ""
 
 rserve:
   name: "rserve"
@@ -272,12 +288,18 @@ web_background:
 web:
   name: "web"
   label: "web"
-  secret_key_value: "c4ab6d293e4bf52ee92e8dda6e16dc9b5448d0c5f7908ee40c66736d515f3c29142d905b283d73e5e9cef6b13cd8e38be6fd3b5e25d00f35b259923a86c7c473"
+  secret_key_value: ""
   # passenger_max_request_queue_size: "1600"
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
   # passenger_max_pool_size: "21"
   # This value is typically between 150 and 400, find this by ssh into web pod and doing `passenger-status`
   passenger_memory_per_process: 250
+  initContainer:
+    # Used by init-wait-for-db to wait for MongoDB to accept connections.
+    # Generic public Docker Hub reference (provider-agnostic default);
+    # override per-provider (e.g. aws/values-aws.yaml) to pull from a
+    # private registry/ECR if Docker Hub isn't reachable/desired.
+    image: "alpine:3.19"
   container:
     name: "web"
     image: "nrel/openstudio-server:3.8.0-1"
@@ -289,10 +311,12 @@ web:
      http: 80
      https: 443
 
-# For this to work and have more than 1 web pod we'll need to implement
-# a distributed file locking scheme such a https://github.com/antirez/redlock-rbs
-# as even with using NFS via sync it cannot guarantee file locking using multiple clients
+# Web HPA (Horizontal Pod Autoscaler)
+# Disabled by default — web scaling requires a distributed file locking
+# scheme (e.g. https://github.com/antirez/redlock-rbs) because NFS sync
+# alone cannot guarantee file locking across multiple web clients.
 web_hpa:
+  enabled: false
   name: "web"
   minReplicas: 1
   maxReplicas: 1
@@ -308,6 +332,10 @@ web_svc:
 worker:
   name: "worker"
   label: "worker"
+  # Fixed replica count used ONLY when worker_hpa.enabled is false (see below).
+  # When the HPA is enabled the Deployment omits `replicas` entirely so the
+  # HPA remains the sole owner of the count.
+  replicas: 2
   container:
     name: "worker"
     image: "nrel/openstudio-server:3.8.0-1"
@@ -315,7 +343,7 @@ worker:
       requests:
         cpu: 700m
         memory: "900Mi"
-    terminationGracePeriodSeconds: 5200
+    terminationGracePeriodSeconds: 60
     # Cap for worker scratch space under /mnt/openstudio (emptyDir, backed
     # by the node's local disk). Without a cap, one worker writing more
     # than expected can fill the node's disk and trigger DiskPressure
@@ -324,11 +352,17 @@ worker:
     emptyDirSizeLimit: ""
 
 worker_hpa:
+  # Default true so all providers keep today's behavior (HPA manages worker
+  # scaling). Providers with flat-cost infrastructure that prefer a fixed
+  # pool can set enabled: false and size worker.replicas instead — e.g.
+  # openstack/values-openstack.yaml, where compute is uncharged and the HPA
+  # added failure modes (boot-burst runaway, zero-metrics deadlock, helm
+  # field conflicts) without ever being the thing that made runs faster.
+  enabled: true
   name: "worker"
-  minReplicas: 10
-  maxReplicas: 1000
+  minReplicas: 2
+  maxReplicas: 10000
   targetCPUUtilizationPercentage: 40
-  stabilizationWindowSeconds: 600
   # Stabilization window for scale-UP (seconds). Prevents a single transient
   # CPU sample above target (pod startup, requeue storm after a scale-down)
   # from driving the HPA to maxReplicas via the scale-up policy before
@@ -336,7 +370,7 @@ worker_hpa:
   # when unset (backwards compatible).
   scaleUpStabilizationWindowSeconds: 120
   # Scale-up burst size, in pods per periodSeconds=60.
-  scalePolicyValue: 100
+  scalePolicyValue: 1500
   # Optional Percent policy for scale-up (e.g., 200 = 200%/min).
   # Enables rapid scale-up for large spikes (e.g., 500 -> 1500 pods).
   # Set to 0 or omit to disable.
@@ -348,8 +382,11 @@ worker_hpa:
   # runtime kill pathway if many land on the same node at once; set this
   # lower than scalePolicyValue to throttle scale-down specifically without
   # slowing scale-up responsiveness.
-  scaleDownPolicyValue: 10
-
+  scaleDownStabilizationWindowSeconds: 160
+  # Optional separate cap for scale-down burst size, in pods per periodSeconds=60.
+  # Defaults to scalePolicyValue when unset.
+  scaleDownPolicyValue: 1000
+  
 # Cluster Autoscaler configuration
 clusterAutoscaler:
   image: "registry.k8s.io/autoscaling/cluster-autoscaler:v1.26.6"
@@ -366,3 +403,52 @@ clusterAutoscaler:
   # (an empty directory gets created+mounted at the source hostPath instead
   # of the expected file when the configured path doesn't exist).
   caCertsHostPath: "/etc/ssl/certs/ca-certificates.crt"
+
+# metrics-server (templates/metrics-server/metrics-server-deploy.yaml).
+# See that template's header comment for the one-time Helm-adoption step
+# required on clusters where metrics-server was previously hand-applied.
+metricsServer:
+  image: "registry.k8s.io/metrics-server/metrics-server:v0.9.0"
+  # 2026-08-21: raised 1 -> 2. A single replica is a scrape SPOF for the
+  # worker HPA at this cluster's scale (thousands of pods) -- see the
+  # template's header comment for the full incident context.
+  replicas: 2
+  metricResolution: "15s"
+  # 2026-08-21: raised from the upstream default (100m/200Mi) to give
+  # metrics-server headroom to scrape/hold metrics for thousands of pods
+  # across dozens of 96-vCPU nodes without falling behind its scrape
+  # interval.
+  resources:
+    requests:
+      cpu: 200m
+      memory: 500Mi
+    limits: {}
+
+# Automated mitigation for a worker pod getting permanently stuck in
+# FailedCreatePodSandBox with "failed to assign an IP address to container"
+# (aws-cni exhausting its per-node slice of subnet IPs -- see
+# docs/subnet-ip-exhaustion-network-request.md for the underlying root
+# cause). This is a per-pod sandbox failure, not a node-health condition,
+# so cluster-autoscaler never detects or reacts to it on its own. Enabled
+# by default since the failure mode can recur in any AZ whenever its
+# subnet runs low on free IPs, not just the specific AZs seen so far.
+stuckNodeRemediation:
+  enabled: true
+  # Same image as the pre-delete hook / prewarm DaemonSet's remove-taint
+  # container -- must contain both kubectl and a shell (/bin/sh -c).
+  image: "bitnami/kubectl:latest"
+  # Every 5 minutes: frequent enough to keep the worker HPA converging
+  # without meaningfully increasing apiserver load (a handful of `describe
+  # pod`/`cordon`/`delete pod` calls per run, only when pods are actually
+  # stuck).
+  schedule: "*/5 * * * *"
+  # A pod must be Pending for at least this long AND show the specific
+  # aws-cni IP-exhaustion error before being treated as stuck. Set above
+  # normal scheduling/image-pull jitter (a few minutes) to avoid ever
+  # cordoning/rescheduling a pod that's just slow-starting for a benign
+  # reason.
+  stuckPodMinAgeMinutes: 8
+  # Generous ceiling for a run against a 10k-replica deployment (mostly
+  # `kubectl describe pod` calls, one per Pending pod); real runs finish
+  # in well under a minute.
+  activeDeadlineSeconds: 300

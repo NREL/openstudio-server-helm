@@ -1,0 +1,280 @@
+[2026-08-21T02:14:50Z] worker-hpa-autoscale-monitor starting (interval=1200s, step=2500, quota_buffer=1000, hard_ceiling=20000)
+[2026-08-21T02:14:50Z] === monitor cycle start ===
+[2026-08-21T02:14:53Z] current state: maxReplicas=14500 currentReplicas=13400 cpu=99%
+[2026-08-21T02:15:00Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T02:15:11Z] decision: not raising -- currentReplicas (13400) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T02:15:11Z] applying: editing /Users/achapin/179D/openstudio-server-helm/aws/values-aws.yaml maxReplicas 14500 -> [2026-08-21T02:15:11Z] decision: not raising -- currentReplicas (13400) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+14500
+[2026-08-21T02:15:11Z] linting chart...
+Error: failed to parse /Users/achapin/179D/openstudio-server-helm/aws/values-aws.yaml: cannot unmarshal yaml document: error converting YAML to JSON: yaml: line 284: did not find expected key
+[2026-08-21T02:17:41Z] worker-hpa-autoscale-monitor starting (interval=1200s, step=2500, quota_buffer=1000, hard_ceiling=20000)
+[2026-08-21T02:17:41Z] === monitor cycle start ===
+[2026-08-21T02:17:43Z] current state: maxReplicas=14500 currentReplicas=13800 cpu=99%
+[2026-08-21T02:17:51Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=9
+[2026-08-21T02:18:02Z] decision: not raising -- currentReplicas (13800) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T02:18:02Z] === monitor cycle end ===
+[2026-08-21T02:19:31Z] worker-hpa-autoscale-monitor starting (interval=1200s, step=2500, quota_buffer=1000, hard_ceiling=20000)
+[2026-08-21T02:19:31Z] === monitor cycle start ===
+[2026-08-21T02:19:33Z] current state: maxReplicas=14500 currentReplicas=14200 cpu=99%
+[2026-08-21T02:19:40Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=14
+[2026-08-21T02:19:52Z] decision: not raising -- currentReplicas (14200) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T02:19:52Z] === monitor cycle end ===
+[2026-08-21T02:19:52Z] sleeping 1200s until next cycle...
+[2026-08-21T02:39:52Z] === monitor cycle start ===
+[2026-08-21T02:39:54Z] current state: maxReplicas=14500 currentReplicas=14500 cpu=94%
+[2026-08-21T02:40:02Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T02:42:07Z] worker-hpa-autoscale-monitor starting (interval=1200s, step=2500, quota_buffer=1000, hard_ceiling=20000)
+[2026-08-21T02:42:07Z] === monitor cycle start ===
+[2026-08-21T02:42:09Z] current state: maxReplicas=14500 currentReplicas=14500 cpu=97%
+[2026-08-21T02:42:17Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=4
+[2026-08-21T02:42:28Z] decision inputs: current_max=14500 replicas=14500 cpu=97% vcpu_used=19968 vcpu_quota=20000 vcpu_headroom=32 slot_headroom_workers=80 quota_bound_workers=0
+[2026-08-21T02:42:28Z] decision: not raising -- effectively no vCPU quota headroom left after reserving 1000-worker buffer
+[2026-08-21T02:42:28Z] === monitor cycle end ===
+[2026-08-21T02:42:28Z] sleeping 1200s until next cycle...
+[2026-08-21T02:48:24Z] worker-hpa-autoscale-monitor starting (interval=1200s, step=2500, quota_buffer=1000, hard_ceiling=20000)
+[2026-08-21T02:48:24Z] === monitor cycle start ===
+[2026-08-21T02:48:26Z] current state: maxReplicas=14500 currentReplicas=14500 cpu=74%
+[2026-08-21T02:48:33Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T02:48:44Z] decision: not raising -- current CPU% (74) below threshold (90), demand may have relaxed
+[2026-08-21T02:48:44Z] === monitor cycle end ===
+[2026-08-21T02:49:35Z] worker-hpa-autoscale-monitor starting (interval=1200s, step=2500, quota_buffer=1000, hard_ceiling=20000)
+[2026-08-21T02:49:35Z] === monitor cycle start ===
+[2026-08-21T02:49:37Z] current state: maxReplicas=14500 currentReplicas=14500 cpu=64%
+[2026-08-21T02:49:45Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T02:49:55Z] decision: not raising -- current CPU% (64) below threshold (90), demand may have relaxed
+[2026-08-21T02:49:55Z] === monitor cycle end ===
+[2026-08-21T02:49:55Z] sleeping 1200s until next cycle...
+[2026-08-21T03:09:55Z] === monitor cycle start ===
+[2026-08-21T03:09:57Z] current state: maxReplicas=14500 currentReplicas=14500 cpu=74%
+[2026-08-21T03:10:05Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T03:10:15Z] decision: not raising -- current CPU% (74) below threshold (90), demand may have relaxed
+[2026-08-21T03:10:15Z] === monitor cycle end ===
+[2026-08-21T03:10:15Z] sleeping 1200s until next cycle...
+[2026-08-21T03:30:15Z] === monitor cycle start ===
+[2026-08-21T03:30:18Z] current state: maxReplicas=14500 currentReplicas=14460 cpu=64%
+[2026-08-21T03:30:26Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T03:30:36Z] decision: not raising -- currentReplicas (14460) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T03:30:36Z] === monitor cycle end ===
+[2026-08-21T03:30:36Z] sleeping 1200s until next cycle...
+[2026-08-21T03:50:36Z] === monitor cycle start ===
+[2026-08-21T03:50:39Z] current state: maxReplicas=14500 currentReplicas=14450 cpu=98%
+[2026-08-21T03:50:47Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T03:50:59Z] decision: not raising -- currentReplicas (14450) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T03:50:59Z] === monitor cycle end ===
+[2026-08-21T03:50:59Z] sleeping 1200s until next cycle...
+[2026-08-21T04:10:59Z] === monitor cycle start ===
+[2026-08-21T04:11:01Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T04:11:02Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T04:11:12Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T04:11:12Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T04:11:12Z] sleeping 1200s until next cycle...
+[2026-08-21T04:31:12Z] === monitor cycle start ===
+[2026-08-21T04:31:15Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T04:31:16Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T04:31:25Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T04:31:25Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T04:31:25Z] sleeping 1200s until next cycle...
+[2026-08-21T04:51:25Z] === monitor cycle start ===
+[2026-08-21T04:51:28Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T04:51:29Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T04:51:40Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T04:51:40Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T04:51:40Z] sleeping 1200s until next cycle...
+[2026-08-21T05:11:40Z] === monitor cycle start ===
+[2026-08-21T05:11:43Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T05:11:44Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T05:11:53Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T05:11:53Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T05:11:53Z] sleeping 1200s until next cycle...
+[2026-08-21T05:31:53Z] === monitor cycle start ===
+[2026-08-21T05:31:56Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T05:31:57Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T05:32:07Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T05:32:07Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T05:32:07Z] sleeping 1200s until next cycle...
+[2026-08-21T05:52:07Z] === monitor cycle start ===
+[2026-08-21T05:52:09Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T05:52:11Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T05:52:21Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T05:52:21Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T05:52:21Z] sleeping 1200s until next cycle...
+[2026-08-21T06:12:21Z] === monitor cycle start ===
+[2026-08-21T06:12:24Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T06:12:25Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T06:12:28Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T06:12:28Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T06:12:28Z] sleeping 1200s until next cycle...
+[2026-08-21T06:32:28Z] === monitor cycle start ===
+[2026-08-21T06:32:32Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T06:32:33Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T06:32:36Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T06:32:36Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T06:32:36Z] sleeping 1200s until next cycle...
+[2026-08-21T06:52:36Z] === monitor cycle start ===
+[2026-08-21T06:52:39Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T06:52:40Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T06:52:43Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T06:52:43Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T06:52:43Z] sleeping 1200s until next cycle...
+[2026-08-21T07:12:43Z] === monitor cycle start ===
+[2026-08-21T07:12:46Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T07:12:47Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T07:12:50Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T07:12:50Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T07:12:50Z] sleeping 1200s until next cycle...
+[2026-08-21T07:32:50Z] === monitor cycle start ===
+[2026-08-21T07:32:53Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T07:32:54Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T07:32:56Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T07:32:56Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T07:32:56Z] sleeping 1200s until next cycle...
+[2026-08-21T07:52:56Z] === monitor cycle start ===
+[2026-08-21T07:52:59Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T07:53:01Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T07:53:03Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T07:53:03Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T07:53:03Z] sleeping 1200s until next cycle...
+[2026-08-21T08:13:03Z] === monitor cycle start ===
+[2026-08-21T08:13:06Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T08:13:07Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T08:13:10Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T08:13:10Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T08:13:10Z] sleeping 1200s until next cycle...
+[2026-08-21T08:33:10Z] === monitor cycle start ===
+[2026-08-21T08:33:13Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T08:33:14Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T08:33:17Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T08:33:17Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T08:33:17Z] sleeping 1200s until next cycle...
+[2026-08-21T08:53:17Z] === monitor cycle start ===
+[2026-08-21T08:53:19Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T08:53:21Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T08:53:23Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T08:53:23Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T08:53:23Z] sleeping 1200s until next cycle...
+[2026-08-21T09:13:23Z] === monitor cycle start ===
+[2026-08-21T09:13:26Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T09:13:28Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T09:13:30Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T09:13:30Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T09:13:30Z] sleeping 1200s until next cycle...
+[2026-08-21T09:33:30Z] === monitor cycle start ===
+[2026-08-21T09:33:33Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T09:33:34Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T09:33:37Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T09:33:37Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T09:33:37Z] sleeping 1200s until next cycle...
+[2026-08-21T09:53:37Z] === monitor cycle start ===
+[2026-08-21T09:53:40Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T09:53:41Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T09:53:44Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T09:53:44Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T09:53:44Z] sleeping 1200s until next cycle...
+[2026-08-21T10:13:44Z] === monitor cycle start ===
+[2026-08-21T10:13:46Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T10:13:48Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T10:13:50Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T10:13:50Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T10:13:50Z] sleeping 1200s until next cycle...
+[2026-08-21T10:33:50Z] === monitor cycle start ===
+[2026-08-21T10:33:53Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T10:33:55Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T10:33:57Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T10:33:57Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T10:33:57Z] sleeping 1200s until next cycle...
+[2026-08-21T10:53:57Z] === monitor cycle start ===
+[2026-08-21T10:54:00Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T10:54:01Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T10:54:04Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T10:54:04Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T10:54:04Z] sleeping 1200s until next cycle...
+[2026-08-21T11:14:04Z] === monitor cycle start ===
+[2026-08-21T11:14:07Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T11:14:08Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T11:14:11Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T11:14:11Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T11:14:11Z] sleeping 1200s until next cycle...
+[2026-08-21T11:34:11Z] === monitor cycle start ===
+[2026-08-21T11:34:13Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T11:34:15Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T11:34:17Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T11:34:17Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T11:34:17Z] sleeping 1200s until next cycle...
+[2026-08-21T11:54:17Z] === monitor cycle start ===
+[2026-08-21T11:55:49Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T11:56:50Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T11:56:52Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T11:56:52Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T11:56:53Z] sleeping 1200s until next cycle...
+[2026-08-21T12:16:53Z] === monitor cycle start ===
+[2026-08-21T12:18:25Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T12:18:57Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T12:19:00Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T12:19:00Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T12:19:00Z] sleeping 1200s until next cycle...
+[2026-08-21T12:39:00Z] === monitor cycle start ===
+[2026-08-21T12:39:02Z] current state: maxReplicas=10000 currentReplicas=2 cpu=unknown%
+[2026-08-21T12:39:04Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T12:39:13Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas (10000) -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T12:39:13Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T12:39:13Z] sleeping 1200s until next cycle...
+[2026-08-21T12:59:13Z] === monitor cycle start ===
+[2026-08-21T12:59:16Z] current state: maxReplicas=14500 currentReplicas=7 cpu=98%
+[2026-08-21T12:59:18Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T12:59:28Z] decision: not raising -- currentReplicas (7) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T12:59:28Z] === monitor cycle end ===
+[2026-08-21T12:59:28Z] sleeping 1200s until next cycle...
+[2026-08-21T13:19:28Z] === monitor cycle start ===
+[2026-08-21T13:19:31Z] current state: maxReplicas=14500 currentReplicas=476 cpu=98%
+[2026-08-21T13:19:33Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=45
+[2026-08-21T13:19:44Z] decision: not raising -- currentReplicas (476) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T13:19:44Z] === monitor cycle end ===
+[2026-08-21T13:19:44Z] sleeping 1200s until next cycle...
+[2026-08-21T13:39:44Z] === monitor cycle start ===
+[2026-08-21T13:39:48Z] current state: maxReplicas=14500 currentReplicas=2081 cpu=98%
+[2026-08-21T13:39:51Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T13:40:00Z] decision: not raising -- currentReplicas (2081) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T13:40:00Z] === monitor cycle end ===
+[2026-08-21T13:40:00Z] sleeping 1200s until next cycle...
+[2026-08-21T14:00:00Z] === monitor cycle start ===
+[2026-08-21T14:00:03Z] current state: maxReplicas=14500 currentReplicas=2831 cpu=20%
+[2026-08-21T14:00:07Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T14:00:17Z] decision: not raising -- currentReplicas (2831) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T14:00:17Z] === monitor cycle end ===
+[2026-08-21T14:00:17Z] sleeping 1200s until next cycle...
+[2026-08-21T14:20:17Z] === monitor cycle start ===
+[2026-08-21T14:20:19Z] current state: maxReplicas=14500 currentReplicas=3351 cpu=0%
+[2026-08-21T14:20:23Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T14:20:33Z] decision: not raising -- currentReplicas (3351) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T14:20:33Z] === monitor cycle end ===
+[2026-08-21T14:20:33Z] sleeping 1200s until next cycle...
+[2026-08-21T14:40:33Z] === monitor cycle start ===
+[2026-08-21T14:40:35Z] current state: maxReplicas=14500 currentReplicas=3241 cpu=1%
+[2026-08-21T14:40:39Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T14:40:48Z] decision: not raising -- currentReplicas (3241) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T14:40:48Z] === monitor cycle end ===
+[2026-08-21T14:40:48Z] sleeping 1200s until next cycle...
+[2026-08-21T15:00:49Z] === monitor cycle start ===
+[2026-08-21T15:00:51Z] current state: maxReplicas=14500 currentReplicas=6621 cpu=73%
+[2026-08-21T15:00:56Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=77
+[2026-08-21T15:00:56Z] decision: not raising -- incident signature(s) detected (etcd throttling / ECR pull-QPS / UnfulfillableCapacity / widespread ImagePullBackOff). Skipping this cycle.
+[2026-08-21T15:00:56Z] === monitor cycle end (skipped due to incident signature) ===
+[2026-08-21T15:00:56Z] sleeping 1200s until next cycle...
+[2026-08-21T15:20:56Z] === monitor cycle start ===
+[2026-08-21T15:20:58Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T15:21:00Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T15:21:13Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T15:21:13Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T15:21:13Z] sleeping 1200s until next cycle...
+[2026-08-21T15:41:13Z] === monitor cycle start ===
+[2026-08-21T15:41:16Z] current state: maxReplicas= currentReplicas= cpu=unknown%
+[2026-08-21T15:41:17Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T15:41:27Z] WARNING: values file maxReplicas (14500) does not match live HPA maxReplicas () -- using live HPA value as source of truth for this decision, but the values file edit below assumes it currently reads '14500'. Skipping this cycle to avoid an ambiguous edit; investigate drift manually.
+[2026-08-21T15:41:27Z] === monitor cycle end (skipped due to values-file/live drift) ===
+[2026-08-21T15:41:27Z] sleeping 1200s until next cycle...
+[2026-08-21T16:01:27Z] === monitor cycle start ===
+[2026-08-21T16:01:29Z] current state: maxReplicas=14500 currentReplicas=4 cpu=99%
+[2026-08-21T16:01:31Z] incident-signature check: CA-log-hits=0 image-pull-issue-pods=0
+[2026-08-21T16:01:43Z] decision: not raising -- currentReplicas (4) < maxReplicas (14500), HPA has not saturated its current ceiling yet
+[2026-08-21T16:01:43Z] === monitor cycle end ===
+[2026-08-21T16:01:43Z] sleeping 1200s until next cycle...

@@ -10,6 +10,8 @@ spec:
     - name: http
       protocol: TCP
       port: {{ .Values.web_svc.ports.http   }}
+    {{- if .Values.web_svc.ports.https }}
     - name: https
       protocol: TCP
       port:  {{ .Values.web_svc.ports.https   }}
+    {{- end }}

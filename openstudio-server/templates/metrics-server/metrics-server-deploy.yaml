@@ -1,0 +1,117 @@
+{{/*
+Chart-managed override of the metrics-server Deployment (ServiceAccount,
+Service, ClusterRole(s), and the v1beta1.metrics.k8s.io APIService are the
+default EKS-installed resources and are left as-is -- only the Deployment
+is templated here).
+
+Why this exists: metrics-server was hand-applied on openstudio-server-03 at
+a single replica / 100m CPU / 200Mi memory (the metrics-server upstream
+static-manifest defaults). At this cluster's scale (thousands of worker
+pods across dozens of 96-vCPU nodes), a single-replica metrics-server is a
+scrape SPOF -- if that one pod is briefly unavailable (rollout, node
+eviction, OOM) or falls behind on its 15s scrape cycle across all nodes,
+the worker HPA (templates/worker/worker-hpa.yaml) has no CPU metric to act
+on and can't scale, silently stalling the scale-up this chart is tuned for
+elsewhere (worker-hpa's scalePolicyValue/behavior, cluster-autoscaler's
+balance-similar-node-groups, etc.). Intermittent kubelet scrape failures
+("tls: internal error") were also observed on a handful of nodes --
+unrelated to replica count, but a second replica halves the chance both
+happen to hit the same scrape cycle for the same node.
+
+Raised requests (200m/500Mi, from the upstream default 100m/200Mi) give
+metrics-server enough headroom to hold thousands of pods' worth of metric
+samples in memory and finish each 15s scrape pass without falling behind at
+this cluster's scale.
+
+Adoption note: since metrics-server already exists on this cluster as a
+hand-applied (non-Helm) Deployment, the FIRST `helm upgrade` after this
+template is added will fail with:
+  Error: rendered manifests contain a resource that already exists...
+  "metrics-server" in namespace "kube-system" exists and cannot be imported
+Fix once, before that upgrade (substitute your actual Helm release name /
+namespace, e.g. "openstudio-server" / "openstudio-server"):
+  kubectl -n kube-system annotate deployment metrics-server \
+    meta.helm.sh/release-name=<release-name> \
+    meta.helm.sh/release-namespace=<release-namespace>
+  kubectl -n kube-system label deployment metrics-server \
+    app.kubernetes.io/managed-by=Helm
+After that one-time adoption, Helm owns the Deployment going forward and
+this comment block's values (replicas/resources) become the source of
+truth instead of the original hand-applied manifest.
+*/}}
+{{- if .Values.metricsServer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-server
+  namespace: kube-system
+  labels:
+    k8s-app: metrics-server
+    release: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.metricsServer.replicas }}
+  selector:
+    matchLabels:
+      k8s-app: metrics-server
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        k8s-app: metrics-server
+    spec:
+      serviceAccountName: metrics-server
+      priorityClassName: system-cluster-critical
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+        - name: metrics-server
+          image: {{ .Values.metricsServer.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --cert-dir=/tmp
+            - --secure-port=10250
+            - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
+            - --kubelet-use-node-status-port
+            - --metric-resolution={{ .Values.metricsServer.metricResolution }}
+          ports:
+            - containerPort: 10250
+              name: https
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: https
+              scheme: HTTPS
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: {{ .Values.metricsServer.resources.requests.cpu }}
+              memory: {{ .Values.metricsServer.resources.requests.memory }}
+            {{- include "openstudio.resourceLimits" .Values.metricsServer.resources.limits | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp-dir
+              mountPath: /tmp
+      volumes:
+        - name: tmp-dir
+          emptyDir: {}
+{{- end }}

@@ -1,0 +1,61 @@
+{{/*
+RBAC for the stuck-node-remediation CronJob (see stuck-node-remediation-cronjob.yaml).
+
+Needs:
+  - get/list/watch pods (namespace-scoped, to find stuck worker pods)
+  - get/list/watch events (namespace-scoped, to find the specific
+    FailedCreatePodSandBox/"failed to assign an IP address" event in one
+    query instead of a `kubectl describe pod` per candidate pod)
+  - delete pods (namespace-scoped, to trigger rescheduling of stuck ones)
+  - get/list/patch nodes (cluster-scoped, to cordon nodes with stuck pods --
+    patching spec.unschedulable is what `kubectl cordon` does under the hood)
+
+No node/pod delete-at-cluster-scope, no exec, no secrets -- this only ever
+cordons nodes and deletes pods already identified as permanently stuck, the
+same two operations an operator performed manually during the 2026-08-20
+aws-cni IP-exhaustion incident (see docs/).
+*/}}
+{{- if .Values.stuckNodeRemediation.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-stuck-node-remediation
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: stuck-node-remediation
+    release: {{ .Release.Name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-stuck-node-remediation
+  labels:
+    app: stuck-node-remediation
+    release: {{ .Release.Name }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-stuck-node-remediation
+  labels:
+    app: stuck-node-remediation
+    release: {{ .Release.Name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-stuck-node-remediation
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-stuck-node-remediation
+    namespace: {{ .Release.Namespace }}
+{{- end }}

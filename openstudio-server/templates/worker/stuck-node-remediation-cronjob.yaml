@@ -1,0 +1,180 @@
+{{/*
+Automated remediation for the aws-cni per-node IP-exhaustion failure mode
+observed during the 2026-08-20 worker-scale-up incident (see docs/
+subnet-ip-exhaustion-network-request.md for the underlying root cause and
+the durable fix -- new subnets -- requested there).
+
+Why this can't be fixed by cluster-autoscaler alone: this failure is a
+per-POD sandbox-creation error ("failed to assign an IP address to
+container"), not a node-health condition. The node itself reports
+Ready=True (kubelet/disk/memory all fine) even while individual pods on it
+can never get a sandbox IP once that node's own slice of prefix-delegated
+subnet IPs is exhausted. Cluster-autoscaler only reacts to nodes that fail
+to *join* -- it has no visibility into "node joined fine but pods on it are
+permanently stuck" -- so no CA flag or expander change fixes this class of
+failure.
+
+This CronJob runs the same two-step manual fix an operator performed
+during the incident, on a schedule:
+  1. Find worker pods Pending with a FailedCreatePodSandBox event whose
+     message contains "failed to assign an IP address", where the pod has
+     been stuck for longer than stuckPodMinAgeMinutes.
+  2. Cordon each affected node (idempotent -- `kubectl cordon` is a no-op
+     if already cordoned) so cluster-autoscaler stops sending new pods to
+     it and can eventually reap it once it empties naturally, then delete
+     just the stuck pods (not already-Running ones on the same node) so
+     their ReplicaSet recreates them onto healthy capacity immediately.
+
+This is a mitigation, not the fix -- it keeps the worker HPA converging
+toward its target while the durable fix (new subnets in the affected AZs)
+is pending, and remains useful afterward as a safety net for any future
+recurrence of this failure mode in any AZ.
+*/}}
+{{- if .Values.stuckNodeRemediation.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-stuck-node-remediation
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: stuck-node-remediation
+    release: {{ .Release.Name }}
+spec:
+  schedule: {{ .Values.stuckNodeRemediation.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ .Values.stuckNodeRemediation.activeDeadlineSeconds }}
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: stuck-node-remediation
+            release: {{ .Release.Name }}
+        spec:
+          serviceAccountName: {{ .Release.Name }}-stuck-node-remediation
+          restartPolicy: Never
+          # kubectl-only workload with no pod-to-pod networking need;
+          # hostNetwork skips CNI sandbox setup entirely, so this Job can't
+          # itself become a victim of the exact failure mode it's meant to
+          # remediate (same reasoning as templates/hooks/pre-delete-hook.yaml).
+          hostNetwork: true
+          dnsPolicy: ClusterFirstWithHostNet
+          containers:
+            - name: kubectl
+              # Reuses containerdRegistryConfig.kubectlImage when set (same
+              # ECR-hosted image the prewarm DaemonSet's remove-taint
+              # container uses) instead of routing through imageWithRegistry,
+              # which only rewrites images when localRegistry/global.images.*
+              # rewriting is configured -- on AWS neither is, so a bare
+              # "bitnami/kubectl:latest" would otherwise pull straight from
+              # Docker Hub and can hit its pull-rate limit (429 Too Many
+              # Requests), exactly like this same image would without the
+              # kubectlImage override elsewhere in this chart.
+              image: {{ .Values.containerdRegistryConfig.kubectlImage | default (include "openstudio.imageWithRegistry" (dict "root" . "image" .Values.stuckNodeRemediation.image)) | quote }}
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: NAMESPACE
+                  value: {{ .Release.Namespace | quote }}
+                - name: WORKER_LABEL_SELECTOR
+                  value: "app={{ .Values.worker.name }}"
+                - name: STUCK_POD_MIN_AGE_MINUTES
+                  value: {{ .Values.stuckNodeRemediation.stuckPodMinAgeMinutes | quote }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  echo "[stuck-node-remediation] scanning for pods stuck on aws-cni IP exhaustion (min age: ${STUCK_POD_MIN_AGE_MINUTES}m)..."
+
+                  now_epoch=$(date -u +%s)
+                  cutoff_epoch=$(( now_epoch - STUCK_POD_MIN_AGE_MINUTES * 60 ))
+
+                  # 1 API call for all Pending worker pods (name, node, age).
+                  kubectl -n "$NAMESPACE" get pods -l "$WORKER_LABEL_SELECTOR" \
+                    --field-selector=status.phase=Pending -o json \
+                    | jq -r '
+                        .items[]
+                        | select(.spec.nodeName != null)
+                        | [.metadata.name, .spec.nodeName, .metadata.creationTimestamp] | @tsv
+                      ' > /tmp/pending_pods.tsv
+
+                  # 1 API call for every FailedCreatePodSandBox event with the
+                  # specific aws-cni IP-exhaustion message, cluster-wide, in
+                  # one shot -- this replaces an earlier version of this
+                  # script that called `kubectl describe pod` once per
+                  # Pending pod, which took several minutes and hammered the
+                  # apiserver at 10k-replica scale. A single `get events`
+                  # call plus in-memory filtering below is O(1) API calls
+                  # regardless of how many pods are Pending.
+                  kubectl -n "$NAMESPACE" get events -o json --field-selector=reason=FailedCreatePodSandBox \
+                    | jq -r '
+                        .items[]
+                        | select(.message | contains("failed to assign an IP address"))
+                        | .involvedObject.name
+                      ' | sort -u > /tmp/ip_exhaustion_pods.txt
+
+                  stuck_nodes_file=$(mktemp)
+                  stuck_pods_file=$(mktemp)
+                  trap 'rm -f "$stuck_nodes_file" "$stuck_pods_file"' EXIT
+
+                  candidate_count=0
+                  while IFS="$(printf '\t')" read -r pod_name node_name created_ts; do
+                    [ -z "$pod_name" ] && continue
+                    created_epoch=$(date -u -d "$created_ts" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$created_ts" +%s 2>/dev/null || echo 0)
+                    if [ "$created_epoch" -eq 0 ] || [ "$created_epoch" -gt "$cutoff_epoch" ]; then
+                      continue
+                    fi
+                    candidate_count=$((candidate_count + 1))
+
+                    # in-memory lookup against the event list fetched above --
+                    # no per-pod API call.
+                    if grep -qxF "$pod_name" /tmp/ip_exhaustion_pods.txt; then
+                      echo "$pod_name" >> "$stuck_pods_file"
+                      echo "$node_name" >> "$stuck_nodes_file"
+                      echo "[stuck-node-remediation] confirmed stuck: pod=$pod_name node=$node_name"
+                    fi
+                  done < /tmp/pending_pods.tsv
+
+                  if [ ! -s "$stuck_pods_file" ]; then
+                    echo "[stuck-node-remediation] no stuck pods found (checked $candidate_count old-enough candidates) -- nothing to do"
+                    exit 0
+                  fi
+
+                  sort -u "$stuck_nodes_file" -o "$stuck_nodes_file"
+                  node_count=$(wc -l < "$stuck_nodes_file")
+                  pod_count=$(wc -l < "$stuck_pods_file")
+                  echo "[stuck-node-remediation] found $pod_count stuck pod(s) across $node_count node(s) -- cordoning and rescheduling"
+
+                  while read -r node_name; do
+                    [ -z "$node_name" ] && continue
+                    echo "[stuck-node-remediation] cordoning $node_name"
+                    kubectl cordon "$node_name" || true
+                  done < "$stuck_nodes_file"
+
+                  while read -r pod_name; do
+                    [ -z "$pod_name" ] && continue
+                    echo "[stuck-node-remediation] deleting stuck pod $pod_name"
+                    kubectl -n "$NAMESPACE" delete pod "$pod_name" --wait=false --ignore-not-found=true || true
+                  done < "$stuck_pods_file"
+
+                  echo "[stuck-node-remediation] done. cluster-autoscaler will reclaim cordoned nodes once they empty of any remaining Running pods."
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  cpu: 500m
+                  # Cluster-wide FailedCreatePodSandBox events can number in
+                  # the tens of thousands at 10k-replica scale (kubelet logs
+                  # a fresh event roughly every 15-30s for each pod stuck
+                  # retrying sandbox creation, and events aren't deduped
+                  # across restarts of this check). Observed ~60MB of JSON /
+                  # ~40k events during the 2026-08-20 incident -- sized with
+                  # headroom above that so a single `kubectl get events -o
+                  # json | jq` pass doesn't OOM (256Mi was tried first and
+                  # OOMKilled).
+                  memory: 1Gi
+{{- end }}

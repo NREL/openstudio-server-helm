@@ -20,6 +20,14 @@ spec:
       name: nfs-client-cleanup
     spec:
       serviceAccountName: {{ .Release.Name }}-nfs-disconnect
+      # This pod only talks to the in-cluster apiserver via kubectl; it never needs
+      # pod-to-pod networking. hostNetwork skips CNI (Calico) sandbox setup entirely,
+      # so a node whose calico-node agent hasn't finished initializing yet (e.g. one
+      # just brought up by the cluster-autoscaler -- "stat /var/lib/calico/nodename:
+      # no such file or directory") can't burn the Job's activeDeadlineSeconds
+      # retrying FailedCreatePodSandBox and get marked Failed before the CNI catches up.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: kubectl
           image: {{ include "openstudio.imageWithRegistry" (dict "root" . "image" .Values.hooks.preDeleteCleanup.image) | quote }}
@@ -45,6 +53,15 @@ spec:
               kubectl -n "$NS" delete deployment -l "release=$REL,app!=nfs-server-provisioner" --ignore-not-found=true
               kubectl -n "$NS" delete statefulset -l "release=$REL,app!=nfs-server-provisioner" --ignore-not-found=true
               kubectl -n "$NS" delete job -l "release=$REL" --ignore-not-found=true
+              # DaemonSets (e.g. containerd-registry-config) must be deleted
+              # explicitly -- they weren't covered above. If left running, the
+              # cluster-autoscaler adding/removing nodes keeps spawning fresh
+              # DaemonSet pods (labeled release=$REL) faster than the wait/
+              # force-delete pass below can remove them, so the "pods still
+              # present" check below never clears and this Job fails forever
+              # on every retry (observed: 2026-08-19 incident, release stuck
+              # "uninstalling" for hours).
+              kubectl -n "$NS" delete daemonset -l "release=$REL,app!=nfs-server-provisioner" --ignore-not-found=true
               # Authoritatively wait for all client pods to be gone. No `|| true`
               # masking here -- a masked wait is exactly what let helm proceed while
               # pods were still Terminating (the reported symptom). Failed/Succeeded

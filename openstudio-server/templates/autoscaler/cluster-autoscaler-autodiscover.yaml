@@ -174,13 +174,54 @@ spec:
             - --stderrthreshold=info
             - --cloud-provider={{ .Values.provider.name }}
             - --skip-nodes-with-local-storage=false
+            # least-waste (default expander): picks whichever eligible node
+            # group best fits pending pods by resource waste, with no
+            # hardcoded group/AZ names -- portable across any cluster
+            # layout. Combined with CA's built-in per-group backoff
+            # (--initial/--max-node-group-backoff-duration, defaults 5m/30m)
+            # groups that fail to provision (IP exhaustion, spot
+            # UnfulfillableCapacity, at max size, etc.) are automatically
+            # skipped in favor of groups that still have room, without any
+            # cluster-specific config. Replaces an earlier fix (expander=
+            # priority + a ConfigMap hardcoding this cluster's specific
+            # ASG names) that worked but wasn't portable to other clusters.
             - --expander=least-waste
             - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/{{ .Values.cluster.name }}
+            # 2026-08-21: switched false -> true after observing this
+            # cluster's worker-node-group-spot-2a/2c/2d are functionally
+            # identical (same instanceTypes list, same waste %) during a
+            # fast HPA scale-up racing toward maxReplicas=14500. With
+            # balance-similar-node-groups=false, every scale-up decision
+            # ties on waste %, and least-waste's tie-break consistently
+            # picked the same group (2c) every cycle -- so 2c alone
+            # absorbed the entire scale-up serially (one node/~10s cycle)
+            # while 2a/2d sat at desired=0 the whole time, capping overall
+            # node-provisioning throughput to a single ASG/AZ's launch
+            # rate. Setting this true tells CA to detect that 2a/2c/2d are
+            # "similar" (same instance types/labels/taints) and spread new
+            # nodes across all of them in the same scale-up pass, roughly
+            # 3x-ing node-launch parallelism (multiple AZs launching spot
+            # capacity concurrently) with no cluster-specific config.
             - --balance-similar-node-groups=true
             # - --skip-nodes-with-system-pods
             - --scale-down-utilization-threshold=0.1
-            - --scale-down-unneeded-time=1m
-            # - --max-scale-down-parallelism=15 # Number of nodes to scale down in parallel
+            # scale-down-unneeded-time was previously 1m, which let the
+            # autoscaler drop nodes (155 -> 73 in ~2 minutes was observed in
+            # production) at the same time a `helm uninstall`/worker HPA
+            # scale-down was in flight. That node churn raced the OpenStack
+            # cloud-provider's Octavia LB member-list sync (one PUT per
+            # add/remove, against the full node list under
+            # externalTrafficPolicy: Local) and caused
+            # "UpdateLoadBalancerFailed: context deadline exceeded", leaving
+            # the LB VIP briefly unreachable even though the LB/listener/pool
+            # all reported ACTIVE/ONLINE. Raised to slow scale-down enough to
+            # let in-flight LB syncs and pod preStop hooks finish before the
+            # node they're running on gets reaped.
+            - --scale-down-unneeded-time=10m
+            # Cap how many nodes are torn down at once so Octavia's LB
+            # member-list PUTs (and worker preStop hooks) aren't all racing
+            # a mass node deletion simultaneously.
+            - --max-scale-down-parallelism=5
             # - --max-drain-parallelism=15 # Number of nodes to drain in parallel
             # - --max-empty-bulk-delete=15
             - --max-graceful-termination-sec=30
