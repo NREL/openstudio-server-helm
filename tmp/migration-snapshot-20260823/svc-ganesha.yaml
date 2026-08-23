@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    meta.helm.sh/release-name: openstudio-server
+    meta.helm.sh/release-namespace: openstudio-server
+  creationTimestamp: "2026-08-22T14:43:02Z"
+  labels:
+    app: nfs-server-provisioner
+    app.kubernetes.io/managed-by: Helm
+    chart: nfs-server-provisioner-1.0.0
+    heritage: Helm
+    release: openstudio-server
+  name: openstudio-server-nfs-server-provisioner
+  namespace: openstudio-server
+  resourceVersion: "18923300"
+  uid: c04e9fd8-0d60-4b74-b976-d199fd372dc5
+spec:
+  clusterIP: 172.28.43.124
+  clusterIPs:
+  - 172.28.43.124
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: nfs
+    port: 2049
+    protocol: TCP
+    targetPort: nfs
+  - name: nfs-udp
+    port: 2049
+    protocol: UDP
+    targetPort: nfs-udp
+  - name: nlockmgr
+    port: 32803
+    protocol: TCP
+    targetPort: nlockmgr
+  - name: nlockmgr-udp
+    port: 32803
+    protocol: UDP
+    targetPort: nlockmgr-udp
+  - name: mountd
+    port: 20048
+    protocol: TCP
+    targetPort: mountd
+  - name: mountd-udp
+    port: 20048
+    protocol: UDP
+    targetPort: mountd-udp
+  - name: rquotad
+    port: 875
+    protocol: TCP
+    targetPort: rquotad
+  - name: rquotad-udp
+    port: 875
+    protocol: UDP
+    targetPort: rquotad-udp
+  - name: rpcbind
+    port: 111
+    protocol: TCP
+    targetPort: rpcbind
+  - name: rpcbind-udp
+    port: 111
+    protocol: UDP
+    targetPort: rpcbind-udp
+  - name: statd
+    port: 662
+    protocol: TCP
+    targetPort: statd
+  - name: statd-udp
+    port: 662
+    protocol: UDP
+    targetPort: statd-udp
+  selector:
+    app: nfs-server-provisioner
+    release: openstudio-server
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}

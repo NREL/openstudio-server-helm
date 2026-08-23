@@ -204,7 +204,20 @@ nfsKernelServer:
   staticSharePV:
     enabled: true
     path: "/export/share"
-  image: "docker.io/gists/nfs-server@sha256:803f7c863e0479835a4980b8ca39a176b111c086c1477d3be16c94b0e52c9843" # gists/nfs-server 2.6.4 (amd64), pinned by digest
+  # Service identity. Defaults give a "<release>-nfs-kernel" Service with an
+  # auto-allocated ClusterIP (fresh installs use the static-share PV, which
+  # points at the Service DNS name). Clusters MIGRATED from Ganesha should
+  # instead adopt the legacy Service's exact name + ClusterIP so existing
+  # client PVs -- whose spec.nfs.server pins the old VIP and is immutable --
+  # keep mounting unchanged; see openstack/values-openstack.yaml.
+  service:
+    name: ""
+    clusterIP: ""
+  # Digest-pinned gists/nfs-server 2.6.4 (amd64). Used for its nfs-utils
+  # binaries only: the chart overrides `command` with its own supervisor
+  # script (the stock entrypoint is v4-only/8-thread hardcoded -- unusable
+  # here). Self-hostable rebuild: docker/nfs-kernel-server/.
+  image: "docker.io/gists/nfs-server@sha256:803f7c863e0479835a4980b8ca39a176b111c086c1477d3be16c94b0e52c9843"
   imagePullPolicy: "IfNotPresent"
   resources:
     requests:

@@ -32,6 +32,16 @@ metadata:
     release: {{ .Release.Name }}
     heritage: {{ .Release.Service }}
 data:
+  # Mounted read-only at /etc/exports. NOTE: the pinned gists image's stock
+  # entrypoint would try to REWRITE this file (and dies on a read-only mount);
+  # the Deployment overrides `command` entirely, so nothing writes here.
   exports: |-
 {{ include "openstudio.nfsKernelExports" . | indent 4 }}
+  # Supervisor script started via the container's `command:` override. We do
+  # NOT use the image's own entrypoint (/bin/nfsd.sh): it hardcodes
+  # "rpc.nfsd --no-udp -N 3 8" i.e. v4-ONLY with exactly 8 threads, which is
+  # precisely the failure mode this migration exists to fix (clients need
+  # vers=3 with hundreds of threads).
+  start-nfsd.sh: |-
+{{ include "openstudio.nfsKernelStartScript" . | indent 4 }}
 {{- end }}

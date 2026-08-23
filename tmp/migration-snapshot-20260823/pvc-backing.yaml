@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    meta.helm.sh/release-name: openstudio-server
+    meta.helm.sh/release-namespace: openstudio-server
+    pv.kubernetes.io/bind-completed: "yes"
+    pv.kubernetes.io/bound-by-controller: "yes"
+    volume.beta.kubernetes.io/storage-provisioner: cinder.csi.openstack.org
+    volume.kubernetes.io/selected-node: openstudio-server-azimuth-openstack-web-4vqkj-gdpct
+    volume.kubernetes.io/storage-provisioner: cinder.csi.openstack.org
+  creationTimestamp: "2026-08-22T14:43:02Z"
+  finalizers:
+  - kubernetes.io/pvc-protection
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  name: nfs-pvc-data
+  namespace: openstudio-server
+  resourceVersion: "18923434"
+  uid: d7004bb2-a751-4c3f-a8e5-07adf97237fc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3900Gi
+  storageClassName: ssd
+  volumeMode: Filesystem
+  volumeName: pvc-d7004bb2-a751-4c3f-a8e5-07adf97237fc
+status:
+  accessModes:
+  - ReadWriteOnce
+  capacity:
+    storage: 3900Gi
+  phase: Bound

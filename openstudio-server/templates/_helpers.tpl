@@ -11,6 +11,76 @@ Usage:
 {{- end -}}
 
 {{/*
+Render the nfsd supervisor script for the kernel NFS server (mounted from
+the exports ConfigMap and started via the container's `command:` override --
+the pinned image's stock entrypoint hardcodes v4-only/8 threads).
+
+Fixed ports mirror the legacy Ganesha Service contract:
+  2049 nfsd | 111 rpcbind | 662 statd slot (unused; no rpc.statd in image,
+  NSM notify is superseded by the recycle-clients-after-restart runbook
+  rule) | 20048 mountd | 32803 nlockmgr (kernel-side, pinned by the init
+  container).
+
+Usage:
+  {{ include "openstudio.nfsKernelStartScript" . }}
+*/}}
+{{- define "openstudio.nfsKernelStartScript" -}}
+#!/bin/sh
+set -eu
+
+THREADS="{{ .Values.nfsKernelServer.threads }}"
+
+log() { echo "[nfsd] $*"; }
+
+log "ensuring nfsd filesystem is mounted"
+mkdir -p /proc/fs/nfsd
+if ! grep -q 'nfsd /proc/fs/nfsd' /proc/mounts 2>/dev/null; then
+    mount -t nfsd nfsd /proc/fs/nfsd
+fi
+
+mkdir -p /var/lib/nfs/sm /var/lib/nfs/sm.bak
+# Some images ship these as pre-existing FILES (gists 2.6.4 does), which would
+# make plain `mkdir -p` fail fatally -- tolerate both forms.
+[ -d /var/lib/nfs/state ] || touch /var/lib/nfs/state
+[ -f /var/lib/nfs/etab ] || touch /var/lib/nfs/etab
+[ -f /var/lib/nfs/rmtab ] || touch /var/lib/nfs/rmtab
+
+PIDS=""
+on_term() {
+    log "shutting down"
+    /usr/sbin/rpc.nfsd 0 2>/dev/null || true
+    for p in $PIDS; do kill "$p" 2>/dev/null || true; done
+    exit 0
+}
+trap on_term TERM INT HUP
+
+log "starting rpcbind"
+/sbin/rpcbind -w
+
+log "re-reading /etc/exports"
+/usr/sbin/exportfs -r
+
+log "starting rpc.mountd on 20048"
+/usr/sbin/rpc.mountd -F -p 20048 &
+PIDS="$!"
+
+log "starting rpc.nfsd: v3-only, ${THREADS} threads"
+# NOTE: no "-N 2" -- some nfs-utils builds (incl. this image) don't compile
+# NFSv2 at all and abort with "Unsupported version" on -N 2.
+/usr/sbin/rpc.nfsd -N 4 -N 4.1 -N 4.2 "$THREADS"
+
+log "ready; active exports:"
+/usr/sbin/exportfs -v
+
+# Supervise until signalled; kernel nfsd threads keep serving while we live.
+# If rpc.mountd ever dies, take the whole pod down so probes/k8s restart us.
+while :; do
+    sleep 5
+    kill -0 "$PIDS" 2>/dev/null || { log "rpc.mountd died; exiting"; exit 1; }
+done
+{{- end -}}
+
+{{/*
 Full name of the kernel-NFS-server Deployment/Service/PVC/PV family
 (templates/nfs/nfs-kernel-*.yaml), rendered only when provider.name ==
 "openstack" AND .Values.nfsKernelServer.enabled -- see values.yaml.

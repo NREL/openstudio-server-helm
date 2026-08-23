@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    EXPORT_block: "\nEXPORT\n{\n\tExport_Id = 1;\n\tPath = /export/pvc-b7c98688-ef80-44fe-abcc-80456cb009fd;\n\tPseudo
+      = /export/pvc-b7c98688-ef80-44fe-abcc-80456cb009fd;\n\tAccess_Type = RW;\n\tSquash
+      = no_root_squash;\n\tSecType = sys;\n\tFilesystem_id = 1.1;\n\tFSAL {\n\t\tName
+      = VFS;\n\t}\n}\n"
+    Export_Id: "1"
+    Project_Id: "0"
+    Project_block: ""
+    Provisioner_Id: 5bbe9998-8167-41f6-b792-7149fe99d4e9
+    kubernetes.io/createdby: nfs-dynamic-provisioner
+    pv.kubernetes.io/provisioned-by: cluster.local/openstudio-server-nfs-server-provisioner
+  creationTimestamp: "2026-08-22T14:43:38Z"
+  finalizers:
+  - kubernetes.io/pv-protection
+  name: pvc-b7c98688-ef80-44fe-abcc-80456cb009fd
+  resourceVersion: "18923844"
+  uid: 13cef689-046c-4452-9ee9-56607fbee536
+spec:
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    storage: 3500Gi
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: nfs-pvc
+    namespace: openstudio-server
+    resourceVersion: "18923268"
+    uid: b7c98688-ef80-44fe-abcc-80456cb009fd
+  mountOptions:
+  - vers=3
+  - sync
+  nfs:
+    path: /export/pvc-b7c98688-ef80-44fe-abcc-80456cb009fd
+    server: 172.28.43.124
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: nfs
+  volumeMode: Filesystem
+status:
+  lastPhaseTransitionTime: "2026-08-22T14:43:38Z"
+  phase: Bound

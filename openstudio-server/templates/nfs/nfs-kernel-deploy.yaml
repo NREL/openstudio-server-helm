@@ -28,12 +28,16 @@ Design notes (full story in docs/nfs-kernel-server-migration.md):
     pin, lockd picks a random port the Service doesn't forward and NLM calls
     from clients silently fail.
 
-  - NFS_VERSION=3 only: identical protocol to today's client PVs
-    (-o sync,vers=3); no client changes. v4 behind a Service VIP is known
-    broken and stays off.
+  - NFSv3-only via our supervisor script (`rpc.nfsd -N 2 -N 4 -N 4.1 -N 4.2`):
+    identical protocol to today's client PVs (-o sync,vers=3); no client
+    changes. v4 behind a Service VIP is known broken and stays off. NOTE: the
+    pinned gists image's stock entrypoint is v4-ONLY with 8 threads
+    hardcoded -- the `command:` override exists precisely to replace it.
 
   - Fixed ports matching the legacy Service contract:
-      2049 nfsd | 111 rpcbind | 662 statd in/out | 20048 mountd | 32803 nlm
+      2049 nfsd | 111 rpcbind | 662 statd slot (no rpc.statd in image; NSM
+      notify superseded by the recycle-clients runbook rule) | 20048 mountd |
+      32803 nlm (kernel-side, pinned by the init container)
     rquotad (875) has no userspace daemon in a minimal image; nothing in this
     stack issues rquota calls (the old Service also just declared 875), so
     the port is kept in the Service for parity only.
@@ -99,22 +103,17 @@ spec:
         - name: nfsd
           image: {{ .Values.nfsKernelServer.image | quote }}
           imagePullPolicy: {{ .Values.nfsKernelServer.imagePullPolicy }}
+          # Command override: the pinned image's stock entrypoint hardcodes
+          # "rpc.nfsd --no-udp -N 3 8" (v4-ONLY, exactly 8 threads) and tries
+          # to rewrite /etc/exports -- unusable for the vers=3 client fleet.
+          # We drive the same nfs-utils binaries with our own supervisor
+          # (see nfs-kernel-configmap.yaml start-nfsd.sh).
+          command: ["/bin/sh", "/scripts/start-nfsd.sh"]
           securityContext:
             privileged: true
           env:
-            # v3 only -- see header comment. Enabling any version also enables
-            # all lesser ones, so "3" means exactly v3.
-            - name: NFS_VERSION
-              value: "3"
-            - name: NFS_SERVER_THREAD_COUNT
+            - name: THREADS
               value: {{ .Values.nfsKernelServer.threads | quote }}
-            # Legacy fixed-port contract (see header comment).
-            - name: NFS_PORT_MOUNTD
-              value: "20048"
-            - name: NFS_PORT_STATD_IN
-              value: "662"
-            - name: NFS_PORT_STATD_OUT
-              value: "662"
           ports:
             - { name: nfs,          containerPort: 2049,  protocol: TCP }
             - { name: nfs-udp,      containerPort: 2049,  protocol: UDP }
@@ -168,6 +167,9 @@ spec:
               mountPath: /etc/exports
               subPath: exports
               readOnly: true
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
             - name: modules
               mountPath: /lib/modules
               readOnly: true
@@ -178,6 +180,15 @@ spec:
         - name: exports
           configMap:
             name: {{ include "openstudio.nfsKernelFullname" . }}-exports
+            items:
+              - key: exports
+                path: exports
+        - name: scripts
+          configMap:
+            name: {{ include "openstudio.nfsKernelFullname" . }}-exports
+            items:
+              - key: start-nfsd.sh
+                path: start-nfsd.sh
         - name: modules
           hostPath:
             path: /lib/modules

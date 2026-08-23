@@ -3,30 +3,41 @@ ClusterIP Service fronting the kernel NFS server pod.
 
 OPENSTACK-ONLY (see nfsKernelServer in values.yaml).
 
-Named "<release>-nfs-kernel" -- deliberately NOT reusing the legacy
-"<release>-nfs-server-provisioner" name, because Helm does not delete
-resources dropped from a release's manifest on upgrade, so the legacy
-Service object would still exist and collide. The migration runbook instead
-patches the existing client PV's spec.nfs.server to THIS Service's DNS name
-(PV .spec.nfs.server is mutable), which also makes the PV immune to future
-ClusterIP churn -- DNS names resolve at mount time.
+IDENTITY MIGRATION NOTE: on clusters migrated from Ganesha, the client PV's
+spec.nfs.server pins a ClusterIP (immutable field -- PV sources can no longer
+be patched). To keep that PV valid without any claim/PV surgery, this Service
+can adopt the LEGACY Service's exact name AND ClusterIP:
 
-Ports mirror the legacy Ganesha Service one-for-one so any external tooling
-or firewall rules keyed on the old port set stay valid. rquotad/875 is
-declared for parity but intentionally has no listener (see
+  nfsKernelServer.service:
+    name: openstudio-server-nfs-server-provisioner   # legacy identity
+    clusterIP: "172.28.43.124"                       # legacy VIP
+
+The orphaned legacy Service object must be deleted once by hand first (Helm
+does not remove resources dropped from a release manifest); after that one
+cutover the release owns this identity permanently. Fresh installs leave
+service.name/clusterIP empty and get "<release>-nfs-kernel" with an
+auto-allocated VIP (client PVs then use the static-share PV which points at
+the Service DNS name instead).
+
+rquotad/875 is declared for parity but intentionally has no listener (see
 nfs-kernel-deploy.yaml header).
 */}}
+{{- $svcName := default (include "openstudio.nfsKernelFullname" .) .Values.nfsKernelServer.service.name -}}
 {{- if and (eq .Values.provider.name "openstack") .Values.nfsKernelServer.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "openstudio.nfsKernelFullname" . }}
+  name: {{ $svcName }}
   labels:
     app: {{ include "openstudio.nfsKernelFullname" . }}
     release: {{ .Release.Name }}
     heritage: {{ .Release.Service }}
 spec:
   type: ClusterIP
+  {{- if .Values.nfsKernelServer.service.clusterIP }}
+  # Pinned legacy VIP so existing client PVs keep mounting unchanged.
+  clusterIP: {{ .Values.nfsKernelServer.service.clusterIP | quote }}
+  {{- end }}
   selector:
     app: {{ include "openstudio.nfsKernelFullname" . }}
     release: {{ .Release.Name }}
