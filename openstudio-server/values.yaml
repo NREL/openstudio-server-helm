@@ -213,6 +213,26 @@ nfsKernelServer:
   service:
     name: ""
     clusterIP: ""
+  # Run the server pod in the HOST network namespace, pinned to a specific
+  # node, so clients mount <node-IP>:2049 directly with NO kube-proxy/ClusterIP
+  # NAT and NO Calico SNAT on the long-lived mount flows.
+  #
+  # WHY (2026-08-23, live finding): with ~900 mounts behind a ClusterIP,
+  # established client TCP flows began silently blackholing mid-write --
+  # clients hung in killable-D rpc_wait while the server itself stayed
+  # healthy (local mounts full speed) and new flows worked. The SAME
+  # signature class had been blamed on Ganesha for months. Both incidents
+  # shared one factor: the NAT dataplane, not the NFS daemon. Direct
+  # node-IP mounting removes kube-proxy + one Calico NAT hop entirely.
+  #
+  # When enabling this you MUST also point client PVs at the pinned node's
+  # InternalIP (PV sources are immutable -> delete/recreate the PV during a
+  # drain window), because the pinned node's identity is now part of the
+  # storage contract. If Azimuth ever replaces that node, repeat: update
+  # hostNetworkNodeName here, recreate the client PV with the new node IP,
+  # force-recycle every nfs-pvc client pod (runbook rule #1).
+  hostNetwork: false
+  hostNetworkNodeName: ""
   # Digest-pinned gists/nfs-server 2.6.4 (amd64). Used for its nfs-utils
   # binaries only: the chart overrides `command` with its own supervisor
   # script (the stock entrypoint is v4-only/8-thread hardcoded -- unusable

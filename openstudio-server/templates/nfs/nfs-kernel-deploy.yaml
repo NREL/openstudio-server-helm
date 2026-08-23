@@ -74,8 +74,31 @@ spec:
         heritage: {{ .Release.Service }}
     spec:
       terminationGracePeriodSeconds: {{ .Values.nfsKernelServer.terminationGracePeriodSeconds }}
+      {{- if .Values.nfsKernelServer.hostNetwork }}
+      # Host-network dataplane: see nfsKernelServer.hostNetwork in values.yaml.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      {{- if .Values.nfsKernelServer.hostNetworkNodeName }}
+      # Hard-pinned (hostNetwork dataplane): server identity = this node's IP.
+      # Combines the hostname pin with the usual node-group affinity.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - {{ .Values.nfsKernelServer.hostNetworkNodeName }}
+                  - key: {{ default "nodegroup" .Values.node_group.label_key }}
+                    operator: In
+                    values:
+                      - {{ default (printf "%s-group" .Values.nfsKernelServer.schedulingRole) (get .Values.node_group (printf "%s_value" .Values.nfsKernelServer.schedulingRole)) }}
+      {{- else }}
       affinity:
         {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" .Values.nfsKernelServer.schedulingRole) | nindent 8 }}
+      {{- end }}
       initContainers:
         - name: pin-lockd-ports
           image: {{ .Values.nfsKernelServer.image | quote }}

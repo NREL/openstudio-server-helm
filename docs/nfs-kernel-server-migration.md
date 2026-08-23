@@ -63,6 +63,36 @@ Verified via `rpcinfo -p localhost` inside the pod after cutover:
 `100003 v3 tcp 2049`, `100021 v1-v4 32803` (kernel NLM pinned by init
 container), `100005 v1-v3 20048`.
 
+## Second incident, same day: the dataplane was the real culprit (17:00 UTC)
+
+After the kernel-nfsd cutover, the batch6647 rerun wedged again at ~900
+concurrent mounts: clients froze in killable-D `rpc_wait_bit_killable`
+mid-write while **every server-side component tested healthy**:
+
+| Test | Result |
+|---|---|
+| Local mount inside the server pod | 390 MB/s reads |
+| Cinder write w/ fsync from server pod | 424 MB/s |
+| nfsd thread counters / io bytes | frozen while client retransmits arrived |
+| Fresh VIP + podIP mounts from new pods | worked |
+
+Conclusion: **established flows through the ClusterIP NAT path die under
+sustained multi-hundred-mount load, regardless of NFS daemon**. This same
+signature class is what had been blamed on Ganesha all along. The
+"~250 healthy mounts" ceiling observed pre-migration matches exactly.
+
+### Mitigations
+
+1. **hostNetwork mode implemented** (`nfsKernelServer.hostNetwork` +
+   `hostNetworkNodeName`): pod runs on the host netns pinned to one web node;
+   client PVs point at that node's IP; zero NAT hops. **Currently unusable on
+   this cluster**: OpenStack security groups filter direct NFS ports to nodes
+   (`mount.nfs: requested NFS version or transport protocol is not supported`
+   = filtered SYN). INFRA ASK: allow 111/tcp, 2049/tcp, 20048/tcp, 32803/tcp
+   intra-cluster; then set hostNetwork true + repoint the client PV.
+2. **Worker count capped at 300** (`worker.replicas`) -- inside the
+   empirically-stable zone. Restore 9000 only after (1).
+
 ## Cutover log (2026-08-23)
 
 1. Snapshot PV/Service/PVC yaml to `tmp/migration-snapshot-20260823/`.
