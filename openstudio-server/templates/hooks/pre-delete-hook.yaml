@@ -47,11 +47,13 @@ spec:
               # worker HPA scaling a deployment back up mid-cleanup).
               kubectl -n "$NS" delete hpa -l "release=$REL" --ignore-not-found=true
               # Delete all workloads managed by this release (cascades to pods).
-              # Exclude the NFS server provisioner subchart (app=nfs-server-provisioner)
-              # so its NFS server stays up while client pods unmount -- otherwise
-              # client mounts hang/fail and pods stick in Terminating (dead-NFS D-state).
-              kubectl -n "$NS" delete deployment -l "release=$REL,app!=nfs-server-provisioner" --ignore-not-found=true
-              kubectl -n "$NS" delete statefulset -l "release=$REL,app!=nfs-server-provisioner" --ignore-not-found=true
+              # Exclude BOTH NFS server deployments so whichever one this
+              # install uses (legacy subchart app=nfs-server-provisioner, or
+              # kernel replacement app=<release>-nfs-kernel) stays up while
+              # client pods unmount -- otherwise client mounts hang/fail and
+              # pods stick in Terminating (dead-NFS D-state).
+              kubectl -n "$NS" delete deployment -l "release=$REL,app!=nfs-server-provisioner,app!={{ include "openstudio.nfsKernelFullname" . }}" --ignore-not-found=true
+              kubectl -n "$NS" delete statefulset -l "release=$REL,app!=nfs-server-provisioner,app!={{ include "openstudio.nfsKernelFullname" . }}" --ignore-not-found=true
               kubectl -n "$NS" delete job -l "release=$REL" --ignore-not-found=true
               # DaemonSets (e.g. containerd-registry-config) must be deleted
               # explicitly -- they weren't covered above. If left running, the
@@ -61,26 +63,26 @@ spec:
               # present" check below never clears and this Job fails forever
               # on every retry (observed: 2026-08-19 incident, release stuck
               # "uninstalling" for hours).
-              kubectl -n "$NS" delete daemonset -l "release=$REL,app!=nfs-server-provisioner" --ignore-not-found=true
+              kubectl -n "$NS" delete daemonset -l "release=$REL,app!=nfs-server-provisioner,app!={{ include "openstudio.nfsKernelFullname" . }}" --ignore-not-found=true
               # Authoritatively wait for all client pods to be gone. No `|| true`
               # masking here -- a masked wait is exactly what let helm proceed while
               # pods were still Terminating (the reported symptom). Failed/Succeeded
               # pods are excluded from the wait (they can never terminate) and are
               # instead removed by the force-delete pass below.
               echo "[pre-delete] Waiting for client pods to terminate (timeout={{ .Values.hooks.preDeleteCleanup.podWaitTimeoutSeconds }}s)..."
-              kubectl -n "$NS" wait --for=delete pod -l "release=$REL,app!=nfs-server-provisioner" \
+              kubectl -n "$NS" wait --for=delete pod -l "release=$REL,app!=nfs-server-provisioner,app!={{ include "openstudio.nfsKernelFullname" . }}" \
                 --timeout={{ .Values.hooks.preDeleteCleanup.podWaitTimeoutSeconds }}s \
                 --field-selector=status.phase!=Failed,status.phase!=Succeeded || \
                 echo "[pre-delete] wait deadline hit; forcing remaining pods"
               # Force-delete anything still present (Failed pods, grace-timed-out pods).
-              REMAINING=$(kubectl -n "$NS" get pod -l "release=$REL,app!=nfs-server-provisioner" -o name || true)
+              REMAINING=$(kubectl -n "$NS" get pod -l "release=$REL,app!=nfs-server-provisioner,app!={{ include "openstudio.nfsKernelFullname" . }}" -o name || true)
               if [ -n "$REMAINING" ]; then
                 echo "[pre-delete] force-deleting remaining pods:"
                 echo "$REMAINING"
-                kubectl -n "$NS" delete pod -l "release=$REL,app!=nfs-server-provisioner" \
+                kubectl -n "$NS" delete pod -l "release=$REL,app!=nfs-server-provisioner,app!={{ include "openstudio.nfsKernelFullname" . }}" \
                   --force --grace-period=0 --ignore-not-found=true
                 sleep 5
-                REMAINING=$(kubectl -n "$NS" get pod -l "release=$REL,app!=nfs-server-provisioner" -o name || true)
+                REMAINING=$(kubectl -n "$NS" get pod -l "release=$REL,app!=nfs-server-provisioner,app!={{ include "openstudio.nfsKernelFullname" . }}" -o name || true)
               fi
               if [ -n "$REMAINING" ]; then
                 echo "[pre-delete] ERROR: pods still present after drain and force-delete:" >&2

@@ -14,7 +14,7 @@ type: application
 
 # This is the chart version. This version number should be incremented each time you make changes
 # to the chart and its templates, including the app version.
-version: 0.7.0
+version: 0.8.0
 
 # This is the version number of the application being deployed. This version number should be
 # incremented each time you make changes to the application.
@@ -28,6 +28,12 @@ dependencies:
   - name: nfs-server-provisioner
     version:  1.0.0
     repository: "@stable"
+    # Gate the vendored userspace-Ganesha provisioner so providers that need a
+    # kernel NFS server instead can retire it without touching AWS/default
+    # installs. Default (unset) renders it exactly as before; see
+    # openstack/values-openstack.yaml, which sets this false and enables
+    # nfsKernelServer (templates/nfs/nfs-kernel-*.yaml) instead.
+    condition: nfsServerProvisioner.enabled
   - name: localRegistry
     version: 0.1.0
     repository: "file://charts/local-registry"

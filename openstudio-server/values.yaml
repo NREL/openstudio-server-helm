@@ -153,6 +153,68 @@ node_group:
 cluster:
   name: "openstudio-server"
 
+# Master toggle for the vendored nfs-server-provisioner SUBCHART
+# (charts/nfs-server-provisioner -- single-pod userspace NFS-Ganesha).
+# Defaults to true so AWS/EKS and bare-default installs keep rendering it
+# exactly as before. Providers replacing it with the kernel NFS server below
+# set this false (see openstack/values-openstack.yaml) -- do NOT delete the
+# vendored subchart from the repo.
+nfsServerProvisioner:
+  enabled: true
+
+# Kernel-NFS-server replacement for the userspace Ganesha provisioner.
+#
+# WHY: under heavy parallel client load (~1k+ mounts, 2026-08-22/23 incidents)
+# the single-pod Ganesha 2.8.2 server deadlocks repeatedly with
+# "svc_ioq_flushv() writev failed" spam; clients wedge in D-state and Resque
+# children die silently mid-job, losing datapoints with no failure record.
+# Kernel nfsd with hundreds of RPC threads does not have this failure mode.
+#
+# SCOPE: templates/nfs/nfs-kernel-*.yaml are rendered ONLY when
+#   provider.name == "openstack" AND nfsKernelServer.enabled == true
+# so every other provider keeps using the vendored subchart unchanged.
+#
+# The kernel server fronts the SAME backing Cinder volume as the old
+# provisioner did (claim "nfs-pvc-data" mounted at /export), so existing
+# data and existing client PVs keep working with no migration.
+nfsKernelServer:
+  enabled: false
+  # Deployment name suffix: "<release>-nfs-kernel".
+  nameSuffix: "nfs-kernel"
+  # rpc.nfsd kernel thread count. This is the entire point of the swap vs.
+  # Ganesha: each thread handles one NFS request in-kernel. >=256 sustains
+  # thousands of concurrent vers=3 clients doing small-file I/O.
+  threads: 256
+  # Backing RWO claim mounted at /export in the server pod. Reuse the claim
+  # the old subchart created so no data moves. On clusters where that claim
+  # already exists (created by the subchart of the same release), Helm adopts
+  # ownership during upgrade because name/spec match; on fresh installs this
+  # template creates it.
+  backingClaim:
+    name: "nfs-pvc-data"
+    storageClass: "ssd"
+    size: "110Gi"
+    accessModes:
+      - "ReadWriteOnce"
+  # Static PV binding the frontend RWX claim (nfs_pvc.*) on FRESH installs,
+  # since dynamic provisioning died with the old provisioner's StorageClass
+  # machinery. Points at <service DNS>:/export/share. On a cluster whose
+  # nfs-pvc is already bound (e.g. the production OpenStack cluster migrated
+  # from Ganesha), this PV simply sits Available and unused.
+  staticSharePV:
+    enabled: true
+    path: "/export/share"
+  image: "docker.io/gists/nfs-server@sha256:803f7c863e0479835a4980b8ca39a176b111c086c1477d3be16c94b0e52c9843" # gists/nfs-server 2.6.4 (amd64), pinned by digest
+  imagePullPolicy: "IfNotPresent"
+  resources:
+    requests:
+      cpu: "2"
+      memory: "4Gi"
+  # Node-group scheduling role for the server pod ("web" or "worker"); see
+  # node_group.* for the label key/value resolution.
+  schedulingRole: "web"
+  terminationGracePeriodSeconds: 60
+
 nfs-server-provisioner:
   persistence:
     enabled: true

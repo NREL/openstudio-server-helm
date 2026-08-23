@@ -1,0 +1,27 @@
+{{/*
+Backing RWO claim mounted at /export in the kernel NFS server pod.
+
+OPENSTACK-ONLY (see nfsKernelServer in values.yaml). This replaces the
+identically-named claim the vendored nfs-server-provisioner subchart used to
+create, so on clusters migrated from Ganesha (e.g. production
+openstudio-server-azimuth-openstack) Helm transfers ownership during a single
+`helm upgrade` -- same name, same storageClass, same size -- and NO DATA IS
+LOST OR MOVED. On fresh installs this template simply creates the claim.
+*/}}
+{{- if and (eq .Values.provider.name "openstack") .Values.nfsKernelServer.enabled }}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ .Values.nfsKernelServer.backingClaim.name }}
+  labels:
+    app: {{ include "openstudio.nfsKernelFullname" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  storageClassName: {{ .Values.nfsKernelServer.backingClaim.storageClass }}
+  accessModes:
+    {{- toYaml .Values.nfsKernelServer.backingClaim.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.nfsKernelServer.backingClaim.size }}
+{{- end }}

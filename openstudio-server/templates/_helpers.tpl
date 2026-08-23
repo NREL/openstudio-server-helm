@@ -1,4 +1,28 @@
 {{/*
+Render the /etc/exports body for the kernel NFS server (see
+templates/nfs/nfs-kernel-configmap.yaml). Kept here so the export options
+have exactly one home next to their rationale.
+
+Usage:
+  {{ include "openstudio.nfsKernelExports" . }}
+*/}}
+{{- define "openstudio.nfsKernelExports" -}}
+/export *(rw,sync,insecure,no_subtree_check,no_root_squash)
+{{- end -}}
+
+{{/*
+Full name of the kernel-NFS-server Deployment/Service/PVC/PV family
+(templates/nfs/nfs-kernel-*.yaml), rendered only when provider.name ==
+"openstack" AND .Values.nfsKernelServer.enabled -- see values.yaml.
+
+Usage:
+  {{ include "openstudio.nfsKernelFullname" . }}
+*/}}
+{{- define "openstudio.nfsKernelFullname" -}}
+{{- printf "%s-%s" .Release.Name (default "nfs-kernel" .Values.nfsKernelServer.nameSuffix) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
 Node-group scheduling affinity, shared by web-role (web, web-background, db,
 redis, rserve) and worker-role deployments.
 

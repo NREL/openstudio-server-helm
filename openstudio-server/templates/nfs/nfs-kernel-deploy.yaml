@@ -1,0 +1,185 @@
+{{/*
+Kernel-NFS-server Deployment replacing the vendored userspace-Ganesha
+nfs-server-provisioner on OpenStack clusters.
+
+OPENSTACK-ONLY: rendered iff provider.name == "openstack" AND
+.Values.nfsKernelServer.enabled -- AWS/EKS and bare defaults never see it.
+
+Design notes (full story in docs/nfs-kernel-server-migration.md):
+
+  - Kernel nfsd with NFS_KERNEL_SERVER.threads (>=256) RPC threads replaces
+    single-pod Ganesha 2.8.2, which deadlocked under ~1k+ concurrent vers=3
+    clients ("svc_ioq_flushv() writev failed" wedges, 2026-08-22/23).
+
+  - strategy: Recreate is REQUIRED: the backing claim is Cinder RWO; a
+    RollingUpdate would leave the old pod holding the volume while the new
+    pod cannot attach, deadlocking the rollout.
+
+  - privileged + /lib/modules(ro): the image's entrypoint mounts the nfsd
+    filesystem and starts rpc.nfsd inside its own mount namespace
+    (CAP_SYS_ADMIN), and modprobes nfsd/lockd against the host's module tree.
+    A hostPath for /proc/fs/nfsd is deliberately NOT used -- the image mounts
+    that filesystem itself; pre-mounting an empty host dir only invites
+    conflicts.
+
+  - initContainer pins kernel lockd (NLM) to port 32803 via module params +
+    sysctl so v3 file locking works through the ClusterIP Service exactly as
+    it did with Ganesha (whose userspace NLM listened on 32803). Without this
+    pin, lockd picks a random port the Service doesn't forward and NLM calls
+    from clients silently fail.
+
+  - NFS_VERSION=3 only: identical protocol to today's client PVs
+    (-o sync,vers=3); no client changes. v4 behind a Service VIP is known
+    broken and stays off.
+
+  - Fixed ports matching the legacy Service contract:
+      2049 nfsd | 111 rpcbind | 662 statd in/out | 20048 mountd | 32803 nlm
+    rquotad (875) has no userspace daemon in a minimal image; nothing in this
+    stack issues rquota calls (the old Service also just declared 875), so
+    the port is kept in the Service for parity only.
+
+  - Probes are chosen to catch the exact failure mode that caused hours of
+    silent stall on 2026-08-23 (rpcbind alive, nfsd dead):
+      liveness  = TCP :2049   -> fails when nfsd stops accepting
+      readiness = /proc/net/rpc/nfsd "th" thread counter > 0 -> real nfsd,
+                  not just a listening socket
+*/}}
+{{- if and (eq .Values.provider.name "openstack") .Values.nfsKernelServer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openstudio.nfsKernelFullname" . }}
+  labels:
+    app: {{ include "openstudio.nfsKernelFullname" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  replicas: 1
+  # See header comment: RWO backing volume forbids two pods at once.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{ include "openstudio.nfsKernelFullname" . }}
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "openstudio.nfsKernelFullname" . }}
+        release: {{ .Release.Name }}
+        heritage: {{ .Release.Service }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.nfsKernelServer.terminationGracePeriodSeconds }}
+      affinity:
+        {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" .Values.nfsKernelServer.schedulingRole) | nindent 8 }}
+      initContainers:
+        - name: pin-lockd-ports
+          image: {{ .Values.nfsKernelServer.image | quote }}
+          imagePullPolicy: {{ .Values.nfsKernelServer.imagePullPolicy }}
+          securityContext:
+            privileged: true
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -x
+              # Load modules first so the sysctl keys exist even on nodes where
+              # nfsd/lockd have never been used before (fresh autoscaled nodes).
+              modprobe nfsd || true
+              # Module-load-time pinning wins when lockd is not yet loaded;
+              # sysctl covers the already-loaded case.
+              modprobe lockd nlm_tcpport=32803 nlm_udpport=32803 || true
+              sysctl -w fs.nfs.nlm_tcpport=32803 || true
+              sysctl -w fs.nfs.nlm_udpport=32803 || true
+          volumeMounts:
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
+      containers:
+        - name: nfsd
+          image: {{ .Values.nfsKernelServer.image | quote }}
+          imagePullPolicy: {{ .Values.nfsKernelServer.imagePullPolicy }}
+          securityContext:
+            privileged: true
+          env:
+            # v3 only -- see header comment. Enabling any version also enables
+            # all lesser ones, so "3" means exactly v3.
+            - name: NFS_VERSION
+              value: "3"
+            - name: NFS_SERVER_THREAD_COUNT
+              value: {{ .Values.nfsKernelServer.threads | quote }}
+            # Legacy fixed-port contract (see header comment).
+            - name: NFS_PORT_MOUNTD
+              value: "20048"
+            - name: NFS_PORT_STATD_IN
+              value: "662"
+            - name: NFS_PORT_STATD_OUT
+              value: "662"
+          ports:
+            - { name: nfs,          containerPort: 2049,  protocol: TCP }
+            - { name: nfs-udp,      containerPort: 2049,  protocol: UDP }
+            - { name: nlockmgr,     containerPort: 32803, protocol: TCP }
+            - { name: nlockmgr-udp, containerPort: 32803, protocol: UDP }
+            - { name: mountd,       containerPort: 20048, protocol: TCP }
+            - { name: mountd-udp,   containerPort: 20048, protocol: UDP }
+            - { name: rquotad,      containerPort: 875,   protocol: TCP }
+            - { name: rquotad-udp,  containerPort: 875,   protocol: UDP }
+            - { name: rpcbind,      containerPort: 111,   protocol: TCP }
+            - { name: rpcbind-udp,  containerPort: 111,   protocol: UDP }
+            - { name: statd,        containerPort: 662,   protocol: TCP }
+            - { name: statd-udp,    containerPort: 662,   protocol: UDP }
+          # Ensure the fresh-install share directory exists (idempotent no-op
+          # on migrated clusters; see nfs-kernel-static-pv.yaml).
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh", "-c", "mkdir -p /export/share"]
+          startupProbe:
+            # First boot can modprobe + cold-start rpcbind/nfsd slowly;
+            # give it up to 5 minutes before liveness takes over.
+            tcpSocket:
+              port: 2049
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            # THE lesson of the 2026-08-23 incident: a probe that only checks
+            # "some process alive" missed a fully dead nfsd behind a live
+            # rpcbind for hours. This must keep failing when nfsd dies.
+            tcpSocket:
+              port: 2049
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          readinessProbe:
+            # Real proof nfsd threads are running (kernel-visible counter),
+            # not merely that some socket listens on 2049.
+            exec:
+              command: ["/bin/sh", "-c", "grep -q '^th [1-9]' /proc/net/rpc/nfsd"]
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: {{ .Values.nfsKernelServer.resources.requests.cpu | quote }}
+              memory: {{ .Values.nfsKernelServer.resources.requests.memory }}
+          volumeMounts:
+            - name: data
+              mountPath: /export
+            - name: exports
+              mountPath: /etc/exports
+              subPath: exports
+              readOnly: true
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.nfsKernelServer.backingClaim.name }}
+        - name: exports
+          configMap:
+            name: {{ include "openstudio.nfsKernelFullname" . }}-exports
+        - name: modules
+          hostPath:
+            path: /lib/modules
+            type: Directory
+{{- end }}

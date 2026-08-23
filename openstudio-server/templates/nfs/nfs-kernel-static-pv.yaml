@@ -1,0 +1,51 @@
+{{/*
+Static PV binding the frontend RWX claim (nfs_pvc.*) on FRESH installs of
+the kernel NFS server.
+
+OPENSTACK-ONLY (see nfsKernelServer in values.yaml).
+
+Why this exists: with the old nfs-server-provisioner subchart disabled, the
+dynamic-provisioning path (StorageClass "nfs" + the Ganesha provisioner
+watching PVCs) no longer exists, so a fresh install's `nfs-pvc` claim would
+sit Pending forever. This PV gives it something to bind to statically.
+
+Binding works even though the StorageClass "nfs" OBJECT is not created
+anymore: the binder matches PVC spec.storageClassName against PV
+spec.storageClassName strings directly; no StorageClass resource is needed
+for static binds.
+
+On clusters MIGRATED from Ganesha (e.g. production openstudio-server-
+azimuth-openstack), nfs-pvc is already bound to its original
+provisioner-created PV -- this PV just sits Available and unused. It is
+Retain-policy so it can never destroy data.
+
+The share directory (/export/share) is created by the server pod's
+postStart hook.
+*/}}
+{{- if and (eq .Values.provider.name "openstack") .Values.nfsKernelServer.enabled .Values.nfsKernelServer.staticSharePV.enabled }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ include "openstudio.nfsKernelFullname" . }}-static-share
+  labels:
+    app: {{ include "openstudio.nfsKernelFullname" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  capacity:
+    storage: {{ .Values.nfs_pvc.storage }}
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: "nfs"
+  mountOptions:
+    # Same options every provisioner-created client PV has used all along
+    # (kubelet renders `-t nfs -o sync,vers=3`).
+    - vers=3
+    - sync
+  nfs:
+    # Service DNS NAME, not ClusterIP: resolves at mount time on the kubelet
+    # host (cluster DNS), so this PV survives Service recreation/IP churn.
+    server: {{ include "openstudio.nfsKernelFullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+    path: {{ .Values.nfsKernelServer.staticSharePV.path }}
+{{- end }}

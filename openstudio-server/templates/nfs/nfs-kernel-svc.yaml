@@ -1,0 +1,46 @@
+{{/*
+ClusterIP Service fronting the kernel NFS server pod.
+
+OPENSTACK-ONLY (see nfsKernelServer in values.yaml).
+
+Named "<release>-nfs-kernel" -- deliberately NOT reusing the legacy
+"<release>-nfs-server-provisioner" name, because Helm does not delete
+resources dropped from a release's manifest on upgrade, so the legacy
+Service object would still exist and collide. The migration runbook instead
+patches the existing client PV's spec.nfs.server to THIS Service's DNS name
+(PV .spec.nfs.server is mutable), which also makes the PV immune to future
+ClusterIP churn -- DNS names resolve at mount time.
+
+Ports mirror the legacy Ganesha Service one-for-one so any external tooling
+or firewall rules keyed on the old port set stay valid. rquotad/875 is
+declared for parity but intentionally has no listener (see
+nfs-kernel-deploy.yaml header).
+*/}}
+{{- if and (eq .Values.provider.name "openstack") .Values.nfsKernelServer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openstudio.nfsKernelFullname" . }}
+  labels:
+    app: {{ include "openstudio.nfsKernelFullname" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ include "openstudio.nfsKernelFullname" . }}
+    release: {{ .Release.Name }}
+  ports:
+    - { name: nfs,          port: 2049,  targetPort: nfs,          protocol: TCP }
+    - { name: nfs-udp,      port: 2049,  targetPort: nfs-udp,      protocol: UDP }
+    - { name: nlockmgr,     port: 32803, targetPort: nlockmgr,     protocol: TCP }
+    - { name: nlockmgr-udp, port: 32803, targetPort: nlockmgr-udp, protocol: UDP }
+    - { name: mountd,       port: 20048, targetPort: mountd,       protocol: TCP }
+    - { name: mountd-udp,   port: 20048, targetPort: mountd-udp,   protocol: UDP }
+    - { name: rquotad,      port: 875,   targetPort: rquotad,      protocol: TCP }
+    - { name: rquotad-udp,  port: 875,   targetPort: rquotad-udp,  protocol: UDP }
+    - { name: rpcbind,      port: 111,   targetPort: rpcbind,      protocol: TCP }
+    - { name: rpcbind-udp,  port: 111,   targetPort: rpcbind-udp,  protocol: UDP }
+    - { name: statd,        port: 662,   targetPort: statd,        protocol: TCP }
+    - { name: statd-udp,    port: 662,   targetPort: statd-udp,    protocol: UDP }
+{{- end }}

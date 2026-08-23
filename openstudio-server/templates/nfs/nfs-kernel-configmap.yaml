@@ -1,0 +1,37 @@
+{{/*
+/etc/exports for the kernel NFS server.
+
+OPENSTACK-ONLY (see nfsKernelServer in values.yaml).
+
+One blanket export of /export (the backing Cinder volume mountpoint):
+
+  - rw, no_root_squash: kubelet mounts NFS PVs from the host as root and
+    container processes run as arbitrary UIDs -- squashing would break every
+    workload, exactly as in the previous Ganesha setup.
+  - insecure: accept client source ports >1024 (modern kernel clients).
+  - no_subtree_check: client PVs are SUBDIRECTORIES of this one filesystem
+    (/export/pvc-<uuid>/), so subtree filehandle checks are both useless and
+    rename-fragile. This mirrors what Ganesha provided via per-directory
+    exports.
+  - sync: export-level synchronous replies; matches the old
+    nfs-server-provisioner storageClass.mountOptions [vers=3, sync] parity
+    and the client-side `-o sync` mounts.
+
+NFSv3-only: the Deployment sets NFS_VERSION=3. v4 behind a ClusterIP Service
+has stateful callback/lease semantics that break (the same reason the old
+StorageClass pinned vers=3), so it stays off until someone explicitly wants
+to re-test that.
+*/}}
+{{- if and (eq .Values.provider.name "openstack") .Values.nfsKernelServer.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openstudio.nfsKernelFullname" . }}-exports
+  labels:
+    app: {{ include "openstudio.nfsKernelFullname" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+data:
+  exports: |-
+{{ include "openstudio.nfsKernelExports" . | indent 4 }}
+{{- end }}
