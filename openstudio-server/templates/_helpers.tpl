@@ -38,6 +38,18 @@ if ! grep -q 'nfsd /proc/fs/nfsd' /proc/mounts 2>/dev/null; then
     mount -t nfsd nfsd /proc/fs/nfsd
 fi
 
+# hostNetwork mode only: the node may already run its own rpcbind/statd
+# (Ubuntu nfs-common defaults). A foreign rpcbind on :111 makes our mountd's
+# registrations invisible to clients (or fails outright). Stop the node's
+# copies -- on a k8s worker nothing else uses them.
+if [ -d /host/systemd ] || nsenter -t 1 -m -u -i -n true 2>/dev/null; then
+    log "stopping node-level rpcbind/statd (conflict with NFS stack)"
+    for unit in rpcbind.socket rpcbind rpc-statd rpc-statd-notify; do
+        nsenter -t 1 -m -u -i -n systemctl stop "$unit" 2>/dev/null || true
+        nsenter -t 1 -m -u -i -n systemctl disable "$unit" 2>/dev/null || true
+    done
+fi
+
 mkdir -p /var/lib/nfs/sm /var/lib/nfs/sm.bak
 # Some images ship these as pre-existing FILES (gists 2.6.4 does), which would
 # make plain `mkdir -p` fail fatally -- tolerate both forms.

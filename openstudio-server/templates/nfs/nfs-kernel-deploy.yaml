@@ -77,6 +77,12 @@ spec:
       {{- if .Values.nfsKernelServer.hostNetwork }}
       # Host-network dataplane: see nfsKernelServer.hostNetwork in values.yaml.
       hostNetwork: true
+      # Needed so the init container can reach the host's systemd (via
+      # nsenter) and stop any node-level rpcbind/statd squatting on :111 --
+      # an occupied 111 makes our mountd register against the WRONG (empty)
+      # portmap table and remote clients fail with "requested NFS version or
+      # transport protocol is not supported".
+      hostPID: true
       dnsPolicy: ClusterFirstWithHostNet
       {{- end }}
       {{- if .Values.nfsKernelServer.hostNetworkNodeName }}
@@ -173,10 +179,14 @@ spec:
             failureThreshold: 3
             timeoutSeconds: 5
           readinessProbe:
-            # Real proof nfsd threads are running (kernel-visible counter),
-            # not merely that some socket listens on 2049.
+            # Real proof of SERVABILITY, not liveness of a socket:
+            #  1. kernel nfsd threads running (/proc/net/rpc/nfsd "th" > 0)
+            #  2. mountd REGISTERED with rpcbind -- catches the hostNetwork
+            #     failure mode where a node-level rpcbind squats on :111 and
+            #     clients get an empty portmap ("requested NFS version or
+            #     transport protocol is not supported")
             exec:
-              command: ["/bin/sh", "-c", "grep -q '^th [1-9]' /proc/net/rpc/nfsd"]
+              command: ["/bin/sh", "-c", "grep -q '^th [1-9]' /proc/net/rpc/nfsd && rpcinfo -p 127.0.0.1 | grep -q '100005'"]
             periodSeconds: 10
             failureThreshold: 3
           resources:

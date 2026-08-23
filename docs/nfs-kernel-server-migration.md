@@ -83,15 +83,29 @@ signature class is what had been blamed on Ganesha all along. The
 
 ### Mitigations
 
-1. **hostNetwork mode implemented** (`nfsKernelServer.hostNetwork` +
-   `hostNetworkNodeName`): pod runs on the host netns pinned to one web node;
-   client PVs point at that node's IP; zero NAT hops. **Currently unusable on
-   this cluster**: OpenStack security groups filter direct NFS ports to nodes
-   (`mount.nfs: requested NFS version or transport protocol is not supported`
-   = filtered SYN). INFRA ASK: allow 111/tcp, 2049/tcp, 20048/tcp, 32803/tcp
-   intra-cluster; then set hostNetwork true + repoint the client PV.
-2. **Worker count capped at 300** (`worker.replicas`) -- inside the
-   empirically-stable zone. Restore 9000 only after (1).
+1. **hostNetwork mode implemented and ACTIVE** (`nfsKernelServer.hostNetwork` +
+   `hostNetworkNodeName`): pod runs in the host netns pinned to one web node
+   (`…web-4vqkj-5rx5z`, 192.168.66.253); client PVs point at that node's IP;
+   zero NAT hops.
+2. **First hostNetwork attempt failed for an unexpected reason**: the Ubuntu
+   node image ships its own rpcbind/statd (nfs-common defaults). The node-level
+   rpcbind squatted on :111, so our mountd's registration landed in an
+   invisible portmap table and remote clients got "requested NFS version or
+   transport protocol is not supported". **Security groups were NOT the
+   problem** — the shared `…secgroup-worker` group already allows all
+   intra-cluster traffic via a self-referencing rule (verified with the
+   OpenStack CLI; no SG changes were made or needed).
+3. Fix: the start script stops/disables the node's `rpcbind`,
+   `rpcbind.socket`, `rpc-statd` units via nsenter into the host systemd
+   (pod has hostPID), then starts our stack; readiness now REQUIRES mountd
+   registration (`rpcinfo -p 127.0.0.1 | grep 100005`). Verified end-to-end:
+   mount from a worker-node pod directly to 192.168.66.253, 20MB fsync'd
+   write at ~221MB/s.
+4. **Worker count**: raised from the interim cap of 300 once the direct
+   dataplane was verified; ramp gates unchanged.
+5. STORAGE CONTRACT: if Azimuth replaces the pinned web node, update
+   `hostNetworkNodeName`, delete/recreate the client PV with the new node IP
+   during a drain window, force-recycle all nfs-pvc clients.
 
 ## Cutover log (2026-08-23)
 
