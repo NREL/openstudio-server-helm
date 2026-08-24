@@ -185,8 +185,13 @@ spec:
             #     failure mode where a node-level rpcbind squats on :111 and
             #     clients get an empty portmap ("requested NFS version or
             #     transport protocol is not supported")
+            #  3. nlockmgr REGISTERED with rpcbind -- catches the 2026-08-23
+            #     fleet-wide wedge: lockd loaded by the init container before
+            #     the pod's rpcbind existed, so NLM was never registered and
+            #     every client flock() hung forever while data ops looked
+            #     perfectly healthy (see start-nfsd.sh LOCKD REGISTRATION FIX)
             exec:
-              command: ["/bin/sh", "-c", "grep -q '^th [1-9]' /proc/net/rpc/nfsd && rpcinfo -p 127.0.0.1 | grep -q '100005'"]
+              command: ["/bin/sh", "-c", "grep -q '^th [1-9]' /proc/net/rpc/nfsd && rpcinfo -p 127.0.0.1 | grep -q '100005' && rpcinfo -p 127.0.0.1 | grep -q '100021'"]
             periodSeconds: 10
             failureThreshold: 3
           resources:
@@ -222,6 +227,8 @@ spec:
             items:
               - key: start-nfsd.sh
                 path: start-nfsd.sh
+              - key: pmap-set-nlm.py
+                path: pmap-set-nlm.py
         - name: modules
           hostPath:
             path: /lib/modules

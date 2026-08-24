@@ -44,4 +44,87 @@ data:
   # vers=3 with hundreds of threads).
   start-nfsd.sh: |-
 {{ include "openstudio.nfsKernelStartScript" . | indent 4 }}
+  # Emergency NLM registration helper used by start-nfsd.sh when the kernel
+  # lockd cannot be reloaded (builtin, or refcounted by live mounts) and thus
+  # never (re-)registered nlockmgr with our rpcbind. Speaks just enough of
+  # PMAPv2 to SET the 100021 v1/v3/v4 entries on both transports at the
+  # pinned port -- the exact six entries kernel lockd would have created.
+  # NOTE on framing: an ONC-RPC CALL body carries cred(flavor,len) AND
+  # verf(flavor,len) -- four zero u32s after proc for AUTH_NULL. Omitting the
+  # second pair makes rpcbind silently drop the call.
+  pmap-set-nlm.py: |-
+    import socket, struct, sys, time
+
+    PORT = {{ .Values.nfsKernelServer.lockdTcpPort | default 32803 }}
+    XID = 0x5E17F001
+
+    def _call_bytes(proc, args, xid):
+        # xid | mtype=CALL(0) | rpcvers=2 | prog=100000 | vers=2 | proc |
+        # cred(AUTH_NULL) | verf(AUTH_NULL)
+        return struct.pack("!10I", xid, 0, 2, 100000, 2, proc, 0, 0, 0, 0) + args
+
+    def set_tcp(mapping, xid):
+        msg = _call_bytes(1, struct.pack("!4I", 100021, mapping[0], mapping[1], PORT), xid)
+        rec = struct.pack("!I", 0x80000000 | len(msg)) + msg
+        s = socket.create_connection(("127.0.0.1", 111), timeout=3)
+        s.sendall(rec)
+        hdr = b""
+        while len(hdr) < 4:
+            c = s.recv(4 - len(hdr))
+            if not c:
+                s.close()
+                raise IOError("eof")
+            hdr += c
+        ln = struct.unpack("!I", hdr)[0] & 0x7FFFFFFF
+        data = b""
+        while len(data) < ln:
+            c = s.recv(ln - len(data))
+            if not c:
+                break
+            data += c
+        s.close()
+        words = struct.unpack("!%dI" % (len(data) // 4), data)
+        return words[5] == 0
+
+    def set_udp(mapping, xid):
+        msg = _call_bytes(1, struct.pack("!4I", 100021, mapping[0], mapping[1], PORT), xid)
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(3)
+        s.sendto(msg, ("127.0.0.1", 111))
+        data, _ = s.recvfrom(512)
+        s.close()
+        words = struct.unpack("!%dI" % (len(data) // 4), data)
+        return words[5] == 0
+
+    def wait_rpcbind(seconds=15):
+        end = time.time() + seconds
+        while time.time() < end:
+            try:
+                s = socket.create_connection(("127.0.0.1", 111), timeout=2)
+                s.close()
+                return True
+            except OSError:
+                time.sleep(1)
+        return False
+
+    if not wait_rpcbind():
+        print("rpcbind not reachable on 127.0.0.1:111")
+        sys.exit(1)
+
+    results = []
+    xid = XID
+    for vers in (1, 3, 4):
+        for pname, proto in (("tcp", 6), ("udp", 17)):
+            ok = False
+            xid += 1
+            for fn in (set_tcp, set_udp):
+                try:
+                    ok = fn((vers, proto), xid)
+                    break
+                except Exception:
+                    continue
+            results.append("nlm_v%d_%s=%s" % (vers, pname, "SET" if ok else "FAIL"))
+
+    print(" ".join(results))
+    sys.exit(0 if all("SET" in r for r in results) else 1)
 {{- end }}

@@ -69,6 +69,48 @@ trap on_term TERM INT HUP
 log "starting rpcbind"
 /sbin/rpcbind -w
 
+# THE LOCKD REGISTRATION FIX (2026-08-23 fleet-wide wedge): the init
+# container modprobes lockd BEFORE this script's rpcbind exists, so lockd
+# registers nlockmgr(100021) with whichever rpcbind is live at that instant
+# -- the node's own (stopped two steps above) or nothing. Our fresh rpcbind
+# therefore has NO nlockmgr entry: clients' GETPORT(100021) finds nothing and
+# every flock()/fcntl() over NFS hangs forever in rpc_wait_bit_killable,
+# which froze the whole worker fleet mid-benchmark (sims run fine until their
+# completion path takes its first file lock, ~1h in -- looks like a hang, not
+# an error). Fix: reload the module NOW, with our rpcbind listening, so the
+# registration lands where clients can find it. On a clean boot no mount
+# exists yet, so the unload always succeeds; if clients are already attached
+# and the unload fails, fail loudly and let k8s restart us instead of
+# silently wedging every workload again.
+# NOTE: this image ships rpcinfo at /sbin/rpcinfo (NOT /usr/sbin).
+RPCINFO="$(command -v rpcinfo || echo /sbin/rpcinfo)"
+if ! "$RPCINFO" -p 127.0.0.1 | grep -q '100021'; then
+    log "re-registering lockd against our rpcbind (nlm ports 32803)"
+    if modprobe -r lockd 2>/dev/null; then
+        modprobe lockd nlm_tcpport=32803 nlm_udpport=32803 || true
+    fi
+fi
+if ! "$RPCINFO" -p 127.0.0.1 | grep -q '100021'; then
+    # lockd could not be reloaded (builtin kernel, or refcounted by live NFS
+    # mounts on this node). Inject the six PMAP entries directly -- the same
+    # table rows kernel lockd would have created at first load.
+    log "lockd reload unavailable; injecting nlockmgr rpcbind entries via pmap-set helper"
+    python3 /scripts/pmap-set-nlm.py || true
+fi
+if ! "$RPCINFO" -p 127.0.0.1 | grep -q '100021'; then
+    log "FATAL: nlockmgr still not registered -- refusing to serve NLM-less NFS"
+    exit 1
+fi
+log "nlockmgr registered: $("$RPCINFO" -p 127.0.0.1 | grep 100021 | tr -s ' ' | tr '\n' ';')"
+
+# Node-level statd was stopped above; NLM lock RECOVERY (SM_NOTIFY after a
+# server/client crash) needs one running against OUR rpcbind. --no-notify
+# skips the startup notification storm (clients are recycled after every
+# server restart per the storage contract anyway).
+log "starting rpc.statd"
+/usr/sbin/rpc.statd --no-notify &
+PIDS="$PIDS $!"
+
 log "re-reading /etc/exports"
 /usr/sbin/exportfs -r
 
