@@ -547,3 +547,17 @@ stuckNodeRemediation:
   # `kubectl describe pod` calls, one per Pending pod); real runs finish
   # in well under a minute.
   activeDeadlineSeconds: 300
+  # Sized for mass-scale-up churn: mid-ramp at thousands of replicas the
+  # cluster-wide `kubectl get events -o json` pass (reason=FailedCreatePodSandBox)
+  # can carry tens of MB of JSON -- fresh nodes emit calico sandbox events
+  # every ~15-30s per stuck pod until calico/node finishes initializing.
+  # History: OOMKilled at 256Mi during the 2026-08-20 incident, then again
+  # at 1Gi on 2026-08-22T21:45Z during the 600->9000 ramp prep; 2Gi is
+  # sized with headroom over both observed peaks.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi

@@ -162,19 +162,5 @@ spec:
 
                   echo "[stuck-node-remediation] done. cluster-autoscaler will reclaim cordoned nodes once they empty of any remaining Running pods."
               resources:
-                requests:
-                  cpu: 250m
-                  memory: 512Mi
-                limits:
-                  cpu: 500m
-                  # Cluster-wide FailedCreatePodSandBox events can number in
-                  # the tens of thousands at 10k-replica scale (kubelet logs
-                  # a fresh event roughly every 15-30s for each pod stuck
-                  # retrying sandbox creation, and events aren't deduped
-                  # across restarts of this check). Observed ~60MB of JSON /
-                  # ~40k events during the 2026-08-20 incident -- sized with
-                  # headroom above that so a single `kubectl get events -o
-                  # json | jq` pass doesn't OOM (256Mi was tried first and
-                  # OOMKilled).
-                  memory: 1Gi
+                {{- toYaml .Values.stuckNodeRemediation.resources | nindent 16 }}
 {{- end }}

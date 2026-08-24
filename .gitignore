@@ -17,3 +17,6 @@ openstack/values-openstack.yaml
 
 # Helm dependency archives
 *.tgz
+
+# Python virtual environments
+/.venv/
