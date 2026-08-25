@@ -388,7 +388,39 @@ web:
   # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
   # passenger_max_pool_size: "21"
   # This value is typically between 150 and 400, find this by ssh into web pod and doing `passenger-status`
-  passenger_memory_per_process: 250
+  #
+  # Planning denominator for the MAX_POOL formula rendered into
+  # templates/web/web-deploy.yaml:
+  #   MAX_POOL = ceil( mem_request_Gi * 1024 * 0.75 / passenger_memory_per_process )
+  #
+  # 2026-08-24 recalibration after the batch6647 result-file upload storm
+  # (web UI returned "under heavy load (queue full)"): the old value (250)
+  # assumed processes stay at fresh-boot size. Measured under production
+  # load (`passenger-memory-stats` inside the live pod): HOT processes sit
+  # at ~970MB-1.4GB private RSS -- they grow quickly once serving
+  # /data_points/*/upload_file traffic and keep creeping upward without a
+  # recycling cap (Ruby heap fragmentation). 512 is the expected AVERAGE
+  # across a storm-time pool, which mixes hot (~1GiB) and idle (~250MiB)
+  # processes, ASSUMING passenger_max_requests recycling (below) is active.
+  #
+  # SIZING CHAIN (keep these three consistent when retuning):
+  #   1. target_pool * this value / 0.75  <= web memory REQUEST
+  #   2. target_pool * 1GiB + ~8GiB overhead <= web memory LIMIT
+  #   3. MAX_REQUESTS already tracks worker_hpa.maxReplicas (queue depth);
+  #      pool size is the drain-rate half of that pair -- do not shrink it
+  #      below roughly max concurrent uploads you want served.
+  # Worked example: pool 180 @ 120Gi request / 192Gi limit
+  # (openstack/values-openstack.yaml).
+  passenger_memory_per_process: 512
+  # Recycle each Passenger app process after this many requests. Without
+  # it, long-lived Ruby processes accumulate RSS until they invalidate the
+  # memory-based MAX_POOL math above (observed 1.4GB/process during the
+  # 2026-08-24 storm). Recycling bounds lifetime growth near the hot
+  # working set (~1GiB). Cost is an occasional process respawn (seconds);
+  # during the storm the busiest process served ~6300 requests over ~2.6h,
+  # i.e. ~6 recycles/hour/process at 1000 -- amortized noise. Injected
+  # into nginx.conf by templates/web/web-deploy.yaml at pod start.
+  passenger_max_requests: 1000
   initContainer:
     # Used by init-wait-for-db to wait for MongoDB to accept connections.
     # Generic public Docker Hub reference (provider-agnostic default);
@@ -401,7 +433,12 @@ web:
     resources:
       requests:
         cpu: 1
-        memory: "2Gi"
+        # Raised from 2Gi (2026-08-24) alongside the passenger_memory_per_process
+        # recalibration (250 -> 512): at 2Gi the corrected formula yields a
+        # MAX_POOL of 3, vs. 15 here -- keeps bare/default installs in the same
+        # usable ballpark they had before (~7 processes). Real deployments
+        # override this (aws / openstack values).
+        memory: "10Gi"
     port:
      http: 80
      https: 443

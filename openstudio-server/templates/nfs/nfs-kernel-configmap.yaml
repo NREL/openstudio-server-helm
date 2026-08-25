@@ -13,9 +13,19 @@ One blanket export of /export (the backing Cinder volume mountpoint):
     (/export/pvc-<uuid>/), so subtree filehandle checks are both useless and
     rename-fragile. This mirrors what Ganesha provided via per-directory
     exports.
-  - sync: export-level synchronous replies; matches the old
-    nfs-server-provisioner storageClass.mountOptions [vers=3, sync] parity
-    and the client-side `-o sync` mounts.
+  - sync: REMOVED 2026-08-24 (was: parity with the old nfs-server-provisioner
+    storageClass.mountOptions [vers=3, sync] and the client-side `-o sync`
+    mounts). Export-level `sync` forces nfsd to journal-commit EVERY write
+    before replying; at fleet scale (>~1-2k concurrent writing clients) the
+    backing Cinder volume's ext4 journal becomes the global serialization
+    point -- one blackholed virtio write pins ordered-mode data flush,
+    jbd2 stops making space, and all nfsd threads pile into D-state
+    (jbd2_log_wait_commit), freezing every mounted client indefinitely.
+    Observed live: fsync latency 41ms @1k workers vs total stall @3k.
+    `async` lets the server coalesce writes into batched commits. Tradeoff:
+    on server crash the last few seconds of writes may be lost/garbled --
+    acceptable here because sims are re-runnable and node loss already means
+    VM replacement per the storage contract.
 
 NFSv3-only: the Deployment sets NFS_VERSION=3. v4 behind a ClusterIP Service
 has stateful callback/lease semantics that break (the same reason the old

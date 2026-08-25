@@ -7,7 +7,7 @@ Usage:
   {{ include "openstudio.nfsKernelExports" . }}
 */}}
 {{- define "openstudio.nfsKernelExports" -}}
-/export *(rw,sync,insecure,no_subtree_check,no_root_squash)
+/export *(rw,async,insecure,no_subtree_check,no_root_squash)
 {{- end -}}
 
 {{/*

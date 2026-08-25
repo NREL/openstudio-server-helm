@@ -80,6 +80,12 @@ spec:
               value: {{ (ceil (mulf .Values.worker_hpa.maxReplicas 1.05)) | quote }}
             - name: MAX_POOL
               value: {{ (ceil (divf (mulf (trimSuffix "Gi" .Values.web.container.resources.requests.memory) 1024 0.75) .Values.web.passenger_memory_per_process)) | quote }}
+            # Recycles Passenger processes after N requests so long-lived Ruby
+            # processes cannot accumulate RSS past the hot working set -- the
+            # growth that made the memory-based MAX_POOL sizing above fiction
+            # during the 2026-08-24 upload storm (1.4GB/process measured).
+            - name: PASSENGER_MAX_REQUESTS
+              value: {{ .Values.web.passenger_max_requests | quote }}
           command: ["bash", "-c"]
           args:
             - |
@@ -87,6 +93,8 @@ spec:
               mkdir -p "$TMPDIR"
               grep -q passenger_instance_registry_dir /opt/nginx/conf/nginx.conf || \
                 sed -i '/passenger_root /a\    passenger_instance_registry_dir /tmp;\n    passenger_spawn_dir /tmp;' /opt/nginx/conf/nginx.conf
+              grep -q passenger_max_requests /opt/nginx/conf/nginx.conf || \
+                sed -i "/passenger_root /a\\    passenger_max_requests ${PASSENGER_MAX_REQUESTS};" /opt/nginx/conf/nginx.conf
               grep -q passenger_env_var /opt/nginx/conf/nginx.conf || \
                 sed -i "/passenger_enabled on;/a\\        passenger_env_var TMPDIR ${TMPDIR};" /opt/nginx/conf/nginx.conf
               /usr/local/bin/rails-entrypoint /usr/local/bin/start-server

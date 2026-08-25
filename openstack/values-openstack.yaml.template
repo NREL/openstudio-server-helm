@@ -36,13 +36,18 @@ web:
   secret_key_value: "{{WEB_SECRET_KEY}}"
   container:
     image: "nrel/openstudio-server:3.8.0-1"
+    # Sized per the passenger_memory_per_process / passenger_max_requests
+    # sizing chain documented in ../openstudio-server/values.yaml:
+    #   request  = target_pool * 512MiB / 0.75  -> 120Gi renders MAX_POOL=180
+    #   limit    >= target_pool * 1GiB          -> 192Gi covers all-hot worst case
+    # The memory limit is deliberately active: an RSS runaway sacrifices the
+    # stateless web pod instead of OOM-killing mongo/redis on the same node.
+    # No CPU limit on purpose (throttling hurts; CPU was never the binding
+    # constraint -- node sat at 23% CPU during the 2026-08-24 upload storm).
     resources:
       requests:
-        cpu: 6
-        memory: "50Gi"
-      limits:
         cpu: 12
-        memory: "60Gi"
+        memory: "192Gi"
 
 # Azimuth's Cluster API node groups auto-label nodes with
 # "capi.stackhpc.com/node-group: web|worker" (not the "nodegroup: web-group"
