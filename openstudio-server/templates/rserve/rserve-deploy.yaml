@@ -22,6 +22,17 @@ spec:
         release: {{ .Release.Name }}
     spec:
       affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - {{ .Values.web.label }}
+                topologyKey: kubernetes.io/hostname
         {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       containers:
         - name: {{ .Values.rserve.container.name }}
@@ -36,7 +47,7 @@ spec:
               mountPath: "/mnt/openstudio"
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
-              value: {{ .Values.web_background.number_of_workers | quote }}
+              value: {{ include "openstudio.webBackgroundWorkers" . | quote }}
             - name: SECRET_KEY_BASE
               value: {{ .Values.web.secret_key_value | quote }}
             - name: REDIS_URL

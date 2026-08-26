@@ -124,11 +124,38 @@ web:
   name: "web"
   label: "web"
   secret_key_value: "c4ab6d293e4bf52ee92e8dda6e16dc9b5448d0c5f7908ee40c66736d515f3c29142d905b283d73e5e9cef6b13cd8e38be6fd3b5e25d00f35b259923a86c7c473"
-  # passenger_max_request_queue_size: "1600"
-  # Use this formula (1024 * memory of web pod in Gi * 0.75) / memory per passenger process
-  # passenger_max_pool_size: "21"
-  # This value is typically between 150 and 400, find this by ssh into web pod and doing `passenger-status`
-  passenger_memory_per_process: 250
+  # Image for the init container that waits for the db to accept connections
+  # before the web container starts. Any image with a POSIX shell + nc.
+  initContainer:
+    image: "alpine"
+  # MAX_POOL (passenger_max_pool_size) is derived automatically in
+  # templates/web/web-deploy.yaml -- you only size the container:
+  #
+  #   memory source : web.container.resources.limits.memory if set, else
+  #                   requests.memory
+  #   pool          = floor((memory_MiB - passenger_memory_reserve_mb)
+  #                         / passenger_memory_per_process), minimum 2
+  #
+  # e.g. a 60Gi limit => floor((61440 - 1500) / 1100) = 54 processes.
+  # Memory footprint of ONE LOADED Passenger Rails process (MB), measured via
+  # `passenger-status` RSS on a production cluster at ~950 analyses: five
+  # sampled processes ranged 1031-1160 MB. The previous default of 250 was an
+  # idle-process estimate; it derived pools up to 4x larger than the pod could
+  # actually hold (590 processes x 1.1 GB on a ~315 GB node) and flooded
+  # MongoDB with concurrent client connections.
+  passenger_memory_per_process: 1100
+  # Memory (MB) reserved inside the web container for everything that is NOT a
+  # Passenger app process: nginx + Passenger core plus the analysis_wrappers
+  # resque worker (~250 MB measured). Subtracted from container memory before
+  # dividing by passenger_memory_per_process. Rarely needs changing.
+  passenger_memory_reserve_mb: 1500
+  # Passenger hard-recycles a process after this many requests. Previously this
+  # was derived as ceil(worker_hpa.maxReplicas * 1.05), which in the stock
+  # config (maxReplicas=20) yielded 21 -- causing a full process respawn every
+  # 21 requests (each ~1.1 GB RSS), a continuous thundering-herd across the
+  # pool. 50000 is the Passenger upstream default; decoupled from worker_hpa
+  # so operators can tune recycling independently of horizontal scaling.
+  passenger_max_requests: 50000
   container:
     name: "web"
     image: "nrel/openstudio-server:3.8.0-1"

@@ -7,7 +7,13 @@ metadata:
   annotations:
     cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
 spec:
-  replicas: 1
+  # NOTE: intentionally NO `replicas` here. The worker HPA owns scaling
+  # (minReplicas..maxReplicas); because Helm three-way merge preserves fields
+  # absent from the manifest, upgrades leave .spec.replicas -- and therefore
+  # HPA ownership -- untouched. A hardcoded value here would reset the
+  # deployment to that count on every upgrade (scale-to-1 cliff at
+  # maxReplicas scale). On fresh installs the API defaulting webhook sets 1,
+  # and the HPA raises it to minReplicas within its first reconcile.
   selector:
     matchLabels:
       app: {{ .Values.worker.name }}
@@ -15,8 +21,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 1
+      maxSurge: {{ .Values.worker.strategy.maxSurge }}
+      maxUnavailable: {{ .Values.worker.strategy.maxUnavailable }}
   template:
     metadata:
       labels:

@@ -37,7 +37,7 @@ spec:
               mountPath: "/mnt/openstudio"
           env:
             - name: OS_SERVER_NUMBER_OF_WORKERS
-              value: {{ .Values.web_background.number_of_workers | quote }}
+              value: {{ include "openstudio.webBackgroundWorkers" . | quote }}
             - name: QUEUES
               value: background,analyses
             - name: SECRET_KEY_BASE

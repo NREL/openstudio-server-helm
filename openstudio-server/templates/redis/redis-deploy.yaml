@@ -17,6 +17,17 @@ spec:
         release: {{ .Release.Name }}
     spec:
       affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - {{ .Values.web.label }}
+                topologyKey: kubernetes.io/hostname
         {{- include "openstudio.nodeGroupAffinity" (dict "root" . "role" "web") | nindent 8 }}
       containers:
         - name: {{ .Values.redis.container.name  }}
