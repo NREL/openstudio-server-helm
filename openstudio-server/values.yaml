@@ -308,6 +308,14 @@ web_svc:
 worker:
   name: "worker"
   label: "worker"
+  # Rollout strategy for the worker deployment. Defaults replicate the
+  # previous hardcoded behavior (maxSurge: 1, maxUnavailable: 1). Override
+  # per provider when the deployment scales to thousands of replicas --
+  # a 1/1 roll advances ~2 pods per cycle and takes hours to complete.
+  # Percentages are relative to desired replicas.
+  strategy:
+    maxSurge: 1
+    maxUnavailable: 1
   container:
     name: "worker"
     image: "nrel/openstudio-server:3.8.0-1"
