@@ -57,8 +57,25 @@ spec:
               value: {{ .Values.db.password | quote }}
             - name: MAX_REQUESTS
               value: {{ (ceil (mulf .Values.worker_hpa.maxReplicas 1.05)) | quote }}
+            {{- /* Passenger pool sizing, derived automatically -- users only size
+               the container. Memory source prefers limits.memory (a hard cap;
+               exceeding it OOMKills the container) and falls back to
+               requests.memory when no limit is set. The reserve covers
+               non-Passenger residents of this container (nginx, Passenger core,
+               the analysis_wrappers resque worker); per-process cost is the
+               MEASURED loaded RSS of one Rails process (see
+               web.passenger_memory_per_process in values.yaml). */}}
+            {{- $webMem := .Values.web.container.resources.requests.memory }}
+            {{- if and .Values.web.container.resources.limits .Values.web.container.resources.limits.memory }}
+            {{- $webMem = .Values.web.container.resources.limits.memory }}
+            {{- end }}
+            {{- $memMib := int (include "openstudio.parseMemoryToMiB" $webMem) }}
+            {{- $reserve := int (.Values.web.passenger_memory_reserve_mb | default 1500) }}
+            {{- $perProcess := int (.Values.web.passenger_memory_per_process | default 1100) }}
+            {{- $pool := div (max (sub $memMib $reserve) 0) $perProcess }}
+            {{- if lt $pool 2 }}{{- $pool = 2 }}{{- end }}
             - name: MAX_POOL
-              value: {{ (ceil (divf (mulf (trimSuffix "Gi" .Values.web.container.resources.requests.memory) 1024 0.75) .Values.web.passenger_memory_per_process)) | quote }}
+              value: {{ $pool | quote }}
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
           # App health probes.
           #
