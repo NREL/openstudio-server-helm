@@ -60,20 +60,65 @@ spec:
             - name: MAX_POOL
               value: {{ (ceil (divf (mulf (trimSuffix "Gi" .Values.web.container.resources.requests.memory) 1024 0.75) .Values.web.passenger_memory_per_process)) | quote }}
           command: ["bash", "-c", "/usr/local/bin/rails-entrypoint && /usr/local/bin/start-server"]
+          # App health probes.
+          #
+          # Why exec + a deliberately-unrouted path instead of httpGet /:
+          #   * GET / is PagesController#dashboard, which renders EVERY analysis
+          #     unpaginated. Measured on a cluster with ~950 analyses it spends
+          #     55-70s per request in MongoDB (full scans of os_docker.data_points).
+          #     Using it as a probe both amplified the exact load we are trying
+          #     to reduce and made probe timing unusable (periodSeconds had to
+          #     exceed the worst-case render, so a dead web took ~35 minutes to
+          #     be marked unready).
+          #   * A Kubernetes httpGet probe treats non-2xx/3xx as failure, so a
+          #     cheap 404 route cannot be expressed with httpGet. An exec curl
+          #     accepts HTTP 200 OR 404 as healthy: the request still traverses
+          #     nginx -> Passenger -> Rails router (proving the full serving
+          #     stack) but never reaches Mongo-heavy controllers. Measured cost:
+          #     ~2-4ms per probe under full dashboard load.
+          #
+          # startupProbe gives Rails/Passenger a generous boot window before
+          # liveness kills the container; readiness/liveness then use tight
+          # timings so an overloaded web is pulled from the Service endpoints
+          # within ~1 minute instead of ~35.
+          startupProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - >-
+                  c=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1/__kube_probe__ || true);
+                  [ "$c" = "404" ] || [ "$c" = "200" ]
+            periodSeconds: 10
+            timeoutSeconds: 6
+            failureThreshold: 60
           readinessProbe:
-            httpGet:
-              path: /
-              port: 80
-            initialDelaySeconds: 60
-            periodSeconds: 200
-            timeoutSeconds: 120
-            failureThreshold: 10
+            exec:
+              command:
+                - bash
+                - -c
+                - >-
+                  c=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1/__kube_probe__ || true);
+                  [ "$c" = "404" ] || [ "$c" = "200" ]
+            periodSeconds: 20
+            timeoutSeconds: 6
+            failureThreshold: 3
+          # Keep the NFS mount guard (workers and the web resque worker need
+          # /mnt/openstudio alive) AND add an app-level check so a hung
+          # Passenger/nginx actually restarts instead of serving errors forever.
+          # Deliberately NOT part of readiness: transient NFS blips should not
+          # flap the single web pod off the load balancer.
           livenessProbe:
             exec:
-              command: ["grep", "-qs", "/mnt/openstudio ",  "/proc/mounts"]
-            initialDelaySeconds: 5
-            periodSeconds: 200
-            timeoutSeconds: 120
+              command:
+                - bash
+                - -c
+                - >-
+                  grep -qs "/mnt/openstudio " /proc/mounts &&
+                  c=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1/__kube_probe__ || true);
+                  [ "$c" = "404" ] || [ "$c" = "200" ]
+            periodSeconds: 60
+            timeoutSeconds: 10
             failureThreshold: 3
       priorityClassName: high-priority
       terminationGracePeriodSeconds: 60
