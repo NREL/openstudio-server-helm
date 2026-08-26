@@ -56,7 +56,7 @@ spec:
             - name: MONGO_PASSWORD
               value: {{ .Values.db.password | quote }}
             - name: MAX_REQUESTS
-              value: {{ (ceil (mulf .Values.worker_hpa.maxReplicas 1.05)) | quote }}
+              value: {{ .Values.web.passenger_max_requests | quote }}
             {{- /* Passenger pool sizing, derived automatically -- users only size
                the container. Memory source prefers limits.memory (a hard cap;
                exceeding it OOMKills the container) and falls back to

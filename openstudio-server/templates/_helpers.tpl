@@ -354,9 +354,9 @@ false
     {{- $workers := div (int $limitMiB) (int $wb.worker_memory_mib) -}}
     {{- if lt $workers 1 -}}1{{- else -}}{{ $workers }}{{- end -}}
   {{- else -}}
-    {{ $rserve.number_of_workers }}
+    {{ $wb.number_of_workers | default $rserve.number_of_workers }}
   {{- end -}}
 {{- else -}}
-  {{ $rserve.number_of_workers }}
+  {{ $wb.number_of_workers | default $rserve.number_of_workers }}
 {{- end -}}
 {{- end -}}

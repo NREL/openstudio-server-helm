@@ -149,6 +149,13 @@ web:
   # resque worker (~250 MB measured). Subtracted from container memory before
   # dividing by passenger_memory_per_process. Rarely needs changing.
   passenger_memory_reserve_mb: 1500
+  # Passenger hard-recycles a process after this many requests. Previously this
+  # was derived as ceil(worker_hpa.maxReplicas * 1.05), which in the stock
+  # config (maxReplicas=20) yielded 21 -- causing a full process respawn every
+  # 21 requests (each ~1.1 GB RSS), a continuous thundering-herd across the
+  # pool. 50000 is the Passenger upstream default; decoupled from worker_hpa
+  # so operators can tune recycling independently of horizontal scaling.
+  passenger_max_requests: 50000
   container:
     name: "web"
     image: "nrel/openstudio-server:3.8.0-1"
